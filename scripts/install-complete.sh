@@ -382,6 +382,13 @@ step_install_hooks() {
         print_success "Python hook runner installed"
     fi
 
+    # Install /snooze slash command
+    if [ -f "$PROJECT_DIR/commands/snooze.md" ]; then
+        mkdir -p ~/.claude/commands
+        cp "$PROJECT_DIR/commands/snooze.md" ~/.claude/commands/snooze.md
+        print_success "/snooze slash command installed"
+    fi
+
     # Install hook scripts
     print_info "Installing hook scripts..."
     local installed=0

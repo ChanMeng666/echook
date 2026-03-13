@@ -415,6 +415,12 @@ rm -f "$_tmp_dir/claude_audio_hooks.lock"
 rm -rf "$_tmp_dir/claude_audio_hooks_queue"
 echo -e "${GREEN}✓${NC} Removed temporary files"
 
+# Remove /snooze slash command
+if [ -f "$HOME/.claude/commands/snooze.md" ]; then
+    rm -f "$HOME/.claude/commands/snooze.md"
+    echo -e "${GREEN}✓${NC} Removed /snooze slash command"
+fi
+
 echo ""
 
 #=============================================================================
@@ -431,6 +437,7 @@ echo -e "   • Shared configuration library"
 echo -e "   • Hook configurations from settings.json"
 echo -e "   • Permissions from settings.local.json"
 echo -e "   • Temporary lock and queue files"
+echo -e "   • /snooze slash command (~/.claude/commands/snooze.md)"
 echo ""
 
 echo -e "${CYAN}${BOLD}💾 Backups created:${NC}"

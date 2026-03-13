@@ -275,6 +275,17 @@ function Step-InstallHooks {
     # Use .NET method to write UTF-8 without BOM (PowerShell 5.x's -Encoding UTF8 adds BOM)
     [System.IO.File]::WriteAllText($projectPathFile, $projectPathContent, [System.Text.UTF8Encoding]::new($false))
     Write-Success "Recorded project path: $ProjectDir"
+
+    # Install /snooze slash command
+    $sourceSnooze = Join-Path $ProjectDir "commands\snooze.md"
+    if (Test-Path $sourceSnooze) {
+        $commandsDir = Join-Path $ClaudeDir "commands"
+        if (-not (Test-Path $commandsDir)) {
+            New-Item -ItemType Directory -Path $commandsDir -Force | Out-Null
+        }
+        Copy-Item -Path $sourceSnooze -Destination (Join-Path $commandsDir "snooze.md") -Force
+        Write-Success "Installed /snooze slash command"
+    }
 }
 
 function Step-ConfigureSettings {
