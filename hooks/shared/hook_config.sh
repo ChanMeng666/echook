@@ -60,7 +60,10 @@ if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "mingw"* ]] || [[ "$OSTYPE" == "
     QUEUE_DIR="${TEMP:-${TMP:-/tmp}}/claude_audio_hooks_queue"
 else
     # Unix (Linux, macOS, WSL)
-    QUEUE_DIR="/tmp/claude_audio_hooks_queue"
+    # Use $TMPDIR if set (macOS sets this to /var/folders/..., not /tmp)
+    # Must match the logic in hook_runner.py's get_safe_temp_dir()
+    _tmpbase="${TMPDIR%/}"
+    QUEUE_DIR="${_tmpbase:-/tmp}/claude_audio_hooks_queue"
 fi
 LOCK_FILE="$QUEUE_DIR/audio.lock"
 

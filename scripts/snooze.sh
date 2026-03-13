@@ -40,7 +40,10 @@ NC='\033[0m'
 if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "mingw"* ]] || [[ "$OSTYPE" == "cygwin" ]]; then
     QUEUE_DIR="${TEMP:-${TMP:-/tmp}}/claude_audio_hooks_queue"
 else
-    QUEUE_DIR="/tmp/claude_audio_hooks_queue"
+    # Use $TMPDIR if set (macOS sets this to /var/folders/..., not /tmp)
+    # Must match the logic in hook_runner.py's get_safe_temp_dir()
+    _tmpbase="${TMPDIR%/}"
+    QUEUE_DIR="${_tmpbase:-/tmp}/claude_audio_hooks_queue"
 fi
 
 SNOOZE_FILE="$QUEUE_DIR/snooze_until"
