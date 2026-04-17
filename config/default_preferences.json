@@ -1,10 +1,10 @@
 {
   "$schema": "./user_preferences.schema.json",
-  "_comment": "Claude Code Audio Hooks - Default Configuration Template (v5.0.3)",
-  "_version": "5.0.3",
+  "_comment": "Claude Code Audio Hooks - Default Configuration Template (v5.1.1)",
+  "_version": "5.1.1",
   "_description": "This file is the default template for user_preferences.json. Plugin installs auto-copy this to ${CLAUDE_PLUGIN_DATA}/user_preferences.json on first read. AI agents should NOT edit this file directly — use 'audio-hooks set <key> <value>' instead.",
 
-  "version": "5.0.3",
+  "version": "5.1.1",
 
   "_comment_audio_theme": "Audio theme: 'default' for voice recordings, 'custom' for non-voice chimes. Change this one line to switch all audio.",
   "audio_theme": "default",
