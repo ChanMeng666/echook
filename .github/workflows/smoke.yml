@@ -20,6 +20,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install Linux audio player
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mpg123
+
       - name: Import canonical hook_runner
         shell: bash
         run: |
