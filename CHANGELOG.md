@@ -5,6 +5,26 @@ All notable changes to Claude Code Audio Hooks will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.1] - 2026-04-18
+
+Critical import-time crash fix plus regression-prevention CI. Everyone on v5.0.3 or v5.1.0 should upgrade.
+
+### Fixed
+
+- **`hook_runner.py` crashed on import with `NameError: name 'Tuple' is not defined`** ([#10](https://github.com/ChanMeng666/claude-code-audio-hooks/issues/10)). The file used `Tuple` in module-level type annotations (`SYNTHETIC_EVENT_MAP` and `_resolve_synthetic_event`) but did not import it from `typing`. Because the module has no `from __future__ import annotations`, CPython evaluated the annotations at import time and every `audio-hooks` subcommand (`diagnose`, `status`, `version`, `test`, …) crashed before dispatch. Users on v5.0.3 and v5.1.0 were fully blocked. One-line fix: add `Tuple` to the existing `typing` import.
+
+### Added
+
+- **CI import-smoke workflow** (`.github/workflows/smoke.yml`) to prevent regressions of this class of bug. Runs on every push to `master` and every PR across a 3×3 matrix (Ubuntu / Windows / macOS × Python 3.9 / 3.12 / 3.13) and exercises:
+  - `import hook_runner` from both the canonical `hooks/` and the synced `plugins/audio-hooks/hooks/` copy
+  - `audio-hooks version`, `status`, `diagnose`
+  - `audio-hooks test all` (all 26 hooks dispatch successfully)
+  - `scripts/build-plugin.sh --check` (the plugin copy is in sync with canonical sources)
+
+### Note on v5.1.0
+
+The `v5.1.0` tag was cut from the "context window monitor" feature commit but the in-tree version strings, CHANGELOG, and release notes were never bumped, so v5.1.0 shipped with the broken import under the 5.0.3 version string. v5.1.1 corrects this: every version reference (`HOOK_RUNNER_VERSION`, `PROJECT_VERSION`, `marketplace.json`, `plugin.json`, `config/default_preferences.json`, `CLAUDE.md` header) is now consistently `5.1.1`.
+
 ## [5.0.3] - 2026-04-11
 
 Documentation correction. v5.0.2's README and release notes overclaimed that *"the human never types a command — Claude Code does everything"*. The user immediately caught the overclaim during real testing: the AI inside a Claude Code session **cannot** invoke `/reload-plugins` (or any other slash command) because slash commands are interactive REPL primitives with no CLI equivalent and no tool exposure. The user has to type `/reload-plugins` themselves once after install.

@@ -1,0 +1,50 @@
+name: smoke
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  import-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.9", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Import canonical hook_runner
+        shell: bash
+        run: |
+          python -c "import sys; sys.path.insert(0,'hooks'); import hook_runner; print('canonical', hook_runner.HOOK_RUNNER_VERSION)"
+
+      - name: Import plugin hook_runner copy
+        shell: bash
+        run: |
+          python -c "import sys; sys.path.insert(0,'plugins/audio-hooks/hooks'); import hook_runner; print('plugin', hook_runner.HOOK_RUNNER_VERSION)"
+
+      - name: audio-hooks version / status / diagnose
+        shell: bash
+        run: |
+          python bin/audio-hooks.py version
+          python bin/audio-hooks.py status
+          python bin/audio-hooks.py diagnose
+
+      - name: audio-hooks test all (every hook dispatches)
+        shell: bash
+        run: |
+          python bin/audio-hooks.py test all
+
+  plugin-in-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify plugin copy matches canonical sources
+        run: bash scripts/build-plugin.sh --check
