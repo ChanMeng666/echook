@@ -1,6 +1,6 @@
 # Claude Code Audio Hooks — AI Operator Guide
 
-> **Version:** 5.1.1 | **Last Updated:** 2026-04-18
+> **Version:** 5.1.2 | **Last Updated:** 2026-04-20
 
 This document is the canonical machine-facing guide for the claude-code-audio-hooks project. It is written for **Claude Code (and other AI agents) as the operator** — not for humans. A human user says "install audio hooks for me" or "snooze audio for an hour" and you do everything via the project's structured CLI without any human-in-the-loop confirmation, menu navigation, or log file reading.
 
@@ -317,6 +317,7 @@ After editing any canonical file in `/hooks/`, `/bin/`, `/audio/`, or `/config/`
 
 | Version | Date | Highlights |
 |---|---|---|
+| 5.1.2 | 2026-04-20 | **Fix:** Windows playback truncated clips > 3 s because every PowerShell snippet in `play_audio_windows` and `play_audio_wsl` used a fixed `Start-Sleep -Seconds 3` (the default `permission-request.mp3` is ~3.4 s — the last ~0.4 s was cut off; `elicitation.mp3` at ~3.1 s was also affected) ([#14](https://github.com/ChanMeng666/claude-code-audio-hooks/issues/14)). All four snippets now poll `NaturalDuration.HasTimeSpan` (or `currentMedia.duration` for WMPlayer.OCX) and sleep for the real clip length + 500 ms tail buffer, falling back to 10 s only if the media never reports a duration. |
 | 5.1.1 | 2026-04-18 | **Critical fix:** `hook_runner.py` crashed on import with `NameError: name 'Tuple' is not defined`, blocking every `audio-hooks` subcommand on v5.0.3 and v5.1.0 ([#10](https://github.com/ChanMeng666/claude-code-audio-hooks/issues/10)). Adds CI import-smoke workflow (`.github/workflows/smoke.yml`) — 9-job matrix (Ubuntu/Windows/macOS × Python 3.9/3.12/3.13) plus plugin-in-sync check, runs on every push and PR. All version references realigned to `5.1.1` (v5.1.0 had shipped with in-tree strings still reading `5.0.3`). |
 | 5.1.0 | 2026-04-13 | **Context window monitor.** Status line gains real-time context usage tracking with colour-coded thresholds (🟢 <50% safe, 🟡 50-80% should `/compact`, 🔴 >80% agent perf degrades). 10 customisable segments (`model`, `version`, `sounds`, `webhook`, `theme`, `snooze`, `focus`, `branch`, `api_quota`, `context`) controlled via `statusline_settings.visible_segments`. |
 | 5.0.0 | 2026-04-11 | **AI-first redesign.** Single JSON `audio-hooks` CLI binary (27 subcommands). NDJSON structured logging with stable error codes. SKILL for natural-language project management. Plugin packaging (`/plugin install audio-hooks@chanmeng-audio-hooks`). Status line script with rate-limit bar. Four new hook events (PermissionDenied, CwdChanged, FileChanged, TaskCreated → 26 total). Native matcher routing via synthetic event names. New stdin field parsing (`last_assistant_message`, `worktree`, `agent`, `rate_limits`, `notification_type`, `error_type`, `source`). TTS speak_assistant_message. Rate-limit pre-check with marker debounce. Async webhook subprocess dispatch. Webhook payload schema `audio-hooks.webhook.v1`. All scripts auto-non-interactive on non-TTY. |

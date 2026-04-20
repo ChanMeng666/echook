@@ -5,6 +5,14 @@ All notable changes to Claude Code Audio Hooks will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.1.2] - 2026-04-20
+
+Windows audio-playback fix. Every default clip >= ~3.0 s was silently truncated on Windows and WSL because all four PowerShell snippets in `play_audio_windows` and `play_audio_wsl` used a **fixed** `Start-Sleep -Seconds 3` (4 s for WSL) before calling `$player.Stop(); $player.Close()`. The bundled `audio/default/permission-request.mp3` is ~3.4 s — users heard the last ~0.4 s cut off every time Claude Code asked for permission. `elicitation.mp3` (~3.1 s) was also clipped; `subagent-start.mp3` and `notification-urgent.mp3` were on the edge.
+
+### Fixed
+
+- **`hooks/hook_runner.py` — `play_audio_windows` and `play_audio_wsl`** ([#14](https://github.com/ChanMeng666/claude-code-audio-hooks/issues/14), reported by [@Basdanucha](https://github.com/Basdanucha)). All four sites (PowerShell `-Command`, PowerShell `-File` heredoc, WMPlayer.OCX COM, WSL `-Command`) now poll the media player for the actual clip length and sleep for `duration + 500 ms` tail buffer before tearing down the player. For PresentationCore MediaPlayer, we poll `$player.NaturalDuration.HasTimeSpan` with a 1.5 s ceiling (Open() is async), then use `TotalMilliseconds`. For WMPlayer.OCX, we poll `$w.currentMedia.duration`. If the media never reports a duration (corrupt file, etc.), we fall back to `Start-Sleep -Seconds 10` — generous enough to cover any plausible default clip, still bounded so the PowerShell host process doesn't leak. The Python subprocess layer was already fire-and-forget (`subprocess.Popen`) — the fix closes the gap that was *inside* the PowerShell command string. macOS `afplay` and Linux `mpg123`/`ffplay`/`paplay`/`aplay` are unaffected: those players block until playback completes by default.
+
 ## [5.1.1] - 2026-04-18
 
 Critical import-time crash fix plus regression-prevention CI. Everyone on v5.0.3 or v5.1.0 should upgrade.

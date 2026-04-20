@@ -110,7 +110,7 @@ The status line displays real-time audio-hooks state and context window usage at
 
 After installing, the status line updates every 60 seconds and shows two lines:
 ```
-[Opus] 🔊 Audio Hooks v5.1.1 | 6/26 Sounds | Webhook: off | Theme: Voice
+[Opus] 🔊 Audio Hooks v5.1.2 | 6/26 Sounds | Webhook: off | Theme: Voice
 🌿 main  ████░░░░ API Quota: 60%  █████░░░ Context: 65% ⚠️ /compact
 ```
 

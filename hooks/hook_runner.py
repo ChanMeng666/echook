@@ -31,7 +31,7 @@ from typing import Optional, Dict, Any, List, Tuple
 
 # Version used for auto-sync: when the installed copy in ~/.claude/hooks/
 # detects a newer version in the project directory, it self-updates.
-HOOK_RUNNER_VERSION = "5.1.1"
+HOOK_RUNNER_VERSION = "5.1.2"
 
 # =============================================================================
 # STRUCTURED LOGGING (NDJSON)
@@ -994,15 +994,23 @@ def play_audio_windows(audio_file: Path) -> bool:
 
     log_debug(f"Windows audio playback: {win_path}")
 
-    # Method 1: Direct PowerShell command with MediaPlayer
+    # Method 1: Direct PowerShell command with MediaPlayer.
+    # MediaPlayer.Open() is async: we poll NaturalDuration.HasTimeSpan with a
+    # short ceiling, then sleep for the real clip length + a tail buffer so
+    # Stop()/Close() don't truncate playback (issue #14). Fallback to a
+    # generous-but-bounded sleep if Open() never resolves.
     try:
         ps_cmd = (
             'Add-Type -AssemblyName presentationCore; '
             '$p = New-Object System.Windows.Media.MediaPlayer; '
             f'$p.Open("{win_path_escaped}"); '
-            'Start-Sleep -Milliseconds 500; '
+            '$deadline = (Get-Date).AddMilliseconds(1500); '
+            'while (-not $p.NaturalDuration.HasTimeSpan -and (Get-Date) -lt $deadline) '
+            '{ Start-Sleep -Milliseconds 50 }; '
             '$p.Play(); '
-            'Start-Sleep -Seconds 3; '
+            'if ($p.NaturalDuration.HasTimeSpan) '
+            '{ Start-Sleep -Milliseconds ([int]($p.NaturalDuration.TimeSpan.TotalMilliseconds + 500)) } '
+            'else { Start-Sleep -Seconds 10 }; '
             '$p.Stop(); $p.Close()'
         )
         proc = subprocess.Popen(
@@ -1027,9 +1035,16 @@ def play_audio_windows(audio_file: Path) -> bool:
 Add-Type -AssemblyName presentationCore
 $player = New-Object System.Windows.Media.MediaPlayer
 $player.Open("{win_path_escaped}")
-Start-Sleep -Milliseconds 500
+$deadline = (Get-Date).AddMilliseconds(1500)
+while (-not $player.NaturalDuration.HasTimeSpan -and (Get-Date) -lt $deadline) {{
+    Start-Sleep -Milliseconds 50
+}}
 $player.Play()
-Start-Sleep -Seconds 3
+if ($player.NaturalDuration.HasTimeSpan) {{
+    Start-Sleep -Milliseconds ([int]($player.NaturalDuration.TimeSpan.TotalMilliseconds + 500))
+}} else {{
+    Start-Sleep -Seconds 10
+}}
 $player.Stop()
 $player.Close()
 Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
@@ -1050,7 +1065,15 @@ Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyConti
 
     # Method 3: Use WMPlayer.OCX COM object
     try:
-        ps_cmd = f'$w = New-Object -ComObject WMPlayer.OCX; $w.URL = "{win_path_escaped}"; Start-Sleep -Seconds 3'
+        ps_cmd = (
+            f'$w = New-Object -ComObject WMPlayer.OCX; $w.URL = "{win_path_escaped}"; '
+            '$deadline = (Get-Date).AddMilliseconds(1500); '
+            'while (($w.currentMedia -eq $null -or $w.currentMedia.duration -eq 0) '
+            '-and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 50 }; '
+            'if ($w.currentMedia -ne $null -and $w.currentMedia.duration -gt 0) '
+            '{ Start-Sleep -Milliseconds ([int]($w.currentMedia.duration * 1000 + 500)) } '
+            'else { Start-Sleep -Seconds 10 }'
+        )
         proc = subprocess.Popen(
             ["powershell.exe", "-Command", ps_cmd],
             stdout=subprocess.DEVNULL,
@@ -1208,9 +1231,16 @@ def play_audio_wsl(audio_file: Path) -> bool:
 Add-Type -AssemblyName presentationCore
 $player = New-Object System.Windows.Media.MediaPlayer
 $player.Open("{win_path_escaped}")
-Start-Sleep -Milliseconds 500
+$deadline = (Get-Date).AddMilliseconds(1500)
+while (-not $player.NaturalDuration.HasTimeSpan -and (Get-Date) -lt $deadline) {{
+    Start-Sleep -Milliseconds 50
+}}
 $player.Play()
-Start-Sleep -Seconds 4
+if ($player.NaturalDuration.HasTimeSpan) {{
+    Start-Sleep -Milliseconds ([int]($player.NaturalDuration.TimeSpan.TotalMilliseconds + 500))
+}} else {{
+    Start-Sleep -Seconds 10
+}}
 $player.Stop()
 $player.Close()
 Remove-Item -Path "{win_path_escaped}" -ErrorAction SilentlyContinue
