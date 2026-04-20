@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "AI-operated audio notification system for Claude Code. 26 hooks, native matcher routing, TTS, webhook fan-out, status line, focus flow, rate-limit alerts.",
-    "version": "5.1.1"
+    "version": "5.1.2"
   },
   "plugins": [
     {
       "name": "audio-hooks",
       "source": "./plugins/audio-hooks",
-      "version": "5.1.1",
+      "version": "5.1.2",
       "description": "Audio notifications + AI-controlled config for every Claude Code event",
       "author": {
         "name": "Chan Meng",
