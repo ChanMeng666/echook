@@ -232,7 +232,27 @@ def _normalise_segments(raw: list) -> set:
     return out
 
 
+def _force_utf8_stdout() -> None:
+    """Force stdout to UTF-8 with replace-on-error so Unicode output (▌█░🛑⚠️
+    plus ANSI escapes) never raises UnicodeEncodeError on terminals or
+    captured pipes that default to a legacy codepage (cp1252 on Windows
+    GitHub Actions runners is the canonical example).
+
+    Without this, an UnicodeEncodeError raised by ``print()`` is caught by
+    the outer ``try/except Exception`` and the script exits 0 with empty
+    stdout — silently breaking the status line.
+
+    ``reconfigure`` is available since Python 3.7. If for any reason it
+    fails, we degrade silently — the worst case is the pre-fix behaviour.
+    """
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except (AttributeError, OSError, ValueError):
+        pass
+
+
 def main() -> int:
+    _force_utf8_stdout()
     session = _read_session_input()
     _maybe_dump_session(session)
     session_id = str(session.get("session_id") or "default")

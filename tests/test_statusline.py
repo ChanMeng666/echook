@@ -59,6 +59,12 @@ def _run(
     env.pop("CLAUDE_PLUGIN_DATA", None)
     if state_dir is not None:
         env["CLAUDE_AUDIO_HOOKS_DATA"] = str(state_dir)
+    # Pin UTF-8 so the script's Unicode output (box chars, emoji, ANSI) is
+    # captured cleanly on Windows runners where the default codepage is
+    # cp1252. The script self-defends via _force_utf8_stdout() but pinning
+    # PYTHONIOENCODING in tests gives a deterministic baseline that doesn't
+    # depend on Python version's reconfigure() availability.
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     if env_extra:
         env.update(env_extra)
     proc = subprocess.run(
