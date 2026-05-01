@@ -1,8 +1,10 @@
 # Installation Guide
 
-> **Version:** 5.0.1 | **Last Updated:** 2026-04-11
+> **Version:** 5.1.5 | **Last Updated:** 2026-05-01
 
-The v5.0 install is two slash commands inside Claude Code. This page is a pointer to the canonical install paths — there are no human-only steps to read through.
+The install is two slash commands inside Claude Code. This page is a pointer to the canonical install paths — there are no human-only steps to read through.
+
+> **Upgrading from 5.1.4 or earlier?** Don't `/plugin uninstall + install` manually — that destroys your `user_preferences.json`. Run `audio-hooks upgrade` instead. It auto-detects the install scope, tries `claude plugin update` (data-preserving) first, and falls back to `uninstall --keep-data + install` if needed. Migration on next load merges any new template keys into your config without overwriting your customizations. Disaster recovery: `audio-hooks backup list` / `audio-hooks backup restore latest-external`.
 
 ## Recommended: plugin install
 
@@ -83,4 +85,4 @@ If anything is broken, the diagnose output includes a `suggested_command` for ea
 - [CLAUDE.md](../CLAUDE.md) — canonical AI-facing operating guide (decision tree for natural-language requests)
 - [docs/ARCHITECTURE.md](ARCHITECTURE.md) — developer-facing architecture deep dive
 - [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md) — troubleshooting (mostly a pointer to `audio-hooks diagnose`)
-- [CHANGELOG.md](../CHANGELOG.md) — full v5.0 / v5.0.1 changelog
+- [CHANGELOG.md](../CHANGELOG.md) — full changelog, including the 5.1.5 painless-upgrades release notes

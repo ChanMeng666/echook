@@ -288,7 +288,7 @@ audio-hooks uninstall --cursor --purge    # also delete ~/.cursor/audio-hooks-da
 - `Glob` / `WebFetch` / `WebSearch` matchers don't trigger under Cursor (no equivalent tools).
 - The only Cursor-side opt-out is the **global** "Third-party skills" toggle in Cursor Settings — disabling it kills auto-bridging for *all* Claude Code plugins.
 
-**Existing Cursor users on 5.1.3 or earlier**: Cursor's bridge runs the cached plugin code at `~/.claude/plugins/cache/chanmeng-audio-hooks/audio-hooks/<ver>/`, so the user must refresh the cache once to pick up 5.1.4: `/plugin uninstall audio-hooks@chanmeng-audio-hooks` then `/plugin install audio-hooks@chanmeng-audio-hooks` inside Claude Code.
+**Refreshing the cached plugin code Cursor's bridge invokes**: Cursor reads from `~/.claude/plugins/cache/chanmeng-audio-hooks/audio-hooks/<ver>/`, so the user must refresh that cache to pick up new releases. **Use `audio-hooks upgrade`** — it wraps `claude plugin update` (data-preserving) with a fallback to `uninstall --keep-data + install`, so the user's `user_preferences.json` survives. The legacy 5.1.3-era recipe (`/plugin uninstall + /plugin install`) destroys config and should not be recommended.
 
 **Stdin field mapping**: Cursor's `cursor_version`, `conversation_id`, `final_status`, `reason`, `duration_ms`, `is_background_agent`, `workspace_roots`, `model`, `error_message` are surfaced under a `cursor: {...}` sub-object in webhook payloads. `user_email` is **redacted by default**; opt in via `audio-hooks set webhook_settings.include_user_email true`.
 

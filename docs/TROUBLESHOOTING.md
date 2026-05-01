@@ -1,8 +1,8 @@
 # Troubleshooting
 
-> **Version:** 5.0.1 | **Last Updated:** 2026-04-11
+> **Version:** 5.1.5 | **Last Updated:** 2026-05-01
 
-In v5.0+ the troubleshooting story is one command:
+The troubleshooting story is one command:
 
 ```text
 > run audio-hooks diagnose
@@ -62,7 +62,43 @@ Look for any error in the output. The most common causes:
 claude plugin validate plugins/audio-hooks
 ```
 
-This catches manifest schema errors. v5.0.1 has been verified clean on Claude Code v2.1.101.
+This catches manifest schema errors. v5.1.5 has been verified clean on Claude Code v2.1.101+.
+
+### My config got wiped after upgrading the plugin
+
+You ran `/plugin uninstall` then `/plugin install` (the 5.1.4 manual cache-refresh recipe), which deleted your `user_preferences.json`. Two things to do:
+
+1. **Restore from backup** if you had at least one prior save in 5.1.5+:
+   ```bash
+   audio-hooks backup list                       # show available timestamps
+   audio-hooks backup restore latest-external    # restores newest off-data-dir backup
+   ```
+
+2. **Use `audio-hooks upgrade` next time** — it wraps `claude plugin update` (data-preserving) with a fallback to `uninstall --keep-data + install`, so your config survives:
+   ```bash
+   audio-hooks upgrade --check-only              # see current vs target version
+   audio-hooks upgrade                           # do it
+   ```
+
+If you have no backups (e.g. you upgraded straight from 5.1.4), reapply your customizations via `audio-hooks set` / `audio-hooks hooks enable-only` / `audio-hooks theme set` / `audio-hooks webhook set`. Going forward, every `audio-hooks set ...` call snapshots the prior state to `~/.claude-audio-hooks-backups/<plugin_id>/<ts>.json` (kept outside the plugin data dir so `claude plugin uninstall` can't erase them; rotation keeps the 20 newest).
+
+### Suddenly hearing 3× more audio after a 5.1.4 install
+
+5.1.4 flipped `enabled_hooks.subagent_stop`, `permission_denied`, and `task_created` to `true` by default. 5.1.5 reverts those defaults to `false`, but if your `user_preferences.json` was reinitialised at 5.1.4 (e.g. via a `claude plugin uninstall` without `--keep-data`), you ended up with the three keys explicitly persisted as `true`. Migration to 5.1.5 preserves user values, so they stay enabled. Disable them with one command:
+
+```bash
+audio-hooks hooks disable subagent_stop permission_denied task_created
+```
+
+### `audio-hooks upgrade` aborted with `PRIOR_UPGRADE_INCOMPLETE`
+
+A previous upgrade crashed before completing. The marker at `~/.claude-audio-hooks-backups/.upgrade_in_progress.json` records what happened. Read it, confirm the plugin state with `claude plugin list --json` or `audio-hooks status`, then retry with `--force`:
+
+```bash
+audio-hooks upgrade --force
+```
+
+If the marker shows `recovery_command`, run that command directly.
 
 ### `audio-hooks` command not found in Bash
 
