@@ -13,7 +13,7 @@ This plugin is the AI control surface for the claude-code-audio-hooks project. T
 
 **Install / set up the project**
 
-The plugin install (which you are using right now) is the recommended path. If a user is not yet on the plugin, tell them to run `/plugin marketplace add ChanMeng666/claude-code-audio-hooks` and `/plugin install audio-hooks@chanmeng-audio-hooks` inside Claude Code. Once installed, verify with:
+The plugin install (which you are using right now) is the recommended path. If a user is not yet on the plugin, tell them to run `/plugin marketplace add ChanMeng666/claude-code-audio-hooks` and `/plugin install audio-hooks@chanmeng-audio-hooks` inside Claude Code. **Cursor IDE 3.2.16+ users get audio-hooks for free via Cursor's built-in third-party hooks bridge** — no separate Cursor install needed. For users who run Cursor *without* Claude Code, use `audio-hooks install --cursor` (see "Install for Cursor-only users" below). Once installed, verify with:
 
 ```bash
 audio-hooks status
@@ -240,6 +240,36 @@ audio-hooks logs tail --n 50              # last 50 events
 audio-hooks logs tail --n 100 --level error
 audio-hooks logs clear
 ```
+
+## Install for Cursor-only users (5.1.4+)
+
+**Cursor IDE 3.2.16+ has its own "Cursor Hooks Service" that auto-bridges Claude Code plugins** ([cursor.com/docs/reference/third-party-hooks](https://cursor.com/docs/reference/third-party-hooks)). When the user has both Claude Code and Cursor on the same machine, Cursor calls our hook scripts on its own session events automatically — no extra install needed. Just run `audio-hooks status` and check `editor_targets.cursor.state`:
+
+| State | Meaning |
+|---|---|
+| `bridged-via-claude-code` | Cursor is auto-bridging; everything works (8 of 10 hooks). |
+| `native` | User ran `audio-hooks install --cursor`; Cursor reads `~/.cursor/hooks.json`. |
+| `double-registered` | Both bridge AND native install present — fires audio twice. Run `audio-hooks uninstall --cursor` to fix. |
+| `inactive` | Cursor isn't running this project at all. |
+
+**For users who run Cursor without Claude Code**, install natively:
+
+```bash
+audio-hooks install --cursor              # writes ~/.cursor/hooks.json
+audio-hooks install --cursor --force      # override DUPLICATE_BRIDGE check
+audio-hooks uninstall --cursor            # remove (preserves user prefs)
+audio-hooks uninstall --cursor --purge    # also delete ~/.cursor/audio-hooks-data/
+```
+
+**Bridge limitations** (these are Cursor's, not ours):
+
+- `Notification` and `PermissionRequest` hooks have no Cursor equivalent — those audio cues never fire under Cursor.
+- `Glob` / `WebFetch` / `WebSearch` matchers don't trigger under Cursor (no equivalent tools).
+- The only Cursor-side opt-out is the **global** "Third-party skills" toggle in Cursor Settings — disabling it kills auto-bridging for *all* Claude Code plugins.
+
+**Existing Cursor users on 5.1.3 or earlier**: Cursor's bridge runs the cached plugin code at `~/.claude/plugins/cache/chanmeng-audio-hooks/audio-hooks/<ver>/`, so the user must refresh the cache once to pick up 5.1.4: `/plugin uninstall audio-hooks@chanmeng-audio-hooks` then `/plugin install audio-hooks@chanmeng-audio-hooks` inside Claude Code.
+
+**Stdin field mapping**: Cursor's `cursor_version`, `conversation_id`, `final_status`, `reason`, `duration_ms`, `is_background_agent`, `workspace_roots`, `model`, `error_message` are surfaced under a `cursor: {...}` sub-object in webhook payloads. `user_email` is **redacted by default**; opt in via `audio-hooks set webhook_settings.include_user_email true`.
 
 ## Reading the manifest (canonical introspection)
 

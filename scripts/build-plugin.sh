@@ -27,7 +27,7 @@ if [ "${1:-}" = "--check" ]; then
     CHECK_ONLY=1
 fi
 
-mkdir -p "$PLUGIN/hooks" "$PLUGIN/bin" "$PLUGIN/audio/default" "$PLUGIN/audio/custom" "$PLUGIN/config"
+mkdir -p "$PLUGIN/hooks" "$PLUGIN/bin" "$PLUGIN/audio/default" "$PLUGIN/audio/custom" "$PLUGIN/config" "$PLUGIN/cursor-hooks"
 
 copied=0
 checked=0
@@ -74,6 +74,10 @@ sync_file "$REPO/bin/audio-hooks-statusline"       "$PLUGIN/bin/audio-hooks-stat
 sync_file "$REPO/bin/audio-hooks-statusline.py"    "$PLUGIN/bin/audio-hooks-statusline.py"
 sync_file "$REPO/bin/audio-hooks-statusline.cmd"   "$PLUGIN/bin/audio-hooks-statusline.cmd"
 sync_file "$REPO/config/default_preferences.json"  "$PLUGIN/config/default_preferences.json"
+
+# Cursor IDE hooks template (5.1.4+) — used by `audio-hooks install --cursor`
+# for users who run Cursor without Claude Code.
+sync_file "$REPO/cursor-hooks/hooks.json"          "$PLUGIN/cursor-hooks/hooks.json"
 
 # Audio assets (both themes)
 sync_dir "$REPO/audio/default" "$PLUGIN/audio/default"

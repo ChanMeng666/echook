@@ -132,7 +132,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "5.1.3"
+PROJECT_VERSION = "5.1.4"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -216,6 +216,83 @@ def _detect_install_mode() -> Dict[str, Any]:
             "code": "DUAL_INSTALL_DETECTED",
             "message": "Both the legacy script install and the plugin install are active. This causes double audio. Run `bash scripts/uninstall.sh --yes` from the project directory to remove the legacy script install.",
         }
+    return result
+
+
+def _detect_cursor_native_install() -> bool:
+    """True iff ``~/.cursor/hooks.json`` contains audio-hooks-managed entries.
+
+    Cursor-native install is what ``audio-hooks install --cursor`` writes.
+    Distinct from the auto-bridge: the bridge fires whenever Claude Code
+    plugins are present + Third-party-skills enabled in Cursor Settings,
+    requiring no file in ``~/.cursor/``.
+    """
+    cursor_hooks = Path.home() / ".cursor" / "hooks.json"
+    if not cursor_hooks.exists():
+        return False
+    try:
+        data = json.loads(cursor_hooks.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return bool(data.get("_audio_hooks_managed"))
+
+
+def _detect_editor_targets() -> Dict[str, Any]:
+    """Report registration state for each editor target (claude-code, cursor).
+
+    States:
+      * ``active`` — installed and primary integration path
+      * ``bridged-via-claude-code`` — Cursor IDE auto-bridges Claude Code
+        plugins (cursor.com/docs/reference/third-party-hooks). Fires when
+        the user has Claude Code's audio-hooks plugin installed AND
+        "Third-party skills" enabled in Cursor Settings.
+      * ``native`` — Cursor-only ``~/.cursor/hooks.json`` install
+      * ``double-registered`` — both bridge AND native — causes double audio
+      * ``inactive`` — no integration detected
+    """
+    install = _detect_install_mode()
+    cc_state = "active" if (install.get("plugin_install") or install.get("script_install")) else "inactive"
+    cc_via = (
+        "plugin" if install.get("plugin_install")
+        else ("script" if install.get("script_install") else None)
+    )
+
+    cursor_native = _detect_cursor_native_install()
+    cursor_bridged = bool(install.get("plugin_install"))
+
+    if cursor_native and cursor_bridged:
+        cursor_state = "double-registered"
+    elif cursor_native:
+        cursor_state = "native"
+    elif cursor_bridged:
+        cursor_state = "bridged-via-claude-code"
+    else:
+        cursor_state = "inactive"
+
+    result: Dict[str, Any] = {
+        "claude-code": {"state": cc_state, "via": cc_via},
+        "cursor": {
+            "state": cursor_state,
+            "native": cursor_native,
+            "bridged": cursor_bridged,
+        },
+    }
+    if cursor_state == "double-registered":
+        result["cursor"]["warning"] = {
+            "code": "DUPLICATE_BRIDGE",
+            "message": (
+                "Cursor IDE is configured both via the Claude Code plugin auto-bridge "
+                "AND via a native ~/.cursor/hooks.json install. Each session-end event "
+                "will fire the audio twice. Run `audio-hooks uninstall --cursor` to "
+                "remove the native registration, OR uninstall the Claude Code plugin."
+            ),
+        }
+    if cursor_state == "bridged-via-claude-code":
+        result["cursor"]["note"] = (
+            "Cursor IDE auto-bridges Claude Code plugins. Notification and "
+            "PermissionRequest hooks have no Cursor equivalent and never fire here "
+            "(cursor.com/docs/reference/third-party-hooks)."
+        )
     return result
 
 
@@ -517,6 +594,7 @@ def cmd_status(_args: List[str]) -> int:
             "seven_day_thresholds": rl.get("seven_day_thresholds", [80, 95]),
         },
         "install": install,
+        "editor_targets": _detect_editor_targets(),
         "statusline": {
             "visible_segments": sl.get("visible_segments", []),
         },
@@ -995,6 +1073,15 @@ def cmd_diagnose(_args: List[str]) -> int:
             "suggested_command": "bash scripts/uninstall.sh --yes",
         })
 
+    editor_targets = _detect_editor_targets()
+    if editor_targets.get("cursor", {}).get("state") == "double-registered":
+        errors.append({
+            "code": "DUPLICATE_BRIDGE",
+            "message": editor_targets["cursor"]["warning"]["message"],
+            "hint": "Cursor is fed by both Claude Code's auto-bridge AND ~/.cursor/hooks.json — every event fires twice.",
+            "suggested_command": "audio-hooks uninstall --cursor",
+        })
+
     emit({
         "ok": len(errors) == 0,
         "version": PROJECT_VERSION,
@@ -1006,6 +1093,7 @@ def cmd_diagnose(_args: List[str]) -> int:
         "audio_player": audio_player,
         "audio_files": audio_files,
         "install": install,
+        "editor_targets": editor_targets,
         "errors": errors,
         "warnings": warnings,
     })
@@ -1079,11 +1167,16 @@ def cmd_install(args: List[str]) -> int:
     if require_project_root() != 0:
         return 1
     mode = "scripts"
+    force = False
     for a in args:
         if a == "--plugin":
             mode = "plugin"
         elif a == "--scripts":
             mode = "scripts"
+        elif a == "--cursor":
+            mode = "cursor"
+        elif a == "--force":
+            force = True
     if mode == "plugin":
         emit({
             "ok": True,
@@ -1096,6 +1189,8 @@ def cmd_install(args: List[str]) -> int:
             "hint": "Plugin installation is performed by Claude Code itself; this command only documents the steps.",
         })
         return 0
+    if mode == "cursor":
+        return _install_cursor(force=force)
     # Script install: delegate to existing installer
     import subprocess
     if platform.system() == "Windows":
@@ -1112,15 +1207,154 @@ def cmd_install(args: List[str]) -> int:
         return emit_error("INTERNAL_ERROR", str(e))
 
 
+def _install_cursor(*, force: bool) -> int:
+    """Install audio-hooks for Cursor IDE via ~/.cursor/hooks.json.
+
+    Use this when Cursor is the user's primary editor and Claude Code is NOT
+    installed (otherwise the auto-bridge already covers Cursor). When both
+    are installed, this aborts with DUPLICATE_BRIDGE unless ``--force`` is
+    passed — concurrent registration causes every hook to fire twice.
+    """
+    cursor_dir = Path.home() / ".cursor"
+    if not cursor_dir.exists():
+        return emit_error(
+            "CURSOR_NOT_FOUND",
+            f"~/.cursor/ does not exist at {cursor_dir}. Install Cursor IDE first, then re-run this command.",
+            suggested_command="audio-hooks status",
+        )
+
+    bridged = bool(_detect_install_mode().get("plugin_install"))
+    if bridged and not force:
+        return emit_error(
+            "DUPLICATE_BRIDGE",
+            "Cursor IDE already auto-bridges the Claude Code audio-hooks plugin. Installing the native Cursor hook on top would fire every event twice. Pass --force to install anyway, or uninstall the Claude Code plugin first.",
+            suggested_command="audio-hooks uninstall --plugin",
+        )
+
+    template_path = PROJECT_ROOT / "cursor-hooks" / "hooks.json"
+    if not template_path.exists():
+        return emit_error("INTERNAL_ERROR", f"Template not found: {template_path}")
+
+    try:
+        template_text = template_path.read_text(encoding="utf-8")
+    except Exception as e:
+        return emit_error("INTERNAL_ERROR", f"Cannot read template: {e}")
+
+    # Substitute placeholders. {{PYTHON}} -> 'python' on Windows ('python3' fails
+    # there because of the Microsoft Store stub); 'python3' on POSIX.
+    python_bin = "python" if platform.system() == "Windows" else "python3"
+    hook_runner_abs = str((PROJECT_ROOT / "hooks" / "hook_runner.py").resolve())
+    template_text = template_text.replace("{{PYTHON}}", python_bin)
+    template_text = template_text.replace("{{HOOK_RUNNER}}", hook_runner_abs)
+
+    try:
+        new_doc = json.loads(template_text)
+    except json.JSONDecodeError as e:
+        return emit_error("INTERNAL_ERROR", f"Template is not valid JSON after substitution: {e}")
+
+    # Tag each hook entry so uninstall --cursor can find ours and leave others.
+    for event_name, entries in new_doc.get("hooks", {}).items():
+        for entry in entries:
+            entry["_managed_by"] = "audio-hooks"
+
+    target_path = cursor_dir / "hooks.json"
+    if target_path.exists():
+        try:
+            existing = json.loads(target_path.read_text(encoding="utf-8"))
+        except Exception:
+            existing = {}
+        if isinstance(existing, dict):
+            # Merge: keep user's non-audio-hooks entries; replace ours.
+            existing_hooks = existing.get("hooks") or {}
+            if isinstance(existing_hooks, dict):
+                merged_hooks: Dict[str, Any] = {}
+                # Start by stripping any prior audio-hooks entries from the user's file
+                for evt, entries in existing_hooks.items():
+                    if isinstance(entries, list):
+                        keep = [
+                            e for e in entries
+                            if not (isinstance(e, dict) and e.get("_managed_by") == "audio-hooks")
+                        ]
+                        if keep:
+                            merged_hooks[evt] = keep
+                # Then layer ours on top
+                for evt, entries in new_doc["hooks"].items():
+                    merged_hooks.setdefault(evt, []).extend(entries)
+                existing["hooks"] = merged_hooks
+                existing["version"] = 1
+                new_doc = existing
+
+    try:
+        target_path.write_text(
+            json.dumps(new_doc, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except Exception as e:
+        return emit_error("INTERNAL_ERROR", f"Cannot write {target_path}: {e}")
+
+    # Seed Cursor-native data dir from default_preferences.json
+    data_dir = cursor_dir / "audio-hooks-data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    prefs_target = data_dir / "user_preferences.json"
+    if not prefs_target.exists():
+        default_prefs = PROJECT_ROOT / "config" / "default_preferences.json"
+        if default_prefs.exists():
+            try:
+                prefs_target.write_text(default_prefs.read_text(encoding="utf-8"), encoding="utf-8")
+            except Exception:
+                pass
+
+    # Write install marker so uninstall and diagnostics can identify what we
+    # touched and when.
+    marker_path = data_dir / "install_marker.json"
+    try:
+        marker_path.write_text(
+            json.dumps({
+                "installed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "version": PROJECT_VERSION,
+                "project_dir": str(PROJECT_ROOT),
+                "hook_runner": hook_runner_abs,
+                "python_bin": python_bin,
+                "duplicate_bridge_forced": force and bridged,
+            }, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+    emit({
+        "ok": True,
+        "mode": "cursor",
+        "hooks_file": str(target_path),
+        "data_dir": str(data_dir),
+        "duplicate_bridge_forced": force and bridged,
+        "next_steps": [
+            "Restart Cursor IDE so it picks up the new ~/.cursor/hooks.json",
+            "Trigger any agent action — sessionEnd / stop should now play audio per ~/.cursor/audio-hooks-data/user_preferences.json",
+            "Run `audio-hooks status` to confirm editor_targets.cursor.state == 'native'",
+        ],
+        "hint": (
+            "Notification and PermissionRequest hooks are not registered (Cursor has no equivalent events). "
+            "All other hooks behave the same as in Claude Code."
+        ),
+    })
+    return 0
+
+
 def cmd_uninstall(args: List[str]) -> int:
     if require_project_root() != 0:
         return 1
     mode = "scripts"
+    purge = False
     for a in args:
         if a == "--plugin":
             mode = "plugin"
         elif a == "--scripts":
             mode = "scripts"
+        elif a == "--cursor":
+            mode = "cursor"
+        elif a == "--purge":
+            purge = True
     if mode == "plugin":
         emit({
             "ok": True,
@@ -1128,6 +1362,8 @@ def cmd_uninstall(args: List[str]) -> int:
             "next_steps": ["Run inside Claude Code: /plugin uninstall audio-hooks@chanmeng-audio-hooks"],
         })
         return 0
+    if mode == "cursor":
+        return _uninstall_cursor(purge=purge)
     import subprocess
     if platform.system() == "Windows":
         emit({"ok": True, "mode": "scripts", "hint": "Run scripts/uninstall.sh from Git Bash or WSL."})
@@ -1139,6 +1375,87 @@ def cmd_uninstall(args: List[str]) -> int:
         return 0 if proc.returncode == 0 else 1
     except Exception as e:
         return emit_error("INTERNAL_ERROR", str(e))
+
+
+def _uninstall_cursor(*, purge: bool) -> int:
+    """Remove audio-hooks-managed entries from ``~/.cursor/hooks.json``.
+
+    By default preserves ``~/.cursor/audio-hooks-data/`` (so a future
+    re-install picks up the user's preferences). ``--purge`` removes that
+    directory too.
+    """
+    cursor_dir = Path.home() / ".cursor"
+    target_path = cursor_dir / "hooks.json"
+    removed_count = 0
+
+    if target_path.exists():
+        try:
+            doc = json.loads(target_path.read_text(encoding="utf-8"))
+        except Exception:
+            doc = None
+        if isinstance(doc, dict):
+            hooks_block = doc.get("hooks")
+            if isinstance(hooks_block, dict):
+                pruned: Dict[str, Any] = {}
+                for evt, entries in hooks_block.items():
+                    if isinstance(entries, list):
+                        keep = []
+                        for e in entries:
+                            if isinstance(e, dict) and e.get("_managed_by") == "audio-hooks":
+                                removed_count += 1
+                            else:
+                                keep.append(e)
+                        if keep:
+                            pruned[evt] = keep
+                doc["hooks"] = pruned
+                # Strip our top-level meta keys if we authored the file alone
+                for k in ("_audio_hooks_managed", "_audio_hooks_version",
+                          "_unsupported_in_cursor", "_unsupported_note"):
+                    doc.pop(k, None)
+                # If hooks block is now empty AND the file looks like we own it
+                # (no other top-level keys besides version/_comment), delete the file
+                # entirely so we leave no trace. Otherwise rewrite preserving user's
+                # other content.
+                non_meta_keys = [k for k in doc.keys()
+                                 if k not in ("version", "hooks") and not k.startswith("_")]
+                if not pruned and not non_meta_keys:
+                    try:
+                        target_path.unlink()
+                    except OSError:
+                        pass
+                else:
+                    try:
+                        target_path.write_text(
+                            json.dumps(doc, indent=2, ensure_ascii=False) + "\n",
+                            encoding="utf-8",
+                        )
+                    except Exception as e:
+                        return emit_error("INTERNAL_ERROR", f"Cannot rewrite {target_path}: {e}")
+
+    data_dir = cursor_dir / "audio-hooks-data"
+    purged_data_dir = False
+    if purge and data_dir.exists():
+        import shutil as _sh
+        try:
+            _sh.rmtree(data_dir)
+            purged_data_dir = True
+        except Exception:
+            pass
+
+    emit({
+        "ok": True,
+        "mode": "cursor",
+        "removed_hook_entries": removed_count,
+        "purged_data_dir": purged_data_dir,
+        "data_dir_preserved": not purged_data_dir and data_dir.exists(),
+        "hint": (
+            "Restart Cursor IDE so it picks up the change. If you also want to"
+            " stop Cursor's auto-bridge from firing the Claude Code plugin,"
+            " uninstall the plugin via /plugin uninstall in Claude Code, or"
+            " disable 'Third-party skills' in Cursor Settings."
+        ),
+    })
+    return 0
 
 
 def cmd_statusline(args: List[str]) -> int:
@@ -1341,8 +1658,8 @@ def _build_manifest() -> Dict[str, Any]:
             {"name": "diagnose", "args": [], "description": "System diagnostic: settings.json, audio player, audio files, errors, warnings"},
             {"name": "logs tail", "args": ["[--n N]", "[--level info|warn|error|debug]"], "description": "Tail recent NDJSON log events"},
             {"name": "logs clear", "args": [], "description": "Truncate the event log"},
-            {"name": "install", "args": ["[--plugin|--scripts]"], "description": "Install non-interactively (default: scripts; --plugin documents the plugin install steps)"},
-            {"name": "uninstall", "args": ["[--plugin|--scripts]"], "description": "Uninstall non-interactively"},
+            {"name": "install", "args": ["[--plugin|--scripts|--cursor]", "[--force]"], "description": "Install non-interactively. --cursor writes ~/.cursor/hooks.json for Cursor IDE users (5.1.4+). --force overrides DUPLICATE_BRIDGE check."},
+            {"name": "uninstall", "args": ["[--plugin|--scripts|--cursor]", "[--purge]"], "description": "Uninstall non-interactively. --cursor removes audio-hooks-managed entries from ~/.cursor/hooks.json (--purge also removes ~/.cursor/audio-hooks-data/)."},
             {"name": "update", "args": ["[--check]"], "description": "Show current version (real updates go through /plugin update)"},
         ],
         "hooks": HOOK_CATALOG,
@@ -1359,6 +1676,7 @@ def _build_manifest() -> Dict[str, Any]:
             "webhook_settings.url",
             "webhook_settings.format",
             "webhook_settings.hook_types",
+            "webhook_settings.include_user_email",
             "tts_settings.enabled",
             "tts_settings.speak_assistant_message",
             "tts_settings.assistant_message_max_chars",
@@ -1374,12 +1692,34 @@ def _build_manifest() -> Dict[str, Any]:
         "log_schema": "audio-hooks.v1",
         "webhook_schema": "audio-hooks.webhook.v1",
         "error_codes": error_codes,
+        "editor_targets": _detect_editor_targets(),
+        "supported_editors": {
+            "claude-code": {
+                "events": [h["name"] for h in HOOK_CATALOG],
+                "install_via": "/plugin install audio-hooks@chanmeng-audio-hooks",
+            },
+            "cursor": {
+                "auto_bridge": "Cursor IDE 3.2.16+ auto-bridges Claude Code plugin hooks. Toggleable via Cursor Settings > Third-party skills.",
+                "bridged_events_subset": [
+                    "pretooluse", "posttooluse", "userpromptsubmit",
+                    "stop", "subagent_stop", "session_start",
+                    "session_end", "precompact",
+                ],
+                "unbridged_events": [
+                    "notification",  # No Cursor equivalent
+                    "permission_request",  # No Cursor equivalent
+                ],
+                "native_install_via": "audio-hooks install --cursor",
+            },
+        },
         "env_vars": {
             "CLAUDE_PLUGIN_DATA": "Plugin install state directory (auto-set by Claude Code).",
             "CLAUDE_PLUGIN_ROOT": "Plugin install root (auto-set by Claude Code).",
             "CLAUDE_AUDIO_HOOKS_DATA": "Explicit override for state directory.",
             "CLAUDE_AUDIO_HOOKS_PROJECT": "Explicit override for project root.",
             "CLAUDE_HOOKS_DEBUG": "Set to 1/true/yes (case-insensitive) to write debug-level events to the NDJSON log AND dump the latest status line input JSON to ${state_dir}/statusline.last_input.json. Disable when not actively diagnosing — the dump may include workspace paths and the last assistant message.",
+            "CURSOR_VERSION": "Set by Cursor IDE when invoking a hook (per cursor.com/docs/hooks). Used by detect_invoker() to identify Cursor as the caller.",
+            "CLAUDE_PROJECT_DIR": "Set by Cursor IDE as a Claude-Code-compatible alias for the workspace root.",
         },
     }
 

@@ -1,6 +1,6 @@
 # Claude Code Audio Hooks — AI Operator Guide
 
-> **Version:** 5.1.3 | **Last Updated:** 2026-04-28
+> **Version:** 5.1.4 | **Last Updated:** 2026-05-01
 
 This document is the canonical machine-facing guide for the claude-code-audio-hooks project. It is written for **Claude Code (and other AI agents) as the operator** — not for humans. A human user says "install audio hooks for me" or "snooze audio for an hour" and you do everything via the project's structured CLI without any human-in-the-loop confirmation, menu navigation, or log file reading.
 
@@ -293,6 +293,11 @@ After editing any canonical file in `/hooks/`, `/bin/`, `/audio/`, or `/config/`
 | "diagnose what Claude Code is sending to the status line" | `CLAUDE_HOOKS_DEBUG=1` then restart Claude Code; the script will dump the latest stdin JSON to `${state_dir}/statusline.last_input.json`. |
 | "uninstall the project" | `/plugin uninstall audio-hooks@chanmeng-audio-hooks` (plugin) or `bash scripts/uninstall.sh --yes` (script install) |
 | "remove everything including config" | `bash scripts/uninstall.sh --yes --purge` |
+| "why is Cursor playing this project's audio?" | Cursor IDE 3.2.16+ auto-bridges Claude Code plugins (see "Cursor IDE compatibility" section). Run `audio-hooks status` to see `editor_targets.cursor.state`. Most likely value is `bridged-via-claude-code`. |
+| "Cursor still plays the OLD theme (voice) after I switched the theme in Claude Code" | Cursor's bridge runs the cached plugin code at `~/.claude/plugins/cache/chanmeng-audio-hooks/audio-hooks/<ver>/`. v5.1.4+ shares the user_preferences.json with Claude Code, but the user must refresh the cache once: `/plugin uninstall audio-hooks@chanmeng-audio-hooks` then `/plugin install audio-hooks@chanmeng-audio-hooks` inside Claude Code. After that, Cursor and Claude Code stay in sync forever. |
+| "install for Cursor IDE without Claude Code" | `audio-hooks install --cursor` (writes `~/.cursor/hooks.json`). Aborts with `DUPLICATE_BRIDGE` if Claude Code's plugin is already installed; pass `--force` to override (only do this if you understand the double-fire trade-off). |
+| "uninstall just the Cursor-native install (keep Claude Code)" | `audio-hooks uninstall --cursor`. Preserves `~/.cursor/audio-hooks-data/` so re-install picks up your preferences; pass `--purge` to delete that too. |
+| "silence Cursor only, keep Claude Code working" | If you're on the bridge path (no `~/.cursor/hooks.json`), there is no per-plugin Cursor opt-out — disable Cursor Settings → "Third-party skills" to stop ALL auto-bridging, or uninstall the Claude Code plugin. If you are on a Cursor-native install, run `audio-hooks uninstall --cursor`. |
 
 ## Scripts that exist for legacy human users (you should rarely invoke these)
 
@@ -309,6 +314,49 @@ After editing any canonical file in `/hooks/`, `/bin/`, `/audio/`, or `/config/`
 | `test-audio.sh` | Human-only menu (no-op for AI — emits `INTERACTIVE_SCRIPT` JSON pointer) | Never. Use `audio-hooks test all` instead. |
 | `diagnose.py` | Legacy diagnostic | `audio-hooks diagnose` is preferred (returns JSON) |
 
+## Cursor IDE compatibility (5.1.4+)
+
+**Cursor IDE 3.2.16+ has its own "Cursor Hooks Service" that automatically bridges Claude Code plugin hooks.** This is a Cursor feature, not a feature of this project. When the user has both Claude Code and Cursor on the same machine:
+
+1. Cursor reads `~/.claude/plugins/installed_plugins.json` and `~/.claude/settings.json` on every workspace open.
+2. For every Claude Code plugin found there, Cursor registers each plugin's `hooks.json` events as Cursor's own session hooks (via mapping table in [cursor.com/docs/reference/third-party-hooks](https://cursor.com/docs/reference/third-party-hooks)).
+3. Cursor runs the plugin's `runner/run.py` from `~/.claude/plugins/cache/<id>/<ver>/runner/run.py` on its own session events. **Cursor does NOT inject `CLAUDE_PLUGIN_DATA` and DOES NOT pass through Claude Code's stdin schema** — it passes its own (camelCase event names, `cursor_version`, `conversation_id`, `final_status`, `reason`, `duration_ms`, `is_background_agent`, `workspace_roots`, `user_email`, `model`, `error_message` plus `session_id`, `hook_event_name`, `transcript_path` for compat).
+
+The bridge can be disabled globally via Cursor Settings → "Third-party skills". There is no per-plugin Cursor opt-out.
+
+### Bridge event mapping (8 of 10 Claude Code hooks)
+
+| Claude Code | Cursor | Bridge |
+|---|---|---|
+| `PreToolUse` | `preToolUse` | ✅ |
+| `PostToolUse` | `postToolUse` | ✅ |
+| `UserPromptSubmit` | `beforeSubmitPrompt` | ✅ |
+| `Stop` | `stop` | ✅ |
+| `SubagentStop` | `subagentStop` | ✅ |
+| `SessionStart` | `sessionStart` | ✅ |
+| `SessionEnd` | `sessionEnd` | ✅ |
+| `PreCompact` | `preCompact` | ✅ |
+| `Notification` | — | ❌ no equivalent in Cursor |
+| `PermissionRequest` | — | ❌ no equivalent in Cursor |
+
+`Glob` / `WebFetch` / `WebSearch` tool-name matchers do not fire under Cursor (no equivalent tools).
+
+### How 5.1.4 makes this Just Work
+
+1. **`hook_runner.py`'s `_resolve_data_dir()`** falls back through `CLAUDE_PLUGIN_DATA → CLAUDE_AUDIO_HOOKS_DATA → ~/.claude/plugins/data/audio-hooks-chanmeng-audio-hooks/ → ~/.cursor/audio-hooks-data/ → legacy temp dir`. So when Cursor invokes the runner without `CLAUDE_PLUGIN_DATA`, the runner still finds the user's actual `user_preferences.json` (Claude Code's path) and reads the right theme/snooze/webhook settings.
+2. **`session_start` handler emits `{"env": {"CLAUDE_PLUGIN_DATA": "<path>"}}` to stdout when invoker is Cursor.** Per Cursor docs, `sessionStart` env outputs propagate to every subsequent hook in the session — so `stop`, `sessionEnd`, etc. all see the env var directly without needing the runtime fallback.
+3. **`detect_invoker()`** (env-var based) writes `invoker` into every NDJSON event and webhook payload, so `audio-hooks logs tail` can be filtered by editor.
+
+### Native Cursor install (Cursor without Claude Code)
+
+For users who run Cursor but not Claude Code, use `audio-hooks install --cursor`. It writes `~/.cursor/hooks.json` from the canonical template at `cursor-hooks/hooks.json`, seeds `~/.cursor/audio-hooks-data/user_preferences.json` from the default config, and tags every entry with `"_managed_by": "audio-hooks"` so `uninstall --cursor` only removes ours.
+
+The install command **aborts with `DUPLICATE_BRIDGE`** when Claude Code's plugin is already installed (the bridge would already cover Cursor; native install on top causes double audio). Pass `--force` only if you understand the trade-off.
+
+### Stdin field mapping
+
+Cursor's `cursor_version`, `conversation_id`, `generation_id`, `reason`, `final_status`, `duration_ms`, `is_background_agent`, `workspace_roots`, `model`, `error_message` are surfaced in webhook payloads under a `cursor: {...}` sub-object. `user_email` is **redacted by default** for privacy; set `webhook_settings.include_user_email = true` to opt in.
+
 ## Backwards compatibility
 
 - The four pre-v5.0 hooks registered in `~/.claude/settings.json` (`Notification`, `Stop`, `SubagentStop`, `PermissionRequest`) keep working unchanged because the canonical hook names still resolve directly in `hook_runner.main()`. Users upgrading in place don't need to re-run the installer for v5.0 features that don't add new hooks.
@@ -319,6 +367,7 @@ After editing any canonical file in `/hooks/`, `/bin/`, `/audio/`, or `/config/`
 
 | Version | Date | Highlights |
 |---|---|---|
+| 5.1.4 | 2026-05-01 | **Cursor IDE compatibility.** Diagnostic and fix: Cursor IDE 3.2.16+ auto-bridges Claude Code plugins (per [cursor.com/docs/reference/third-party-hooks](https://cursor.com/docs/reference/third-party-hooks)) but does NOT inject `CLAUDE_PLUGIN_DATA`, so the runner had been falling back to bundled defaults. New `_resolve_data_dir()` priority chain shares one `user_preferences.json` between Claude Code and Cursor. New `session_start` env-output propagates `CLAUDE_PLUGIN_DATA` to every subsequent Cursor hook. NDJSON events and webhook payloads now carry `invoker` field + `cursor: {...}` sub-object surfacing Cursor stdin fields (with `user_email` redacted by default). New `audio-hooks install --cursor` writes `~/.cursor/hooks.json` for users who run Cursor without Claude Code; aborts with `DUPLICATE_BRIDGE` if the Claude Code plugin is already installed. New `editor_targets` block in `status` / `diagnose` / `manifest` reports per-editor registration state. 13 new unit tests in `tests/test_cursor_bridge.py`. Cursor users must run `/plugin uninstall` + `/plugin install` once to refresh the cached plugin code Cursor's bridge invokes — see CHANGELOG. |
 | 5.1.3 | 2026-04-28 | **Status line clarity for `/model` switches.** Context segment now renders absolute counts alongside the percentage (e.g. `Context: 83% (166K/200K) 🛑 /compact`) so a sudden jump after switching from a 1M-context variant to a 200K window is self-explanatory rather than alarming. The numerator is derived from `used_percentage × context_window_size` (Claude Code's `total_input_tokens` field counts only literal input, not cache reads, so it understates real usage by 30× in cache-heavy sessions like Claude Code itself). New `CLAUDE_HOOKS_DEBUG=1` (or `true`/`yes`) behaviour: the status line script atomically dumps the latest stdin JSON to `${state_dir}/statusline.last_input.json` for diagnostics. New `tests/test_statusline.py` (25 cases) wired into the CI matrix — covers malformed JSON, missing fields, the `(X/Y)` math, `CLAUDE_HOOKS_DEBUG` toggle parity with `hook_runner`, and a regression guard against the pre-release bug where `total_input_tokens` was used as the numerator. |
 | 5.1.2 | 2026-04-20 | **Fix:** Windows playback truncated clips > 3 s because every PowerShell snippet in `play_audio_windows` and `play_audio_wsl` used a fixed `Start-Sleep -Seconds 3` (the default `permission-request.mp3` is ~3.4 s — the last ~0.4 s was cut off; `elicitation.mp3` at ~3.1 s was also affected) ([#14](https://github.com/ChanMeng666/claude-code-audio-hooks/issues/14)). All four snippets now poll `NaturalDuration.HasTimeSpan` (or `currentMedia.duration` for WMPlayer.OCX) and sleep for the real clip length + 500 ms tail buffer, falling back to 10 s only if the media never reports a duration. |
 | 5.1.1 | 2026-04-18 | **Critical fix:** `hook_runner.py` crashed on import with `NameError: name 'Tuple' is not defined`, blocking every `audio-hooks` subcommand on v5.0.3 and v5.1.0 ([#10](https://github.com/ChanMeng666/claude-code-audio-hooks/issues/10)). Adds CI import-smoke workflow (`.github/workflows/smoke.yml`) — 9-job matrix (Ubuntu/Windows/macOS × Python 3.9/3.12/3.13) plus plugin-in-sync check, runs on every push and PR. All version references realigned to `5.1.1` (v5.1.0 had shipped with in-tree strings still reading `5.0.3`). |
