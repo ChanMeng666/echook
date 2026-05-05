@@ -48,7 +48,7 @@ Old URL keeps working via redirect, so this is cosmetic.
 ### Changed
 
 - **All display-name occurrences** in README, CLAUDE.md, docs/, SKILL.md, plugin/marketplace metadata, status-line brand string, installer script banners, and config-file `_comment`/`_description` fields rewritten from `Claude Code Audio Hooks` (or `Audio Hooks` standalone) to `echook`.
-- **All URL slugs** rewritten from `ChanMeng666/claude-code-audio-hooks` to `ChanMeng666/echook`. The promo-video sub-repo URL (`ChanMeng666/claude-code-audio-hooks-promo-video`) is **preserved** — it points to a separate repository that wasn't renamed.
+- **All URL slugs** rewritten from `ChanMeng666/claude-code-audio-hooks` to `ChanMeng666/echook`. The promo-video sub-repo (`ChanMeng666/echook-promo-video`, separately renamed from `claude-code-audio-hooks-promo-video` shortly after this release) is a distinct repository — both old URLs continue to resolve via GitHub's automatic HTTP 301 redirect.
 - **Logo asset** renamed: `public/claude-code-audio-hooks-logo.svg` → `public/echook-logo.svg`.
 - **GitHub repository description** now leads with `🔊 echook —` and a topic tag `echook` is added.
 
