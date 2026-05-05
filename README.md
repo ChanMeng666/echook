@@ -12,8 +12,8 @@ You type one slash command at install time. Then natural language forever.<br/>
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Version](https://img.shields.io/badge/version-5.2.1-blue.svg)](https://github.com/ChanMeng666/echook)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-green.svg)](https://github.com/ChanMeng666/echook)
-[![Editors](https://img.shields.io/badge/editors-Claude_Code_%7C_Cursor_%7C_Codex-brightgreen.svg)](#-pick-your-platform)
-[![Install](https://img.shields.io/badge/install-just_talk_to_your_AI_agent-purple.svg)](#-pick-your-platform)
+[![Editors](https://img.shields.io/badge/editors-Claude_Code_%7C_Cursor_%7C_Codex-brightgreen.svg)](#pick-your-platform)
+[![Install](https://img.shields.io/badge/install-just_talk_to_your_AI_agent-purple.svg)](#pick-your-platform)
 
 **Share This Project**
 
@@ -36,23 +36,23 @@ https://github.com/user-attachments/assets/f57249be-a524-4e6f-8225-6b9500f1aea4
 <details>
 <summary><kbd>Table of Contents</kbd></summary>
 
-- [What's New](#-whats-new)
-- [Pick Your Platform](#-pick-your-platform)
-- [Install in 60 Seconds](#-install-in-60-seconds) — Claude Code
-- [Cursor IDE — Two Install Paths](#-cursor-ide--same-project-two-install-paths)
-- [Codex CLI — Native Install](#-codex-cli--native-install)
-- [Just Say It — Natural Language Control](#-just-say-it--natural-language-control)
-- [How It Works](#-how-it-works)
-- [Key Features](#-key-features)
-- [Technical Reference](#-technical-reference)
-- [Platform Support](#-platform-support)
-- [Troubleshooting](#-troubleshooting)
-- [Uninstall](#-uninstall)
-- [For Developers](#-for-developers)
-- [Documentation](#-documentation)
-- [Contributing](#-contributing)
-- [License](#-license)
-- [Author](#-author)
+- [What's New](#whats-new)
+- [Pick Your Platform](#pick-your-platform)
+- [Install in 60 Seconds](#install-in-60-seconds) — Claude Code
+- [Cursor IDE — Two Install Paths](#cursor-ide--same-project-two-install-paths)
+- [Codex CLI — Native Install](#codex-cli--native-install)
+- [Just Say It — Natural Language Control](#just-say-it--natural-language-control)
+- [How It Works](#how-it-works)
+- [Key Features](#key-features)
+- [Technical Reference](#technical-reference)
+- [Platform Support](#platform-support)
+- [Troubleshooting](#troubleshooting)
+- [Uninstall](#uninstall)
+- [For Developers](#for-developers)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
+- [Author](#author)
 
 </details>
 
@@ -120,12 +120,12 @@ This is an **AI-first** project. You don't follow install steps yourself — you
 
 | Your editor / CLI | Tell your AI agent | Jump to |
 |---|---|---|
-| **Claude Code** | *"Install the audio-hooks plugin from `github.com/ChanMeng666/echook`."* | [Install in 60 Seconds](#-install-in-60-seconds) |
-| **Cursor IDE** (with Claude Code installed too — most users) | *"Run `audio-hooks status` and confirm `editor_targets.cursor.state` is `bridged-via-claude-code`."* (Cursor 3.2.16+ auto-bridges Claude Code plugins.) | [Cursor IDE — Path A](#-cursor-ide--same-project-two-install-paths) |
-| **Cursor IDE** (without Claude Code) | *"Clone `github.com/ChanMeng666/echook` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --cursor`, then verify with `audio-hooks status` + `audio-hooks test all`."* | [Cursor IDE — Path B](#-cursor-ide--same-project-two-install-paths) |
-| **Codex CLI** | *"Clone `github.com/ChanMeng666/echook` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --codex`, read the JSON output, and follow `next_steps` if `feature_flag_state` is `section_missing` or `flag_missing_or_false`."* | [Codex CLI — Native Install](#-codex-cli--native-install) |
+| **Claude Code** | *"Install the audio-hooks plugin from `github.com/ChanMeng666/echook`."* | [Install in 60 Seconds](https://github.com/ChanMeng666/echook#install-in-60-seconds) |
+| **Cursor IDE** (with Claude Code installed too — most users) | *"Run `audio-hooks status` and confirm `editor_targets.cursor.state` is `bridged-via-claude-code`."* (Cursor 3.2.16+ auto-bridges Claude Code plugins.) | [Cursor IDE — Path A](https://github.com/ChanMeng666/echook#path-a--cursor--claude-code-most-users) |
+| **Cursor IDE** (without Claude Code) | *"Clone `github.com/ChanMeng666/echook` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --cursor`, then verify with `audio-hooks status` + `audio-hooks test all`."* | [Cursor IDE — Path B](https://github.com/ChanMeng666/echook#path-b--cursor-without-claude-code) |
+| **Codex CLI** | *"Clone `github.com/ChanMeng666/echook` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --codex`, read the JSON output, and follow `next_steps` if `feature_flag_state` is `section_missing` or `flag_missing_or_false`."* | [Codex CLI — Native Install](https://github.com/ChanMeng666/echook#codex-cli--native-install) |
 
-Once installed (any path), every natural-language prompt in [Just Say It](#-just-say-it--natural-language-control) below works identically — same `audio-hooks` CLI, same JSON, same skill, regardless of which AI agent is driving.
+Once installed (any path), every natural-language prompt in [Just Say It](#just-say-it--natural-language-control) below works identically — same `audio-hooks` CLI, same JSON, same skill, regardless of which AI agent is driving.
 
 ---
 
