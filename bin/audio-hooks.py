@@ -2449,6 +2449,20 @@ def _build_manifest() -> Dict[str, Any]:
             "CLAUDE_PROJECT_DIR": "Set by Cursor IDE as a Claude-Code-compatible alias for the workspace root.",
             "CODEX_HOME": "Codex CLI home directory (defaults to ~/.codex). Used by audio-hooks install --codex to locate hooks.json and config.toml, and by the runner to resolve the Codex-native data dir.",
         },
+        "pointers": {
+            "claude_md": "CLAUDE.md",
+            "skill": "plugins/audio-hooks/skills/audio-hooks/SKILL.md",
+            "readme": "README.md",
+            "installation_guide": "docs/INSTALLATION_GUIDE.md",
+            "changelog": "CHANGELOG.md",
+            "architecture": "docs/ARCHITECTURE.md",
+            "troubleshooting": "docs/TROUBLESHOOTING.md",
+            "canonical_sources": [
+                "hooks/", "bin/", "audio/", "config/",
+                "cursor-hooks/", "codex-hooks/",
+            ],
+            "_note": "All paths are relative to the project root reported in `audio-hooks status.project_dir`.",
+        },
     }
 
 

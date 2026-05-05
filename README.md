@@ -37,7 +37,10 @@ https://github.com/user-attachments/assets/3504d214-efac-4e01-84c0-426430b842d6
 <summary><kbd>Table of Contents</kbd></summary>
 
 - [What's New in v5.0](#-whats-new-in-v50)
-- [Install in 60 Seconds](#-install-in-60-seconds)
+- [Pick Your Platform](#-pick-your-platform)
+- [Install in 60 Seconds](#-install-in-60-seconds) — Claude Code
+- [Cursor IDE — Two Install Paths](#-cursor-ide--same-project-two-install-paths)
+- [Codex CLI — Native Install](#-codex-cli--native-install)
 - [Just Say It — Natural Language Control](#-just-say-it--natural-language-control)
 - [How It Works](#-how-it-works)
 - [Key Features](#-key-features)
@@ -106,6 +109,21 @@ v5.0 is an **AI-first redesign**. Every project surface is now machine-operable 
 See [`CHANGELOG.md`](CHANGELOG.md) for full details.
 
 </details>
+
+---
+
+## Pick Your Platform
+
+This is an **AI-first** project. You don't follow install steps yourself — you tell your AI agent (Claude Code, Cursor's agent, or Codex CLI) what to do, in plain English, and it runs every shell command, reads every JSON output, and reports back. Pick your platform:
+
+| Your editor / CLI | Tell your AI agent | Jump to |
+|---|---|---|
+| **Claude Code** | *"Install the audio-hooks plugin from `github.com/ChanMeng666/claude-code-audio-hooks`."* | [Install in 60 Seconds](#-install-in-60-seconds) |
+| **Cursor IDE** (with Claude Code installed too — most users) | *"Run `audio-hooks status` and confirm `editor_targets.cursor.state` is `bridged-via-claude-code`."* (Cursor 3.2.16+ auto-bridges Claude Code plugins.) | [Cursor IDE — Path A](#-cursor-ide--same-project-two-install-paths) |
+| **Cursor IDE** (without Claude Code) | *"Clone `github.com/ChanMeng666/claude-code-audio-hooks` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --cursor`, then verify with `audio-hooks status` + `audio-hooks test all`."* | [Cursor IDE — Path B](#-cursor-ide--same-project-two-install-paths) |
+| **Codex CLI** | *"Clone `github.com/ChanMeng666/claude-code-audio-hooks` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --codex`, read the JSON output, and follow `next_steps` if `feature_flag_state` is `section_missing` or `flag_missing_or_false`."* | [Codex CLI — Native Install](#-codex-cli--native-install) |
+
+Once installed (any path), every natural-language prompt in [Just Say It](#-just-say-it--natural-language-control) below works identically — same `audio-hooks` CLI, same JSON, same skill, regardless of which AI agent is driving.
 
 ---
 
@@ -253,12 +271,12 @@ Once installed, every prompt in *Just Say It* below works under Codex too. *"Swi
 
 ## Just Say It — Natural Language Control
 
-Once installed, you operate the project the same way — just talk to Claude Code. Every configuration is a single message:
+Once installed (Claude Code, Cursor, or Codex — same CLI everywhere), you operate the project the same way: talk to your AI agent in plain English, it runs the right `audio-hooks` subcommand, reads the JSON output, and reports back. Every configuration is one message. The diagrams below show "Your AI Agent" generically — substitute Claude Code, Cursor's agent, or Codex CLI as appropriate.
 
 ```mermaid
 sequenceDiagram
     actor You as You
-    participant CC as Claude Code
+    participant CC as Your AI Agent
 
     rect rgb(219, 234, 254)
     Note over You,CC: Audio Theme
@@ -300,7 +318,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor You as You
-    participant CC as Claude Code
+    participant CC as Your AI Agent
 
     rect rgb(237, 233, 254)
     Note over You,CC: Webhooks & Integrations
@@ -363,13 +381,13 @@ sequenceDiagram
     end
 ```
 
-Each prompt is one message. Claude Code parses it, runs the right subcommand(s), and reports back. **You don't memorise anything.**
+Each prompt is one message. Your AI agent (Claude Code, Cursor, or Codex) parses it, runs the right `audio-hooks` subcommand(s), and reports back. **You don't memorise anything.**
 
 <details>
 <summary><kbd>Plain-text prompt reference — copy-friendly table</kbd></summary>
 <br>
 
-| Goal | Paste this into Claude Code |
+| Goal | Paste this into your AI agent (Claude Code / Cursor / Codex) |
 |---|---|
 | **Audio Theme** | |
 | Switch to chime sounds | *"Switch audio-hooks to the chime theme."* |
@@ -889,8 +907,13 @@ claude-code-audio-hooks/
 │   ├── skills/audio-hooks/SKILL.md
 │   ├── bin/
 │   ├── audio/
+│   ├── cursor-hooks/                 # mirror of canonical cursor-hooks/
+│   ├── codex-hooks/                  # mirror of canonical codex-hooks/
 │   └── config/default_preferences.json
-├── hooks/hook_runner.py              # CANONICAL
+├── hooks/                            # CANONICAL
+│   ├── hook_runner.py
+│   ├── invoker.py                    # detect_invoker() — Claude Code / Cursor / Codex
+│   └── user_preferences.py
 ├── bin/                              # CANONICAL
 │   ├── audio-hooks / audio-hooks.py / audio-hooks.cmd
 │   └── audio-hooks-statusline / .py / .cmd
@@ -899,11 +922,15 @@ claude-code-audio-hooks/
 │   ├── default_preferences.json
 │   ├── user_preferences.schema.json
 │   └── audio_manifest.json
+├── cursor-hooks/hooks.json           # CANONICAL: Cursor IDE install template
+├── codex-hooks/hooks.json            # CANONICAL: Codex CLI install template
 ├── scripts/
 │   ├── install-complete.sh / install-windows.ps1
 │   ├── uninstall.sh / build-plugin.sh
+│   ├── bump-version.sh               # atomic version bump across 6 files
 │   ├── generate-audio.py
 │   └── ...
+├── tests/                            # 139 unittest cases (Cursor + Codex bridge contracts)
 ├── CLAUDE.md
 ├── README.md
 └── CHANGELOG.md
@@ -911,11 +938,12 @@ claude-code-audio-hooks/
 
 ### Workflow
 
-1. Edit canonical files (`/hooks/`, `/bin/`, `/audio/`, `/config/`)
+1. Edit canonical files (`/hooks/`, `/bin/`, `/audio/`, `/config/`, `/cursor-hooks/`, `/codex-hooks/`)
 2. Run `bash scripts/build-plugin.sh` to sync into plugin layout
 3. CI verifies in-sync via `bash scripts/build-plugin.sh --check`
 4. Validate: `claude plugin validate plugins/audio-hooks`
-5. Test: `python bin/audio-hooks.py test all`
+5. Test: `python -m unittest discover -v tests` (139 tests; Ubuntu/Windows/macOS × Python 3.9/3.12/3.13 in CI)
+6. Bump version (when releasing): `bash scripts/bump-version.sh <new_version>` — atomically updates 6 canonical version locations and re-runs `build-plugin.sh`
 
 ### Contributing
 
@@ -929,10 +957,12 @@ Pull requests welcome. Fork, clone, make changes to canonical files, run `build-
 
 | Document | Purpose |
 |---|---|
-| [**CLAUDE.md**](CLAUDE.md) | Canonical AI-facing operating guide |
+| [**CLAUDE.md**](CLAUDE.md) | Canonical AI-facing operating guide (~40 lines, points everywhere else) |
+| [**docs/INSTALLATION_GUIDE.md**](docs/INSTALLATION_GUIDE.md) | Step-by-step install for Claude Code / Cursor / Codex |
+| [**docs/TROUBLESHOOTING.md**](docs/TROUBLESHOOTING.md) | Diagnostic recipes for common issues |
+| [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) | System architecture and design decisions |
 | [**CHANGELOG.md**](CHANGELOG.md) | Detailed version history |
-| [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) | System architecture details |
-| `audio-hooks manifest` | Live source of truth — always up to date |
+| `audio-hooks manifest` | Live source of truth — includes `subcommands`, `hooks`, `config_keys`, `error_codes`, `env_vars`, `editor_targets`, `supported_editors`, and `pointers` (paths to every doc above). Always up to date. |
 
 ---
 
