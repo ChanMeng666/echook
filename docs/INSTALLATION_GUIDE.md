@@ -11,7 +11,7 @@ The install is two slash commands inside Claude Code. This page is a pointer to 
 Inside Claude Code, run:
 
 ```text
-/plugin marketplace add ChanMeng666/claude-code-audio-hooks
+/plugin marketplace add ChanMeng666/echook
 /plugin install audio-hooks@chanmeng-audio-hooks
 ```
 
@@ -29,8 +29,8 @@ That's it. All 26 hook events register, every audio file is bundled, and `${CLAU
 For users who'd rather not use the plugin system:
 
 ```bash
-git clone https://github.com/ChanMeng666/claude-code-audio-hooks.git
-cd claude-code-audio-hooks
+git clone https://github.com/ChanMeng666/echook.git
+cd echook
 bash scripts/install-complete.sh
 ```
 
@@ -58,7 +58,7 @@ Expected: `editor_targets.cursor.state` == `bridged-via-claude-code`. 8 of 10 ho
 
 Paste a single prompt into Cursor's agent chat:
 
-> *"Clone https://github.com/ChanMeng666/claude-code-audio-hooks into ~/audio-hooks, then run `python ~/audio-hooks/bin/audio-hooks install --cursor`. After it succeeds, restart Cursor."*
+> *"Clone https://github.com/ChanMeng666/echook into ~/audio-hooks, then run `python ~/audio-hooks/bin/audio-hooks install --cursor`. After it succeeds, restart Cursor."*
 
 The `install --cursor` subcommand:
 
@@ -94,7 +94,7 @@ Removes only entries tagged `_managed_by: "audio-hooks"` from `~/.cursor/hooks.j
 
 OpenAI's Codex CLI does NOT auto-bridge Claude Code plugins. There's exactly one install path: a native registration at `~/.codex/hooks.json`. Paste a single prompt into Codex (or any AI agent that can run shell commands):
 
-> *"Clone https://github.com/ChanMeng666/claude-code-audio-hooks into ~/audio-hooks, then run `python ~/audio-hooks/bin/audio-hooks install --codex`. Read the JSON output: if `feature_flag_state` is `section_missing` or `flag_missing_or_false`, follow the `next_steps` instruction (use your Edit tool to add `[features]\ncodex_hooks = true` to `~/.codex/config.toml`). Then restart Codex."*
+> *"Clone https://github.com/ChanMeng666/echook into ~/audio-hooks, then run `python ~/audio-hooks/bin/audio-hooks install --codex`. Read the JSON output: if `feature_flag_state` is `section_missing` or `flag_missing_or_false`, follow the `next_steps` instruction (use your Edit tool to add `[features]\ncodex_hooks = true` to `~/.codex/config.toml`). Then restart Codex."*
 
 The `install --codex` subcommand:
 
@@ -142,7 +142,7 @@ Removes only entries tagged `_managed_by: "audio-hooks"` from `~/.codex/hooks.js
 For users who want only desktop notifications + system sounds (no MP3s, no TTS, no webhooks):
 
 ```bash
-curl -sL https://raw.githubusercontent.com/ChanMeng666/claude-code-audio-hooks/master/scripts/quick-setup.sh | bash
+curl -sL https://raw.githubusercontent.com/ChanMeng666/echook/master/scripts/quick-setup.sh | bash
 ```
 
 Customise enabled hooks without cloning:

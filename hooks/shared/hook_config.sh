@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code Audio Hooks - Shared Configuration Library
+# echook - Shared Configuration Library
 # This library provides common functions for all hook scripts
 # Version: 2.0.0
 
@@ -24,7 +24,7 @@ get_project_dir() {
     fi
 
     # Strategy 2: Check if we're in the project directory structure
-    # (hooks are inside the project, e.g., claude-code-audio-hooks/hooks/shared/)
+    # (hooks are inside the project, e.g., echook/hooks/shared/)
     local candidate="$(dirname "$hooks_parent")"
     if [ -f "$candidate/config/user_preferences.json" ]; then
         echo "$candidate"
@@ -33,12 +33,12 @@ get_project_dir() {
 
     # Strategy 3: Search common installation locations
     for possible_dir in \
-        "$HOME/claude-code-audio-hooks" \
-        "$HOME/projects/claude-code-audio-hooks" \
-        "$HOME/Documents/claude-code-audio-hooks" \
-        "$HOME/repos/claude-code-audio-hooks" \
-        "$HOME/git/claude-code-audio-hooks" \
-        "$HOME/src/claude-code-audio-hooks"
+        "$HOME/echook" \
+        "$HOME/projects/echook" \
+        "$HOME/Documents/echook" \
+        "$HOME/repos/echook" \
+        "$HOME/git/echook" \
+        "$HOME/src/echook"
     do
         if [ -d "$possible_dir" ] && [ -f "$possible_dir/config/user_preferences.json" ]; then
             echo "$possible_dir"
@@ -633,7 +633,7 @@ test_audio_playback() {
 cleanup_hooks() {
     rm -f "$LOCK_FILE"
     rm -rf "$QUEUE_DIR"
-    echo "Claude Code Audio Hooks: Cleanup complete"
+    echo "echook: Cleanup complete"
 }
 
 # =============================================================================

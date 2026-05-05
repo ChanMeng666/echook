@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code Audio Hooks - Complete Installation Script
+# echook - Complete Installation Script
 # Version: 4.2.0
 # This script handles the complete installation process automatically
 # Now with integrated environment detection, platform fixes, and validation
@@ -104,7 +104,7 @@ cleanup() {
         log "Troubleshooting:"
         log "  1. Check the log file: $LOG_FILE"
         log "  2. Re-run the installer: bash scripts/install-complete.sh"
-        log "  3. Report issue: https://github.com/ChanMeng666/claude-code-audio-hooks/issues"
+        log "  3. Report issue: https://github.com/ChanMeng666/echook/issues"
         log ""
     fi
 
@@ -201,7 +201,7 @@ step_welcome() {
 
     log ""
     log "================================================"
-    print_header "  Claude Code Audio Hooks v$VERSION"
+    print_header "  echook v$VERSION"
     print_header "  Complete Installation"
     log "================================================"
     log ""
@@ -346,7 +346,7 @@ step_validate_project() {
         print_error "Project structure incomplete"
         print_info "Make sure you're in the project root directory"
         print_info "Expected structure:"
-        print_info "  claude-code-audio-hooks/"
+        print_info "  echook/"
         print_info "    ├── hooks/"
         print_info "    ├── audio/default/"
         print_info "    ├── config/"
@@ -816,7 +816,7 @@ step_next_steps() {
         log "     ${CYAN}bash scripts/install-complete.sh${RESET}"
         log ""
         log "  3. Get help:"
-        log "     ${CYAN}https://github.com/ChanMeng666/claude-code-audio-hooks/issues${RESET}"
+        log "     ${CYAN}https://github.com/ChanMeng666/echook/issues${RESET}"
         log ""
     fi
 
@@ -888,7 +888,7 @@ parse_args() {
                 ;;
             --help|-h)
                 cat << EOF
-${BOLD}Claude Code Audio Hooks - Installation Script${RESET}
+${BOLD}echook - Installation Script${RESET}
 
 ${CYAN}USAGE:${RESET}
   $0 [OPTIONS]

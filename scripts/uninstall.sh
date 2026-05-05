@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code Audio Hooks - Enhanced Uninstallation Script v3.2
+# echook - Enhanced Uninstallation Script v3.2
 # Removes all hook scripts, configurations, and optionally audio files
 # Supports non-interactive mode for Claude Code and automation
 
@@ -79,7 +79,7 @@ while [ $# -gt 0 ]; do
             ;;
         --help|-h)
             cat << EOF
-${BOLD}Claude Code Audio Hooks - Uninstallation Script${NC}
+${BOLD}echook - Uninstallation Script${NC}
 
 ${CYAN}USAGE:${NC}
   $0 [OPTIONS]
@@ -131,7 +131,7 @@ done
 # =============================================================================
 
 echo -e "${BLUE}${BOLD}================================================${NC}"
-echo -e "${BLUE}${BOLD}  Claude Code Audio Hooks Uninstallation${NC}"
+echo -e "${BLUE}${BOLD}  echook Uninstallation${NC}"
 echo -e "${BLUE}${BOLD}================================================${NC}\n"
 
 # Confirmation

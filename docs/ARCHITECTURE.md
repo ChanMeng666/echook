@@ -2,7 +2,7 @@
 
 > **Version:** 5.2.0 | **Last Updated:** 2026-05-04
 
-This document explains the technical architecture of claude-code-audio-hooks. It is the developer-facing deep dive — for operating the project, see [CLAUDE.md](../CLAUDE.md) (the canonical AI doc) or [README.md](../README.md). For the live machine description of every subcommand and config key, run `audio-hooks manifest`.
+This document explains the technical architecture of echook. It is the developer-facing deep dive — for operating the project, see [CLAUDE.md](../CLAUDE.md) (the canonical AI doc) or [README.md](../README.md). For the live machine description of every subcommand and config key, run `audio-hooks manifest`.
 
 > **5.2.0 update:** Codex CLI lands as a third editor target. New `hooks/invoker.py` module extracted from `hook_runner.py` so `user_preferences.py` can ask "which IDE invoked us?" without a circular import. The runner now consumes a `--invoker codex` CLI flag (Codex sets no env var we could detect by, unlike Cursor's `CURSOR_VERSION`); the install template at `codex-hooks/hooks.json` bakes the flag into every command. `_resolve_data_dir()` gains a Codex-gated step at priority 3 (between the env-var overrides and the plugin-cache layout) that lands at `$CODEX_HOME/audio-hooks-data/` when `detect_invoker() == "codex"`. The `run_hook` runtime no-ops the 18 audio-hooks canonical events with no Codex equivalent. AI-first feature-flag handling: install authors a fresh `~/.codex/config.toml` with `[features].codex_hooks = true` when none exists, and emits machine-readable `next_steps` for the calling AI agent to follow up when an existing one needs editing — we never round-trip user-authored TOML.
 
@@ -211,7 +211,7 @@ Native matcher routing happens at the `settings.json` layer (Claude Code's match
 Two-line bottom bar registered in `~/.claude/settings.json` via `audio-hooks statusline install`. Reads stdin JSON Claude Code provides (model name, session_id, workspace.git_worktree, rate_limits, context_window) and emits two lines of plain text with ANSI colors:
 
 ```text
-[Opus] 🔊 Audio Hooks v5.1.3 | 6/26 Sounds | Webhook: ntfy | Theme: Voice
+[Opus] 🔊 echook v5.1.3 | 6/26 Sounds | Webhook: ntfy | Theme: Voice
 [MUTED 23m]  🌿 feat/audio-v5  ████░░░░ API Quota: 78%  █████░░░ Context: 65% (130K/200K) ⚠️ /compact
 ```
 

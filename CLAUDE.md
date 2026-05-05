@@ -1,4 +1,4 @@
-# Claude Code Audio Hooks — AI Operator Guide
+# echook — AI Operator Guide
 
 > v5.2.0 · Multi-platform: Claude Code (plugin) · Cursor (native + auto-bridge) · Codex CLI (native). Source-of-truth for every capability is `audio-hooks manifest` (live JSON, includes `pointers`, `editor_targets`, `supported_editors`). This file is orientation only.
 
@@ -12,7 +12,7 @@
 
 | Platform | Command |
 |---|---|
-| Claude Code | `claude plugin marketplace add ChanMeng666/claude-code-audio-hooks` → `claude plugin install audio-hooks@chanmeng-audio-hooks` → **ask the user to type `/reload-plugins`** (REPL-only, no CLI equivalent — do not fake it via Bash). |
+| Claude Code | `claude plugin marketplace add ChanMeng666/echook` → `claude plugin install audio-hooks@chanmeng-audio-hooks` → **ask the user to type `/reload-plugins`** (REPL-only, no CLI equivalent — do not fake it via Bash). |
 | Cursor (native) | `audio-hooks install --cursor`. Aborts with `DUPLICATE_BRIDGE` if the Claude Code plugin is already installed (Cursor 3.2.16+ auto-bridges it — double-fire). Pass `--force` only if the user accepts the trade-off; runtime guard `DUPLICATE_BRIDGE_RUNTIME_SKIP` then suppresses the native path. |
 | Codex CLI | `audio-hooks install --codex`. Read `feature_flag_state` in the JSON output: if `section_missing` / `flag_missing_or_false`, follow `next_steps` — use the Edit tool to add `[features]\ncodex_hooks = true` to `~/.codex/config.toml`. The install never round-trips user TOML. |
 

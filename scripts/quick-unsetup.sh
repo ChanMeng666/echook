@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Claude Code Audio Hooks - Quick Unsetup (Lite Tier Removal)
+# echook - Quick Unsetup (Lite Tier Removal)
 # Removes the Lite mode hooks from ~/.claude/settings.json
 #
 # Usage:
-#   curl -sL https://raw.githubusercontent.com/ChanMeng666/claude-code-audio-hooks/master/scripts/quick-unsetup.sh | bash
+#   curl -sL https://raw.githubusercontent.com/ChanMeng666/echook/master/scripts/quick-unsetup.sh | bash
 #   # or
 #   bash scripts/quick-unsetup.sh
 # =============================================================================
@@ -25,7 +25,7 @@ warn()    { printf "${YELLOW}[WARN]${NC} %s\n" "$1"; }
 error()   { printf "${RED}[ERROR]${NC} %s\n" "$1"; }
 
 main() {
-    printf "\n${BOLD}${CYAN}Claude Code Audio Hooks - Quick Unsetup${NC}\n"
+    printf "\n${BOLD}${CYAN}echook - Quick Unsetup${NC}\n"
     printf "%s\n\n" "========================================"
 
     local settings_file="$HOME/.claude/settings.json"

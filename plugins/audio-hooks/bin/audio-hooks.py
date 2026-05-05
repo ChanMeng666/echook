@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""audio-hooks — single JSON CLI for the claude-code-audio-hooks project.
+"""audio-hooks — single JSON CLI for the echook project.
 
 This binary is the canonical machine interface for the project. It is designed
 for Claude Code (and other AI agents) to operate the project end-to-end without
@@ -137,7 +137,7 @@ def require_project_root() -> int:
     if PROJECT_ROOT is None:
         return emit_error(
             code="PROJECT_DIR_NOT_FOUND",
-            message="Could not locate the claude-code-audio-hooks project directory.",
+            message="Could not locate the echook project directory.",
             hint="Set CLAUDE_AUDIO_HOOKS_PROJECT or run from inside the repo.",
             suggested_command="audio-hooks status",
         )
@@ -155,7 +155,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "5.2.0"
+PROJECT_VERSION = "5.2.1"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -1224,7 +1224,7 @@ def cmd_install(args: List[str]) -> int:
             "ok": True,
             "mode": "plugin",
             "next_steps": [
-                "Run inside Claude Code: /plugin marketplace add ChanMeng666/claude-code-audio-hooks",
+                "Run inside Claude Code: /plugin marketplace add ChanMeng666/echook",
                 "Run inside Claude Code: /plugin install audio-hooks@chanmeng-audio-hooks",
                 "Verify: audio-hooks status",
             ],
@@ -2231,7 +2231,7 @@ def _build_manifest_schema() -> Dict[str, Any]:
     """JSON Schema for user_preferences.json."""
     return {
         "$schema": "http://json-schema.org/draft-07/schema#",
-        "title": "claude-code-audio-hooks user preferences",
+        "title": "echook user preferences",
         "type": "object",
         "additionalProperties": True,
         "properties": {

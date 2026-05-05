@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Claude Code Audio Hooks - Snooze / Temporary Mute
+# echook - Snooze / Temporary Mute
 # Temporarily silence all audio hooks for a specified duration.
 # Hooks auto-resume when the snooze expires — no cleanup needed.
 #
@@ -176,7 +176,7 @@ cmd_status() {
 
 show_usage() {
     cat <<EOF
-${BOLD}${CYAN}Claude Code Audio Hooks - Snooze / Temporary Mute${NC}
+${BOLD}${CYAN}echook - Snooze / Temporary Mute${NC}
 
 ${BOLD}Usage:${NC}
   bash scripts/snooze.sh [DURATION]    Snooze for DURATION (default: 30m)

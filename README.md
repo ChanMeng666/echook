@@ -1,8 +1,8 @@
 <div align="center"><a name="readme-top"></a>
 
-[![Project Banner](./public/claude-code-audio-hooks-logo.svg)](#)
+[![Project Banner](./public/echook-logo.svg)](#)
 
-# Claude Code Audio Hooks
+# echook
 
 **AI-operated audio notification system for Claude Code, Cursor IDE, and Codex CLI.**<br/>
 You type one slash command at install time. Then natural language forever.<br/>
@@ -10,8 +10,8 @@ You type one slash command at install time. Then natural language forever.<br/>
 **🆕 5.2.0 — Codex CLI compatibility.** New native install path for OpenAI's Codex CLI: `audio-hooks install --codex` writes `~/.codex/hooks.json` registering all 6 events Codex supports (per [developers.openai.com/codex/hooks](https://developers.openai.com/codex/hooks)). AI-first feature-flag handling: install authors a fresh `~/.codex/config.toml` when none exists, emits machine-readable `next_steps` for the calling AI agent to follow up when an existing one needs editing. New `--invoker codex` CLI flag baked into the template, new `editor_targets.codex` block in status, new `codex: {...}` sub-object in webhook payloads, +33 bridge-contract tests. See [CHANGELOG](./CHANGELOG.md#520---2026-05-04). All 5.1.x fixes are still active.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-5.2.0-blue.svg)](https://github.com/ChanMeng666/claude-code-audio-hooks)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-green.svg)](https://github.com/ChanMeng666/claude-code-audio-hooks)
+[![Version](https://img.shields.io/badge/version-5.2.0-blue.svg)](https://github.com/ChanMeng666/echook)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-green.svg)](https://github.com/ChanMeng666/echook)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-v2.1.80%2B-brightgreen.svg)](https://claude.ai/download)
 [![Plugin](https://img.shields.io/badge/install-just_talk_to_Claude-purple.svg)](#-install-in-60-seconds)
 
@@ -59,6 +59,8 @@ https://github.com/user-attachments/assets/3504d214-efac-4e01-84c0-426430b842d6
 ---
 
 ## What's New in v5.0
+
+> *Renamed from `claude-code-audio-hooks` to `echook` in 5.2.1 — see [CHANGELOG](CHANGELOG.md#521---2026-05-05) for migration notes if you have an existing install. Door-only rename: the `audio-hooks` CLI, the `chanmeng-audio-hooks` marketplace name, and all state directories are unchanged.*
 
 <details>
 <summary><kbd>v5.0 — AI-first redesign (click to expand)</kbd></summary>
@@ -118,10 +120,10 @@ This is an **AI-first** project. You don't follow install steps yourself — you
 
 | Your editor / CLI | Tell your AI agent | Jump to |
 |---|---|---|
-| **Claude Code** | *"Install the audio-hooks plugin from `github.com/ChanMeng666/claude-code-audio-hooks`."* | [Install in 60 Seconds](#-install-in-60-seconds) |
+| **Claude Code** | *"Install the audio-hooks plugin from `github.com/ChanMeng666/echook`."* | [Install in 60 Seconds](#-install-in-60-seconds) |
 | **Cursor IDE** (with Claude Code installed too — most users) | *"Run `audio-hooks status` and confirm `editor_targets.cursor.state` is `bridged-via-claude-code`."* (Cursor 3.2.16+ auto-bridges Claude Code plugins.) | [Cursor IDE — Path A](#-cursor-ide--same-project-two-install-paths) |
-| **Cursor IDE** (without Claude Code) | *"Clone `github.com/ChanMeng666/claude-code-audio-hooks` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --cursor`, then verify with `audio-hooks status` + `audio-hooks test all`."* | [Cursor IDE — Path B](#-cursor-ide--same-project-two-install-paths) |
-| **Codex CLI** | *"Clone `github.com/ChanMeng666/claude-code-audio-hooks` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --codex`, read the JSON output, and follow `next_steps` if `feature_flag_state` is `section_missing` or `flag_missing_or_false`."* | [Codex CLI — Native Install](#-codex-cli--native-install) |
+| **Cursor IDE** (without Claude Code) | *"Clone `github.com/ChanMeng666/echook` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --cursor`, then verify with `audio-hooks status` + `audio-hooks test all`."* | [Cursor IDE — Path B](#-cursor-ide--same-project-two-install-paths) |
+| **Codex CLI** | *"Clone `github.com/ChanMeng666/echook` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --codex`, read the JSON output, and follow `next_steps` if `feature_flag_state` is `section_missing` or `flag_missing_or_false`."* | [Codex CLI — Native Install](#-codex-cli--native-install) |
 
 Once installed (any path), every natural-language prompt in [Just Say It](#-just-say-it--natural-language-control) below works identically — same `audio-hooks` CLI, same JSON, same skill, regardless of which AI agent is driving.
 
@@ -141,7 +143,7 @@ claude
 
 Paste this into Claude Code:
 
-> **Please install the audio-hooks plugin from `github.com/ChanMeng666/claude-code-audio-hooks`. Use the Bash tool to run `claude plugin marketplace add ChanMeng666/claude-code-audio-hooks` then `claude plugin install audio-hooks@chanmeng-audio-hooks`. After both commands complete, tell me to type `/reload-plugins` to activate the plugin.**
+> **Please install the audio-hooks plugin from `github.com/ChanMeng666/echook`. Use the Bash tool to run `claude plugin marketplace add ChanMeng666/echook` then `claude plugin install audio-hooks@chanmeng-audio-hooks`. After both commands complete, tell me to type `/reload-plugins` to activate the plugin.**
 
 ### Step 3 — Type `/reload-plugins` (the one manual slash command)
 
@@ -169,8 +171,8 @@ sequenceDiagram
     participant CLI as audio-hooks CLI
 
     Human->>Terminal: type `claude` to start a session
-    Human->>Claude: "install audio-hooks plugin from<br/>github.com/ChanMeng666/claude-code-audio-hooks via<br/>`claude plugin marketplace add` and `claude plugin install`"
-    Claude->>Bash: claude plugin marketplace add ChanMeng666/claude-code-audio-hooks
+    Human->>Claude: "install audio-hooks plugin from<br/>github.com/ChanMeng666/echook via<br/>`claude plugin marketplace add` and `claude plugin install`"
+    Claude->>Bash: claude plugin marketplace add ChanMeng666/echook
     Bash-->>Claude: "Successfully added marketplace"
     Claude->>Bash: claude plugin install audio-hooks@chanmeng-audio-hooks
     Bash-->>Claude: "Installed audio-hooks. Run /reload-plugins to apply."
@@ -217,7 +219,7 @@ To disable bridging entirely, turn off Cursor Settings → "Third-party skills" 
 
 Paste this single prompt into Cursor's agent chat:
 
-> **Clone `https://github.com/ChanMeng666/claude-code-audio-hooks` into `~/audio-hooks`, then run `python ~/audio-hooks/bin/audio-hooks install --cursor`. After it succeeds, restart Cursor and run `audio-hooks status` followed by `audio-hooks test all`.**
+> **Clone `https://github.com/ChanMeng666/echook` into `~/audio-hooks`, then run `python ~/audio-hooks/bin/audio-hooks install --cursor`. After it succeeds, restart Cursor and run `audio-hooks status` followed by `audio-hooks test all`.**
 
 Cursor's agent runs `git clone`, runs the install (which writes `~/.cursor/hooks.json` and seeds `~/.cursor/audio-hooks-data/user_preferences.json`), then verifies. The install is non-interactive end-to-end — no prompts, no menus, no human in the loop.
 
@@ -248,7 +250,7 @@ Once installed (either path), every prompt in *Just Say It* below works on Curso
 
 OpenAI's Codex CLI does NOT auto-bridge Claude Code plugins (unlike Cursor), so there's exactly one install path: a native registration at `~/.codex/hooks.json`. The install is fully AI-first — paste this single prompt into Codex (or any AI agent that can run shell commands):
 
-> **Clone `https://github.com/ChanMeng666/claude-code-audio-hooks` into `~/audio-hooks`, then run `python ~/audio-hooks/bin/audio-hooks install --codex`. Read the JSON output: if `feature_flag_state` is `section_missing` or `flag_missing_or_false`, follow the `next_steps` instruction (use your Edit tool to add `[features]\ncodex_hooks = true` to `~/.codex/config.toml`). Then restart Codex and run `audio-hooks status` to confirm `editor_targets.codex.state == "active"`.**
+> **Clone `https://github.com/ChanMeng666/echook` into `~/audio-hooks`, then run `python ~/audio-hooks/bin/audio-hooks install --codex`. Read the JSON output: if `feature_flag_state` is `section_missing` or `flag_missing_or_false`, follow the `next_steps` instruction (use your Edit tool to add `[features]\ncodex_hooks = true` to `~/.codex/config.toml`). Then restart Codex and run `audio-hooks status` to confirm `editor_targets.codex.state == "active"`.**
 
 What the install does:
 
@@ -548,7 +550,7 @@ flowchart TD
 
 ```mermaid
 flowchart TB
-    REPO[claude-code-audio-hooks/]
+    REPO[echook/]
 
     REPO --> CP[.claude-plugin/marketplace.json]
     REPO --> PLUGINS[plugins/audio-hooks/]
@@ -594,7 +596,7 @@ Real-time context window and API quota bars — color-coded warnings before Clau
 </p>
 
 ```text
-[Opus] Audio Hooks v5.1.3 | 6/26 Sounds | Webhook: ntfy | Theme: Voice
+[Opus] echook v5.1.3 | 6/26 Sounds | Webhook: ntfy | Theme: Voice
 [MUTED 23m]  feat/audio-v5  API Quota: 78%  Context: 65% (130K/200K)  /compact
 ```
 
@@ -613,7 +615,7 @@ Real-time context window and API quota bars — color-coded warnings before Clau
 | Segment | Shows |
 |---|---|
 | `model` | Model name (e.g. `[Opus]`) |
-| `version` | Audio Hooks version |
+| `version` | echook version |
 | `sounds` | Enabled sound count |
 | `webhook` | Webhook status |
 | `theme` | Audio theme |
@@ -787,7 +789,7 @@ Levels: `debug`, `info`, `warn`, `error`. Log rotation: 5 MB cap, 3 files kept.
 **Plugin install** (two slash commands inside Claude Code):
 
 ```text
-/plugin marketplace add ChanMeng666/claude-code-audio-hooks
+/plugin marketplace add ChanMeng666/echook
 /plugin install audio-hooks@chanmeng-audio-hooks
 /reload-plugins
 ```
@@ -795,8 +797,8 @@ Levels: `debug`, `info`, `warn`, `error`. Log rotation: 5 MB cap, 3 files kept.
 **Legacy script install** (pre-v5.0, still works):
 
 ```bash
-git clone https://github.com/ChanMeng666/claude-code-audio-hooks.git
-cd claude-code-audio-hooks
+git clone https://github.com/ChanMeng666/echook.git
+cd echook
 bash scripts/install-complete.sh    # auto non-interactive on non-TTY
 ```
 
@@ -898,7 +900,7 @@ bash scripts/uninstall.sh --yes --purge      # remove everything
 ### Repository Layout
 
 ```
-claude-code-audio-hooks/
+echook/
 ├── .claude-plugin/marketplace.json
 ├── plugins/audio-hooks/              # plugin layout (populated by build-plugin.sh)
 │   ├── .claude-plugin/plugin.json
@@ -970,7 +972,7 @@ Pull requests welcome. Fork, clone, make changes to canonical files, run `build-
 <tr>
 <td>
 
-**Design Philosophy** — This project is **AI-operated**, not AI-assisted. A typical CLI tool: the human learns the tool. **claude-code-audio-hooks**: the human says what they want, Claude Code learns the tool and does the work. The human is **upstream** of Claude Code, not downstream of the CLI.
+**Design Philosophy** — This project is **AI-operated**, not AI-assisted. A typical CLI tool: the human learns the tool. **echook**: the human says what they want, Claude Code learns the tool and does the work. The human is **upstream** of Claude Code, not downstream of the CLI.
 
 </td>
 </tr>
@@ -1038,16 +1040,16 @@ This project is licensed under the **MIT License** — see [LICENSE](LICENSE) fo
 [back-to-top]: https://img.shields.io/badge/-BACK_TO_TOP-black?style=flat-square
 
 [share-x-shield]: https://img.shields.io/badge/-Share%20on%20X-black?labelColor=black&logo=x&logoColor=white&style=flat-square
-[share-x-link]: https://x.com/intent/tweet?text=Check%20out%20Claude%20Code%20Audio%20Hooks%20-%20AI-operated%20audio%20notifications%20for%20Claude%20Code&url=https%3A%2F%2Fgithub.com%2FChanMeng666%2Fclaude-code-audio-hooks
+[share-x-link]: https://x.com/intent/tweet?text=Check%20out%20echook%20-%20AI-operated%20audio%20notifications%20for%20Claude%20Code&url=https%3A%2F%2Fgithub.com%2FChanMeng666%2Fechook
 
 [share-linkedin-shield]: https://img.shields.io/badge/-Share%20on%20LinkedIn-blue?labelColor=blue&logo=linkedin&logoColor=white&style=flat-square
-[share-linkedin-link]: https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fgithub.com%2FChanMeng666%2Fclaude-code-audio-hooks
+[share-linkedin-link]: https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fgithub.com%2FChanMeng666%2Fechook
 
 [share-reddit-shield]: https://img.shields.io/badge/-Share%20on%20Reddit-orange?labelColor=black&logo=reddit&logoColor=white&style=flat-square
-[share-reddit-link]: https://www.reddit.com/submit?title=Claude%20Code%20Audio%20Hooks%20-%20AI-operated%20audio%20notifications&url=https%3A%2F%2Fgithub.com%2FChanMeng666%2Fclaude-code-audio-hooks
+[share-reddit-link]: https://www.reddit.com/submit?title=echook%20-%20AI-operated%20audio%20notifications&url=https%3A%2F%2Fgithub.com%2FChanMeng666%2Fechook
 
 [share-telegram-shield]: https://img.shields.io/badge/-Share%20on%20Telegram-blue?labelColor=blue&logo=telegram&logoColor=white&style=flat-square
-[share-telegram-link]: https://t.me/share/url?text=Claude%20Code%20Audio%20Hooks%20-%20AI-operated%20audio%20notifications&url=https%3A%2F%2Fgithub.com%2FChanMeng666%2Fclaude-code-audio-hooks
+[share-telegram-link]: https://t.me/share/url?text=echook%20-%20AI-operated%20audio%20notifications&url=https%3A%2F%2Fgithub.com%2FChanMeng666%2Fechook
 
 [share-whatsapp-shield]: https://img.shields.io/badge/-Share%20on%20WhatsApp-green?labelColor=green&logo=whatsapp&logoColor=white&style=flat-square
-[share-whatsapp-link]: https://api.whatsapp.com/send?text=Check%20out%20Claude%20Code%20Audio%20Hooks%20-%20AI-operated%20audio%20notifications%20for%20Claude%20Code%20https%3A%2F%2Fgithub.com%2FChanMeng666%2Fclaude-code-audio-hooks
+[share-whatsapp-link]: https://api.whatsapp.com/send?text=Check%20out%20echook%20-%20AI-operated%20audio%20notifications%20for%20Claude%20Code%20https%3A%2F%2Fgithub.com%2FChanMeng666%2Fechook

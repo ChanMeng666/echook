@@ -183,7 +183,7 @@ If you intentionally want both paths active despite the double-fire, the runtime
 
 ### `audio-hooks install --cursor` fails with `INTERNAL_ERROR: Template is not valid JSON after substitution`
 
-You're on a project version older than 5.1.6 on Windows. Pre-5.1.6, paths like `D:\github\claude-code-audio-hooks\hooks\hook_runner.py` were substituted directly into the JSON template, and the backslashes were interpreted as invalid JSON escapes (`\g`, `\h`, etc).
+You're on a project version older than 5.1.6 on Windows. Pre-5.1.6, paths like `D:\github\echook\hooks\hook_runner.py` were substituted directly into the JSON template, and the backslashes were interpreted as invalid JSON escapes (`\g`, `\h`, etc).
 
 Fix: upgrade to 5.1.6 or later. Either `git pull` if you cloned the repo, or `audio-hooks upgrade` for plugin installs.
 
@@ -274,7 +274,7 @@ Before opening a GitHub issue, please attach:
 4. Your platform (`uname -a` on Unix; PowerShell version on Windows)
 5. Steps to reproduce
 
-Issues: https://github.com/ChanMeng666/claude-code-audio-hooks/issues
+Issues: https://github.com/ChanMeng666/echook/issues
 
 ## See also
 

@@ -1,5 +1,5 @@
 {
-  "$schema_url": "https://github.com/ChanMeng666/claude-code-audio-hooks/blob/master/config/audio_manifest.json",
+  "$schema_url": "https://github.com/ChanMeng666/echook/blob/master/config/audio_manifest.json",
   "_description": "Manifest of every audio file the project ships. Consumed by scripts/generate-audio.py to regenerate audio via the ElevenLabs API. Adding a new entry + running the script is the canonical way to add a new audio file.",
   "_voice_provider": "elevenlabs",
   "_default_voice_id": "cgSgspJ2msm6clMCkdW9",

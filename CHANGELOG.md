@@ -1,9 +1,62 @@
 # Changelog
 
-All notable changes to Claude Code Audio Hooks will be documented in this file.
+All notable changes to **echook** (formerly *Claude Code Audio Hooks*) will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+> Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
+
+## [5.2.1] - 2026-05-05
+
+### Renamed: `claude-code-audio-hooks` → `echook`
+
+The repository, the display name in docs, and the status-line brand string are now **echook** (Echo + Hook → /ˈɛkˌhʊk/, always lowercase). The project supports Claude Code, Cursor IDE, and Codex CLI — leading with "Claude Code" in the name was misleading newcomers into thinking it was Claude-Code-locked.
+
+**This is a door-only rename — the machinery is unchanged.** Concretely:
+
+- `audio-hooks` CLI command — **unchanged**
+- `audio-hooks-statusline` companion — **unchanged**
+- `chanmeng-audio-hooks` plugin marketplace name — **unchanged**
+- `audio-hooks` plugin slug — **unchanged**
+- `~/.cursor/audio-hooks-data/`, `~/.codex/audio-hooks-data/`, and `${CLAUDE_PLUGIN_DATA}` paths — **all unchanged**
+- `user_preferences.json` content + location — **untouched**
+
+So no user data is migrated, no config is rewritten, no install needs to be redone.
+
+### Existing plugin users — your install keeps working
+
+GitHub auto-redirects `github.com/ChanMeng666/claude-code-audio-hooks` to the new URL with HTTP 301, so `git clone`, `git pull`, and Claude Code's marketplace fetch all continue to work transparently. Stars, watchers, forks, open issues, and open PRs are auto-migrated by GitHub.
+
+If `claude plugin update` ever fails to follow the redirect, refresh the marketplace source pointer manually:
+
+```text
+/plugin marketplace remove chanmeng-audio-hooks
+/plugin marketplace add ChanMeng666/echook
+```
+
+The plugin slug, CLI command, and state directory are unchanged, so this is purely a metadata refresh — no reinstall, no reconfiguration, no data loss.
+
+### Existing local clones — optional cleanup
+
+```bash
+git remote set-url origin https://github.com/ChanMeng666/echook.git
+```
+
+Old URL keeps working via redirect, so this is cosmetic.
+
+### Changed
+
+- **All display-name occurrences** in README, CLAUDE.md, docs/, SKILL.md, plugin/marketplace metadata, status-line brand string, installer script banners, and config-file `_comment`/`_description` fields rewritten from `Claude Code Audio Hooks` (or `Audio Hooks` standalone) to `echook`.
+- **All URL slugs** rewritten from `ChanMeng666/claude-code-audio-hooks` to `ChanMeng666/echook`. The promo-video sub-repo URL (`ChanMeng666/claude-code-audio-hooks-promo-video`) is **preserved** — it points to a separate repository that wasn't renamed.
+- **Logo asset** renamed: `public/claude-code-audio-hooks-logo.svg` → `public/echook-logo.svg`.
+- **GitHub repository description** now leads with `🔊 echook —` and a topic tag `echook` is added.
+
+### Preserved (deliberately)
+
+- CHANGELOG entries for 5.2.0 and earlier — preserved verbatim as a historical record.
+- `LICENSE` copyright header — incidental project name in legal text, untouched.
+- Archived planning docs in `docs/plans/` and `docs/specs/` — preserved as records of what was planned at the time.
 
 ## [5.2.0] - 2026-05-04
 

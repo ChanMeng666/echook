@@ -6,20 +6,20 @@
   },
   "metadata": {
     "description": "AI-operated audio notification system for Claude Code, Cursor IDE & Codex CLI. 26 hooks, native matcher routing, TTS, webhook fan-out, status line, focus flow, rate-limit alerts. Auto-bridges to Cursor 3.2.16+; native install for Cursor-only via 'audio-hooks install --cursor'; native install for Codex via 'audio-hooks install --codex'.",
-    "version": "5.2.0"
+    "version": "5.2.1"
   },
   "plugins": [
     {
       "name": "audio-hooks",
       "source": "./plugins/audio-hooks",
-      "version": "5.2.0",
+      "version": "5.2.1",
       "description": "Audio notifications + AI-controlled config for Claude Code, Cursor IDE, and Codex CLI events. Auto-bridges to Cursor 3.2.16+; native install for Cursor via 'audio-hooks install --cursor' and for Codex via 'audio-hooks install --codex'.",
       "author": {
         "name": "Chan Meng",
         "url": "https://github.com/ChanMeng666"
       },
-      "homepage": "https://github.com/ChanMeng666/claude-code-audio-hooks",
-      "repository": "https://github.com/ChanMeng666/claude-code-audio-hooks",
+      "homepage": "https://github.com/ChanMeng666/echook",
+      "repository": "https://github.com/ChanMeng666/echook",
       "license": "MIT",
       "keywords": ["audio", "notifications", "hooks", "tts", "webhook", "ai-operated", "rate-limits", "status-line", "cursor", "cursor-ide", "codex", "codex-cli", "openai-codex"]
     }

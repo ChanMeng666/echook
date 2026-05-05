@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code Audio Hooks - Path Utilities
+# echook - Path Utilities
 # Cross-platform path conversion and handling
 # Version: 2.0.0
 
@@ -437,7 +437,7 @@ test_path_conversion() {
 # Print path conversion help
 print_path_help() {
     cat << 'EOF'
-Path Utilities for Claude Code Audio Hooks
+Path Utilities for echook
 ==========================================
 
 Available Functions:

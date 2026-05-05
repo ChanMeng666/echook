@@ -2,7 +2,7 @@
   "_comment": "Cursor IDE hooks.json template for audio-hooks. This file is the canonical template; `audio-hooks install --cursor` reads it, substitutes {{PYTHON}} and {{HOOK_RUNNER}} with absolute paths, and writes the result into ~/.cursor/hooks.json (merging with any existing user hooks). DO NOT edit ~/.cursor/hooks.json by hand — re-run install --cursor instead.",
   "_schema_doc": "https://cursor.com/docs/hooks",
   "_audio_hooks_managed": true,
-  "_audio_hooks_version": "5.2.0",
+  "_audio_hooks_version": "5.2.1",
   "_unsupported_in_cursor": [
     "Notification",
     "PermissionRequest"

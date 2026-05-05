@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Claude Code Audio Hooks - Quick Setup (Lite Tier)
+# echook - Quick Setup (Lite Tier)
 # Zero-dependency, zero-Python notification setup for Claude Code
 #
 # Usage:
-#   curl -sL https://raw.githubusercontent.com/ChanMeng666/claude-code-audio-hooks/master/scripts/quick-setup.sh | bash
+#   curl -sL https://raw.githubusercontent.com/ChanMeng666/echook/master/scripts/quick-setup.sh | bash
 #   # or
 #   bash scripts/quick-setup.sh
 #
@@ -330,7 +330,7 @@ fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + '\n');
 # =============================================================================
 
 main() {
-    header "Claude Code Audio Hooks - Quick Setup"
+    header "echook - Quick Setup"
     printf "%s\n" "Zero-dependency notifications for Claude Code"
     printf "%s\n\n" "============================================="
 
@@ -455,10 +455,10 @@ main() {
 
     printf "\n"
     printf "${BOLD}Want custom audio, TTS, or advanced features?${NC}\n"
-    printf "  See: https://github.com/ChanMeng666/claude-code-audio-hooks#full-installation\n"
+    printf "  See: https://github.com/ChanMeng666/echook#full-installation\n"
     printf "\n"
     printf "${BOLD}To remove:${NC}\n"
-    printf "  curl -sL https://raw.githubusercontent.com/ChanMeng666/claude-code-audio-hooks/master/scripts/quick-unsetup.sh | bash\n"
+    printf "  curl -sL https://raw.githubusercontent.com/ChanMeng666/echook/master/scripts/quick-unsetup.sh | bash\n"
     printf "\n"
 }
 

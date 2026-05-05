@@ -1,5 +1,5 @@
 {
-  "description": "claude-code-audio-hooks v5.0 — matcher-scoped hook registration. Each handler invokes hook_runner.py (via the plugin's runner/ wrapper) with either a canonical hook name or a v5.0 synthetic variant name (e.g. session_start_resume) so matcher routing happens in settings.json instead of Python branching.",
+  "description": "echook v5.0 — matcher-scoped hook registration. Each handler invokes hook_runner.py (via the plugin's runner/ wrapper) with either a canonical hook name or a v5.0 synthetic variant name (e.g. session_start_resume) so matcher routing happens in settings.json instead of Python branching.",
 
   "hooks": {
     "Notification": [

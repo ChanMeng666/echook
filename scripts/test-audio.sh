@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code Audio Hooks - Enhanced Audio Test Script v2.0
+# echook - Enhanced Audio Test Script v2.0
 # Tests all audio files and provides diagnostics
 # Compatible with bash 3.2+ (macOS default)
 #
@@ -35,7 +35,7 @@ HOOKS_DIR="$HOME/.claude/hooks"
 CONFIG_FILE="$PROJECT_DIR/config/user_preferences.json"
 
 echo -e "${BLUE}${BOLD}================================================${NC}"
-echo -e "${BLUE}${BOLD}  Claude Code Audio Hooks - Audio Test v2.0${NC}"
+echo -e "${BLUE}${BOLD}  echook - Audio Test v2.0${NC}"
 echo -e "${BLUE}${BOLD}================================================${NC}\n"
 
 #=============================================================================
@@ -394,7 +394,7 @@ else
     echo ""
     echo -e "${GREEN}${BOLD}🎉 Great! Audio playback is working correctly!${NC}"
     echo ""
-    echo "Your Claude Code Audio Hooks are ready to use."
+    echo "Your echook are ready to use."
     echo "You'll hear these notifications when using Claude Code!"
 fi
 

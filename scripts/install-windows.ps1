@@ -1,10 +1,10 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Claude Code Audio Hooks - Windows PowerShell Installation Script
+    echook - Windows PowerShell Installation Script
 
 .DESCRIPTION
-    This script installs Claude Code Audio Hooks on Windows without requiring Git Bash.
+    This script installs echook on Windows without requiring Git Bash.
     It configures Python-based hooks for reliable audio playback.
 
 .PARAMETER NonInteractive
@@ -147,7 +147,7 @@ function Test-ClaudeCode {
 
 function Show-Help {
     Write-Host ""
-    Write-Host "Claude Code Audio Hooks - Windows Installation Script" -ForegroundColor $Colors.Header
+    Write-Host "echook - Windows Installation Script" -ForegroundColor $Colors.Header
     Write-Host "Version: $Version" -ForegroundColor $Colors.Info
     Write-Host ""
     Write-Host "USAGE:" -ForegroundColor White
@@ -171,7 +171,7 @@ function Show-Help {
 function Step-Welcome {
     Write-Host ""
     Write-Host "================================================" -ForegroundColor $Colors.Header
-    Write-Host "  Claude Code Audio Hooks v$Version" -ForegroundColor $Colors.Header
+    Write-Host "  echook v$Version" -ForegroundColor $Colors.Header
     Write-Host "  Windows PowerShell Installation" -ForegroundColor $Colors.Header
     Write-Host "================================================" -ForegroundColor $Colors.Header
     Write-Host ""
@@ -516,7 +516,7 @@ if ($Help) {
 }
 
 # Initialize log
-"Claude Code Audio Hooks - Installation Log" | Out-File -FilePath $LogFile -Encoding UTF8
+"echook - Installation Log" | Out-File -FilePath $LogFile -Encoding UTF8
 "Started: $(Get-Date)" | Out-File -FilePath $LogFile -Append -Encoding UTF8
 "" | Out-File -FilePath $LogFile -Append -Encoding UTF8
 

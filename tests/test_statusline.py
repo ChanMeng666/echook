@@ -136,7 +136,7 @@ class _StatuslineRenderBase(unittest.TestCase):
     immediately without spawning a nested ``audio-hooks status`` subprocess.
 
     Why: the renderer tests assert specific stdout content. The renderer's
-    Line 1 short-circuits to "Audio Hooks (status unavailable)" when
+    Line 1 short-circuits to "echook (status unavailable)" when
     ``_get_status()`` returns empty, which suppresses the Context segment.
     On Windows GitHub Actions runners the nested subprocess chain
     (test → statusline → audio-hooks status, all via Python) is flaky in a

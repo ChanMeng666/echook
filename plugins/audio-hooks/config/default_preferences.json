@@ -1,6 +1,6 @@
 {
   "$schema": "./user_preferences.schema.json",
-  "_comment": "Claude Code Audio Hooks - Default Configuration Template (v5.1.5)",
+  "_comment": "echook - Default Configuration Template (v5.1.5)",
   "_version": "5.1.5",
   "_description": "This file is the default template for user_preferences.json. Plugin installs auto-copy this to ${CLAUDE_PLUGIN_DATA}/user_preferences.json on first read. AI agents should NOT edit this file directly — use 'audio-hooks set <key> <value>' instead.",
 

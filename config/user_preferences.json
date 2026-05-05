@@ -1,7 +1,7 @@
 {
-  "_comment": "Claude Code Audio Hooks - Default Configuration Template",
+  "_comment": "echook - Default Configuration Template",
   "_version": "2.0.0",
-  "_description": "This file contains the default configuration for Claude Code Audio Hooks. Copy this to user_preferences.json and customize as needed.",
+  "_description": "This file contains the default configuration for echook. Copy this to user_preferences.json and customize as needed.",
 
   "version": "2.0.0",
 

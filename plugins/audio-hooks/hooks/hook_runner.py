@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Claude Code Audio Hooks - Python Hook Runner
+echook - Python Hook Runner
 Cross-platform hook runner that works on Windows, macOS, and Linux.
 This replaces the bash-based hooks for better Windows compatibility.
 
@@ -41,7 +41,7 @@ from invoker import detect_invoker, get_invoker as _get_invoker, strip_invoker_a
 
 # Version used for auto-sync: when the installed copy in ~/.claude/hooks/
 # detects a newer version in the project directory, it self-updates.
-HOOK_RUNNER_VERSION = "5.2.0"
+HOOK_RUNNER_VERSION = "5.2.1"
 
 # =============================================================================
 # STRUCTURED LOGGING (NDJSON)
@@ -530,10 +530,10 @@ def get_project_dir() -> Path:
     # Strategy 3: Search common locations
     home = Path.home()
     common_locations = [
-        home / "claude-code-audio-hooks",
-        home / "projects" / "claude-code-audio-hooks",
-        home / "Documents" / "claude-code-audio-hooks",
-        home / "repos" / "claude-code-audio-hooks",
+        home / "echook",
+        home / "projects" / "echook",
+        home / "Documents" / "echook",
+        home / "repos" / "echook",
     ]
 
     for loc in common_locations:

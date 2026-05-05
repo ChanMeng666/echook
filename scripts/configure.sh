@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code Audio Hooks - Dual-Mode Configuration Tool
+# echook - Dual-Mode Configuration Tool
 # Interactive Mode (no args): Menu-driven interface for humans
 # Programmatic Mode (with args): CLI interface for Claude Code and scripts
 # Compatible with bash 3.2+ (macOS default)
@@ -219,7 +219,7 @@ clear_screen() {
 print_header() {
     clear_screen
     echo -e "${BLUE}${BOLD}╔════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}${BOLD}║   Claude Code Audio Hooks Configuration       ║${NC}"
+    echo -e "${BLUE}${BOLD}║   echook Configuration       ║${NC}"
     echo -e "${BLUE}${BOLD}╚════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -600,7 +600,7 @@ main() {
 
 print_usage() {
     cat << EOF
-${BOLD}Claude Code Audio Hooks - Configuration Tool${NC}
+${BOLD}echook - Configuration Tool${NC}
 
 ${CYAN}INTERACTIVE MODE${NC} (no arguments):
   ${BOLD}$0${NC}

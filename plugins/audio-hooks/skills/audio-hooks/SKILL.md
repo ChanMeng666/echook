@@ -1,11 +1,11 @@
 ---
 name: audio-hooks
-description: Use whenever the user asks to install, configure, uninstall, snooze, mute, test, troubleshoot, or change settings for the claude-code-audio-hooks audio notification system. Trigger phrases include "audio hooks", "audio notifications", "snooze audio", "mute claude", "claude is too loud", "test audio", "switch audio theme", "rate limit alerts", "audio webhook", "TTS", "text to speech", "focus flow", "breathing exercise", "notification mode", "audio only", "notification only", "debounce", "status line", "statusline", "context usage", "context window", "context monitor", "compact reminder", "uninstall audio", "audio status", "audio version", "install for cursor", "install for codex", "codex audio", "codex hooks", "cursor audio", "cursor hooks", and the slash command /audio-hooks. Also use when diagnosing why Claude Code, Cursor, or Codex is silent (or noisy) for the user, or when the user wants to monitor context window usage.
+description: Use whenever the user asks to install, configure, uninstall, snooze, mute, test, troubleshoot, or change settings for the echook audio notification system. Trigger phrases include "audio hooks", "audio notifications", "snooze audio", "mute claude", "claude is too loud", "test audio", "switch audio theme", "rate limit alerts", "audio webhook", "TTS", "text to speech", "focus flow", "breathing exercise", "notification mode", "audio only", "notification only", "debounce", "status line", "statusline", "context usage", "context window", "context monitor", "compact reminder", "uninstall audio", "audio status", "audio version", "install for cursor", "install for codex", "codex audio", "codex hooks", "cursor audio", "cursor hooks", and the slash command /audio-hooks. Also use when diagnosing why Claude Code, Cursor, or Codex is silent (or noisy) for the user, or when the user wants to monitor context window usage.
 ---
 
 # audio-hooks skill
 
-This plugin is the AI control surface for the claude-code-audio-hooks project. The user does NOT operate this project by hand. You operate it on their behalf via the `audio-hooks` binary that this plugin adds to your Bash tool's PATH.
+This plugin is the AI control surface for the echook project. The user does NOT operate this project by hand. You operate it on their behalf via the `audio-hooks` binary that this plugin adds to your Bash tool's PATH.
 
 **Golden rule:** when in doubt about the project's current capabilities, run `audio-hooks manifest` first. The manifest is the canonical machine description of every subcommand, every config key, every hook, every audio file, and every error code. It is always up to date with the running version. Treat this SKILL.md as an orientation; treat `audio-hooks manifest` as the source of truth.
 
@@ -13,7 +13,7 @@ This plugin is the AI control surface for the claude-code-audio-hooks project. T
 
 **Install / set up the project**
 
-The plugin install (which you are using right now) is the recommended path for Claude Code users. If a user is not yet on the plugin, tell them to run `/plugin marketplace add ChanMeng666/claude-code-audio-hooks` and `/plugin install audio-hooks@chanmeng-audio-hooks` inside Claude Code. **Cursor IDE 3.2.16+ users get audio-hooks for free via Cursor's built-in third-party hooks bridge** — no separate Cursor install needed. For users who run Cursor *without* Claude Code, use `audio-hooks install --cursor` (see "Install for Cursor-only users" below). **Codex CLI users** must use `audio-hooks install --codex` — Codex does NOT auto-bridge Claude Code plugins, so the native install is the only path (see "Install for Codex CLI users" below). Once installed, verify with:
+The plugin install (which you are using right now) is the recommended path for Claude Code users. If a user is not yet on the plugin, tell them to run `/plugin marketplace add ChanMeng666/echook` and `/plugin install audio-hooks@chanmeng-audio-hooks` inside Claude Code. **Cursor IDE 3.2.16+ users get audio-hooks for free via Cursor's built-in third-party hooks bridge** — no separate Cursor install needed. For users who run Cursor *without* Claude Code, use `audio-hooks install --cursor` (see "Install for Cursor-only users" below). **Codex CLI users** must use `audio-hooks install --codex` — Codex does NOT auto-bridge Claude Code plugins, so the native install is the only path (see "Install for Codex CLI users" below). Once installed, verify with:
 
 ```bash
 audio-hooks status
@@ -131,7 +131,7 @@ The status line displays real-time audio-hooks state and context window usage at
 
 After installing, the status line updates every 60 seconds and shows two lines:
 ```
-[Opus] 🔊 Audio Hooks v5.1.3 | 6/26 Sounds | Webhook: off | Theme: Voice
+[Opus] 🔊 echook v5.1.3 | 6/26 Sounds | Webhook: off | Theme: Voice
 🌿 main  ████░░░░ API Quota: 60%  █████░░░ Context: 65% (130K/200K) ⚠️ /compact
 ```
 
@@ -277,7 +277,7 @@ audio-hooks logs clear
 
 ```bash
 # One-time install
-git clone https://github.com/ChanMeng666/claude-code-audio-hooks ~/audio-hooks
+git clone https://github.com/ChanMeng666/echook ~/audio-hooks
 python ~/audio-hooks/bin/audio-hooks install --cursor       # writes ~/.cursor/hooks.json
 
 # Override DUPLICATE_BRIDGE if Claude Code is also installed (rare; double audio risk)
@@ -319,7 +319,7 @@ There is **no `audio-hooks upgrade --cursor` subcommand** — `audio-hooks upgra
 **For users who want to install audio-hooks for Codex** (paste this single agent prompt — works whether or not they also have Claude Code):
 
 ```bash
-git clone https://github.com/ChanMeng666/claude-code-audio-hooks ~/audio-hooks
+git clone https://github.com/ChanMeng666/echook ~/audio-hooks
 python ~/audio-hooks/bin/audio-hooks install --codex
 ```
 

@@ -285,7 +285,7 @@ else
     echo ""
     echo "This may indicate compatibility issues with your environment."
     echo "Please report this at:"
-    echo "  https://github.com/ChanMeng666/claude-code-audio-hooks/issues"
+    echo "  https://github.com/ChanMeng666/echook/issues"
     echo ""
     echo "Include the following information:"
     echo "  - Environment: $ENV_TYPE"

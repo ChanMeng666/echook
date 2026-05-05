@@ -274,7 +274,7 @@ def main() -> int:
 
     # Line 1: model + project header
     if not status:
-        print(f"{CYAN}[{model}]{RESET} {DIM}Audio Hooks (status unavailable){RESET}")
+        print(f"{CYAN}[{model}]{RESET} {DIM}echook (status unavailable){RESET}")
         return 0
 
     version = status.get("version", "?")
@@ -293,7 +293,7 @@ def main() -> int:
     if show("model"):
         l1_parts.append(f"{CYAN}[{model}]{RESET}")
     if show("version"):
-        l1_parts.append(f"\U0001f50a Audio Hooks v{version}")
+        l1_parts.append(f"\U0001f50a echook v{version}")
     if show("sounds"):
         l1_parts.append(f"{enabled_count}/{total_count} Sounds")
     if show("webhook"):

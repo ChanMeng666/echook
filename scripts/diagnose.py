@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Claude Code Audio Hooks - Diagnostic Tool
+echook - Diagnostic Tool
 
 This tool helps diagnose issues with the audio hooks installation.
 It checks the environment, configuration, and tests audio playback.
@@ -355,7 +355,7 @@ $p.Close()
 
 def run_diagnostics(verbose: bool = False, test_audio: bool = False) -> int:
     """Run all diagnostic checks."""
-    print_header(f"Claude Code Audio Hooks Diagnostic Tool v{VERSION}")
+    print_header(f"echook Diagnostic Tool v{VERSION}")
 
     issues = 0
     project_dir = None
@@ -489,7 +489,7 @@ def main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Claude Code Audio Hooks Diagnostic Tool",
+        description="echook Diagnostic Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Claude Code Audio Hooks - Quick Configure (Lite Tier)
+# echook - Quick Configure (Lite Tier)
 # Lightweight hook manager for Quick Setup users — no clone needed
 #
 # Usage (remote, no clone):
-#   curl -sL https://raw.githubusercontent.com/ChanMeng666/claude-code-audio-hooks/master/scripts/quick-configure.sh | bash -s -- --list
+#   curl -sL https://raw.githubusercontent.com/ChanMeng666/echook/master/scripts/quick-configure.sh | bash -s -- --list
 #   curl -sL ...quick-configure.sh | bash -s -- --disable SubagentStop
 #   curl -sL ...quick-configure.sh | bash -s -- --enable SubagentStop
 #   curl -sL ...quick-configure.sh | bash -s -- --only Stop Notification
@@ -475,7 +475,7 @@ resolve_hook_name() {
 # =============================================================================
 
 show_usage() {
-    printf "${BOLD}${CYAN}Claude Code Audio Hooks - Quick Configure${NC}\n"
+    printf "${BOLD}${CYAN}echook - Quick Configure${NC}\n"
     printf "Lightweight hook manager for Quick Setup (Lite tier) users\n\n"
     printf "${BOLD}Usage:${NC}\n"
     printf "  quick-configure.sh --list                          Show hook status\n"
@@ -503,7 +503,7 @@ show_usage() {
     printf "  # Check snooze status:\n"
     printf "  quick-configure.sh --snooze-status\n\n"
     printf "${BOLD}Remote usage (no clone needed):${NC}\n"
-    printf "  curl -sL https://raw.githubusercontent.com/ChanMeng666/claude-code-audio-hooks/master/scripts/quick-configure.sh | bash -s -- --list\n"
+    printf "  curl -sL https://raw.githubusercontent.com/ChanMeng666/echook/master/scripts/quick-configure.sh | bash -s -- --list\n"
     printf "\n"
 }
 
