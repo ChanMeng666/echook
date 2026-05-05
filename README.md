@@ -7,7 +7,7 @@
 **AI-operated audio notification system for Claude Code, Cursor IDE, and Codex CLI.**<br/>
 You type one slash command at install time. Then natural language forever.<br/>
 26 hook events, 2 audio themes, rate-limit alerts, webhooks, TTS, context monitor — all operated by your AI agent on your behalf.<br/>
-**🆕 5.2.0 — Codex CLI compatibility.** New native install path for OpenAI's Codex CLI: `audio-hooks install --codex` writes `~/.codex/hooks.json` registering all 6 events Codex supports (per [developers.openai.com/codex/hooks](https://developers.openai.com/codex/hooks)). AI-first feature-flag handling: install authors a fresh `~/.codex/config.toml` when none exists, emits machine-readable `next_steps` for the calling AI agent to follow up when an existing one needs editing. New `--invoker codex` CLI flag baked into the template, new `editor_targets.codex` block in status, new `codex: {...}` sub-object in webhook payloads, +33 bridge-contract tests. See [CHANGELOG](./CHANGELOG.md#520---2026-05-04). All 5.1.x fixes are still active.
+**🆕 5.2.x — echook rebrand + native Codex CLI.** Renamed from `claude-code-audio-hooks` → **echook** (Echo + Hook, /ˈɛkˌhʊk/) in 5.2.1: now that native install paths ship for **Claude Code, Cursor IDE, and Codex CLI**, leading with "Claude Code" in the name was misleading. **Door-only rename, zero migration:** the `audio-hooks` CLI, the `chanmeng-audio-hooks` marketplace name, and all state directories are unchanged — existing installs keep working via GitHub URL redirect. **5.2.0** added the Codex CLI path itself: `audio-hooks install --codex` writes `~/.codex/hooks.json` registering all 6 events Codex supports (per [developers.openai.com/codex/hooks](https://developers.openai.com/codex/hooks)). AI-first feature-flag handling — install authors a fresh `~/.codex/config.toml` when none exists, emits machine-readable `next_steps` for the calling AI agent when one needs editing. New `--invoker codex` CLI flag, new `editor_targets.codex` block in status, new `codex: {...}` sub-object in webhook payloads, +33 bridge-contract tests. See [CHANGELOG](./CHANGELOG.md#521---2026-05-05). All 5.1.x fixes still active.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Version](https://img.shields.io/badge/version-5.2.1-blue.svg)](https://github.com/ChanMeng666/echook)
@@ -36,7 +36,7 @@ https://github.com/user-attachments/assets/f57249be-a524-4e6f-8225-6b9500f1aea4
 <details>
 <summary><kbd>Table of Contents</kbd></summary>
 
-- [What's New in v5.0](#-whats-new-in-v50)
+- [What's New](#-whats-new)
 - [Pick Your Platform](#-pick-your-platform)
 - [Install in 60 Seconds](#-install-in-60-seconds) — Claude Code
 - [Cursor IDE — Two Install Paths](#-cursor-ide--same-project-two-install-paths)
@@ -58,9 +58,9 @@ https://github.com/user-attachments/assets/f57249be-a524-4e6f-8225-6b9500f1aea4
 
 ---
 
-## What's New in v5.0
+## What's New
 
-> *Renamed from `claude-code-audio-hooks` to `echook` in 5.2.1 — see [CHANGELOG](CHANGELOG.md#521---2026-05-05) for migration notes if you have an existing install. Door-only rename: the `audio-hooks` CLI, the `chanmeng-audio-hooks` marketplace name, and all state directories are unchanged.*
+The headline 5.2.x callout above covers the echook rebrand + Codex CLI support. The v5.0 redesign — the AI-first foundation that made all of this possible — lives below for reference.
 
 <details>
 <summary><kbd>v5.0 — AI-first redesign (click to expand)</kbd></summary>
@@ -377,7 +377,7 @@ sequenceDiagram
     You->>CC: Show me the last 20 errors and clear the log.
     CC-->>You: 2 errors found (WEBHOOK_TIMEOUT). Log cleared.
     You->>CC: What version of audio-hooks am I running?
-    CC-->>You: v5.1.3, plugin install.
+    CC-->>You: v5.2.1, plugin install.
     You->>CC: Please uninstall audio-hooks completely.
     CC-->>You: Plugin uninstalled. All hooks removed.
     end
@@ -596,7 +596,7 @@ Real-time context window and API quota bars — color-coded warnings before Clau
 </p>
 
 ```text
-[Opus] echook v5.1.3 | 6/26 Sounds | Webhook: ntfy | Theme: Voice
+[Opus] echook v5.2.1 | 6/26 Sounds | Webhook: ntfy | Theme: Voice
 [MUTED 23m]  feat/audio-v5  API Quota: 78%  Context: 65% (130K/200K)  /compact
 ```
 
