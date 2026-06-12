@@ -27,7 +27,7 @@ if [ "${1:-}" = "--check" ]; then
     CHECK_ONLY=1
 fi
 
-mkdir -p "$PLUGIN/hooks" "$PLUGIN/bin" "$PLUGIN/audio/default" "$PLUGIN/audio/custom" "$PLUGIN/config" "$PLUGIN/cursor-hooks" "$PLUGIN/codex-hooks"
+mkdir -p "$PLUGIN/hooks" "$PLUGIN/bin" "$PLUGIN/audio/default" "$PLUGIN/audio/custom" "$PLUGIN/config" "$PLUGIN/cursor-hooks" "$PLUGIN/codex-hooks" "$PLUGIN/.codex-plugin"
 
 copied=0
 checked=0
@@ -84,6 +84,7 @@ sync_file "$REPO/cursor-hooks/hooks.json"          "$PLUGIN/cursor-hooks/hooks.j
 # Codex CLI hooks template — used by `audio-hooks install --codex`
 # for users who run Codex (with or without Claude Code on the same machine).
 sync_file "$REPO/codex-hooks/hooks.json"           "$PLUGIN/codex-hooks/hooks.json"
+sync_file "$REPO/codex-hooks/plugin-hooks.json"    "$PLUGIN/codex-hooks/plugin-hooks.json"
 
 # Audio assets (both themes)
 sync_dir "$REPO/audio/default" "$PLUGIN/audio/default"

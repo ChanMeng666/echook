@@ -155,7 +155,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "5.2.1"
+PROJECT_VERSION = "5.2.2"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -259,38 +259,111 @@ def _detect_codex_native_install() -> bool:
     return isinstance(doc, dict) and bool(doc.get("_audio_hooks_managed"))
 
 
-def _detect_codex_feature_flag() -> Optional[bool]:
-    """Return ``True`` / ``False`` / ``None`` (file missing or unparseable).
-
-    Mirrors the read-only logic in ``_check_codex_feature_flag`` but returns
-    a tristate suitable for the editor_targets block.
-    """
+def _detect_codex_plugin_install() -> Optional[str]:
+    """Return Codex plugin cache path when audio-hooks appears installed."""
     codex_dir = Path(os.environ.get("CODEX_HOME") or str(Path.home() / ".codex"))
-    config_path = codex_dir / "config.toml"
-    if not config_path.exists():
-        return None
-    try:
-        text = config_path.read_text(encoding="utf-8")
-    except OSError:
-        return None
+    roots = [codex_dir / "plugins" / "cache", codex_dir / "plugins"]
+    for root in roots:
+        if not root.exists():
+            continue
+        try:
+            manifests = list(root.glob("**/.codex-plugin/plugin.json"))
+        except OSError:
+            continue
+        for manifest in manifests:
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if isinstance(data, dict) and data.get("name") == "audio-hooks":
+                return str(manifest.parent.parent)
+    return None
+
+
+def _codex_feature_state_from_text(text: str) -> str:
+    """Return Codex hooks feature state from config TOML text.
+
+    Current Codex enables hooks by default. The canonical opt-out is
+    ``[features].hooks = false``; the older ``codex_hooks`` alias is still
+    recognized for compatibility with existing user configs.
+    """
     try:
         import tomllib  # type: ignore
         try:
             data = tomllib.loads(text)
         except Exception:
-            return None
+            return "parse_error"
         features = data.get("features") if isinstance(data, dict) else None
         if not isinstance(features, dict):
-            return False
-        return features.get("codex_hooks") is True
+            return "enabled_by_default"
+        if "hooks" in features:
+            if features.get("hooks") is True:
+                return "explicitly_enabled"
+            if features.get("hooks") is False:
+                return "disabled"
+            return "parse_error"
+        if features.get("codex_hooks") is True:
+            return "explicitly_enabled_legacy"
+        if features.get("codex_hooks") is False:
+            return "disabled_legacy"
+        return "enabled_by_default"
     except ImportError:
+        in_features = False
+        saw_features = False
+        hooks_value: Optional[bool] = None
+        legacy_value: Optional[bool] = None
         for line in text.splitlines():
             stripped = line.strip()
-            if stripped.startswith("#"):
+            if not stripped or stripped.startswith("#"):
                 continue
-            if re.match(r"^codex_hooks\s*=\s*true\b", stripped, re.IGNORECASE):
-                return True
+            if re.match(r"^\[[^\]]+\]\s*$", stripped):
+                in_features = bool(re.match(r"^\[features\]\s*$", stripped, re.IGNORECASE))
+                saw_features = saw_features or in_features
+                continue
+            if not in_features:
+                continue
+            m = re.match(r"^hooks\s*=\s*(true|false)\b", stripped, re.IGNORECASE)
+            if m:
+                hooks_value = m.group(1).lower() == "true"
+                continue
+            m = re.match(r"^codex_hooks\s*=\s*(true|false)\b", stripped, re.IGNORECASE)
+            if m:
+                legacy_value = m.group(1).lower() == "true"
+        if hooks_value is True:
+            return "explicitly_enabled"
+        if hooks_value is False:
+            return "disabled"
+        if legacy_value is True:
+            return "explicitly_enabled_legacy"
+        if legacy_value is False:
+            return "disabled_legacy"
+        return "enabled_by_default" if saw_features or not saw_features else "enabled_by_default"
+
+
+def _codex_feature_enabled_from_state(state: str) -> Optional[bool]:
+    if state in ("disabled", "disabled_legacy"):
         return False
+    if state == "parse_error":
+        return None
+    return True
+
+
+def _detect_codex_hooks_feature_state() -> str:
+    """Read ``$CODEX_HOME/config.toml`` and return Codex hooks feature state."""
+    codex_dir = Path(os.environ.get("CODEX_HOME") or str(Path.home() / ".codex"))
+    config_path = codex_dir / "config.toml"
+    if not config_path.exists():
+        return "enabled_by_default"
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return "parse_error"
+    return _codex_feature_state_from_text(text)
+
+
+def _detect_codex_feature_flag() -> Optional[bool]:
+    """Backward-compatible bool for callers that predate hooks_feature_state."""
+    return _codex_feature_enabled_from_state(_detect_codex_hooks_feature_state())
 
 
 def _detect_cursor_native_install() -> bool:
@@ -344,14 +417,21 @@ def _detect_editor_targets() -> Dict[str, Any]:
         cursor_state = "inactive"
 
     codex_native = _detect_codex_native_install()
-    codex_flag = _detect_codex_feature_flag()
+    codex_plugin_path = _detect_codex_plugin_install()
+    codex_feature_state = _detect_codex_hooks_feature_state()
+    codex_flag = _codex_feature_enabled_from_state(codex_feature_state)
+    codex_via: List[str] = []
+    if codex_plugin_path:
+        codex_via.append("plugin")
     if codex_native:
-        if codex_flag is True:
+        codex_via.append("native")
+    if codex_via:
+        if codex_feature_state in ("disabled", "disabled_legacy"):
+            codex_state = "active-but-hooks-disabled"
+        elif codex_feature_state == "parse_error":
+            codex_state = "active-but-config-unreadable"
+        else:
             codex_state = "active"
-        elif codex_flag is False:
-            codex_state = "active-but-flag-disabled"
-        else:  # None — file missing or unparseable
-            codex_state = "active-but-flag-unknown"
     else:
         codex_state = "inactive"
 
@@ -366,9 +446,12 @@ def _detect_editor_targets() -> Dict[str, Any]:
         },
         "codex": {
             "state": codex_state,
+            "via": codex_via,
             "hooks_file": str(codex_dir / "hooks.json") if codex_native else None,
+            "plugin_path": codex_plugin_path,
             "config_path": str(codex_dir / "config.toml"),
             "feature_flag_enabled": codex_flag,
+            "hooks_feature_state": codex_feature_state,
             "data_dir": str(codex_dir / "audio-hooks-data"),
         },
     }
@@ -388,21 +471,22 @@ def _detect_editor_targets() -> Dict[str, Any]:
             "PermissionRequest hooks have no Cursor equivalent and never fire here "
             "(cursor.com/docs/reference/third-party-hooks)."
         )
-    if codex_state == "active-but-flag-disabled":
+    if codex_state == "active-but-hooks-disabled":
         result["codex"]["warning"] = {
-            "code": "CODEX_FEATURE_FLAG_MISSING",
+            "code": "CODEX_HOOKS_DISABLED",
             "message": (
                 f"Codex hooks are installed at {codex_dir / 'hooks.json'} but the "
-                f"`[features].codex_hooks` flag is not enabled in {codex_dir / 'config.toml'}. "
-                "Codex won't invoke any hooks until the flag is set to true."
+                f"`[features].hooks` flag is false in {codex_dir / 'config.toml'}. "
+                "Codex won't invoke any hooks until that opt-out is removed or set to true."
             ),
         }
-    elif codex_state == "active-but-flag-unknown":
+    elif codex_state == "active-but-config-unreadable":
         result["codex"]["warning"] = {
-            "code": "CODEX_FEATURE_FLAG_MISSING",
+            "code": "CODEX_CONFIG_PARSE_ERROR",
             "message": (
                 f"Codex hooks are installed but {codex_dir / 'config.toml'} could not be "
-                "read or parsed. Add `[features]\\ncodex_hooks = true` to enable hook firing."
+                "read or parsed. Fix the TOML file; hooks are enabled by default unless "
+                "`[features].hooks = false` is present."
             ),
         }
     return result
@@ -1401,19 +1485,16 @@ def _codex_home() -> Path:
 
 
 def _check_codex_feature_flag(config_path: Path) -> Dict[str, Any]:
-    """Inspect ``~/.codex/config.toml`` for ``[features].codex_hooks``.
+    """Inspect ``~/.codex/config.toml`` for Codex's hooks feature state.
 
-    Returns a dict with:
-      * ``state`` — one of ``"file_missing"``, ``"already_enabled"``,
-        ``"section_missing"``, ``"flag_missing_or_false"``, ``"parse_error"``
-      * ``config_path`` — string path
-      * ``next_step`` — a short instruction the AI invoking the install can
-        follow to fix non-enabled states (None when ``already_enabled``)
+    Hooks are enabled by default in current Codex. This helper is read-only:
+    it only reports a next step when the user's config explicitly disables
+    hooks or cannot be parsed.
     """
     result: Dict[str, Any] = {"config_path": str(config_path)}
     if not config_path.exists():
-        result["state"] = "file_missing"
-        result["next_step"] = None  # install writes a fresh file itself
+        result["state"] = "enabled_by_default"
+        result["next_step"] = None
         return result
     try:
         text = config_path.read_text(encoding="utf-8")
@@ -1421,75 +1502,26 @@ def _check_codex_feature_flag(config_path: Path) -> Dict[str, Any]:
         result["state"] = "parse_error"
         result["error"] = str(e)
         result["next_step"] = (
-            f"Could not read {config_path}: {e}. Ensure the file is readable, "
-            f"then add `[features]\\ncodex_hooks = true` to it."
+            f"Could not read {config_path}: {e}. Ensure the file is readable; "
+            "hooks are enabled by default unless `[features].hooks = false` is set."
         )
         return result
-    # tomllib (3.11+) is the safest read-only parser. Older Pythons use a
-    # deliberately conservative regex check — false negatives only.
-    try:
-        import tomllib  # type: ignore
-        try:
-            data = tomllib.loads(text)
-        except Exception as e:
-            result["state"] = "parse_error"
-            result["error"] = str(e)
-            result["next_step"] = (
-                f"{config_path} has a TOML parse error ({e}). Fix it, then ensure "
-                f"`[features]\\ncodex_hooks = true` is set."
-            )
-            return result
-        features = data.get("features") if isinstance(data, dict) else None
-        if not isinstance(features, dict):
-            result["state"] = "section_missing"
-            result["next_step"] = (
-                f"Append the following to {config_path}:\n\n[features]\ncodex_hooks = true\n"
-            )
-            return result
-        flag = features.get("codex_hooks")
-        if flag is True:
-            result["state"] = "already_enabled"
-            result["next_step"] = None
-            return result
-        result["state"] = "flag_missing_or_false"
+
+    state = _codex_feature_state_from_text(text)
+    result["state"] = state
+    if state in ("enabled_by_default", "explicitly_enabled", "explicitly_enabled_legacy"):
+        result["next_step"] = None
+    elif state in ("disabled", "disabled_legacy"):
         result["next_step"] = (
-            f"In {config_path}, set `codex_hooks = true` under the existing "
-            f"`[features]` section."
+            f"In {config_path}, remove `[features].hooks = false` or set "
+            "`hooks = true` under `[features]` so Codex invokes hooks."
         )
-        return result
-    except ImportError:
-        # Python < 3.11 fallback: lightweight regex. Tracks two signals so the
-        # caller can distinguish "no [features] section at all" from "section
-        # exists but flag is missing/false" — the AI agent's `next_steps`
-        # instruction differs (append a new section vs. set the flag inside an
-        # existing section).
-        has_features_section = False
-        flag_enabled = False
-        for line in text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                continue
-            if re.match(r"^\[features\]\s*$", stripped):
-                has_features_section = True
-                continue
-            if re.match(r"^codex_hooks\s*=\s*true\b", stripped, re.IGNORECASE):
-                flag_enabled = True
-        if flag_enabled:
-            result["state"] = "already_enabled"
-            result["next_step"] = None
-            return result
-        if not has_features_section:
-            result["state"] = "section_missing"
-            result["next_step"] = (
-                f"Append the following to {config_path}:\n\n[features]\ncodex_hooks = true\n"
-            )
-            return result
-        result["state"] = "flag_missing_or_false"
+    else:
         result["next_step"] = (
-            f"In {config_path}, set `codex_hooks = true` under the existing "
-            f"`[features]` section."
+            f"{config_path} has a TOML parse error. Fix it; hooks are enabled by "
+            "default unless `[features].hooks = false` is set."
         )
-        return result
+    return result
 
 
 def _install_codex() -> int:
@@ -1499,8 +1531,8 @@ def _install_codex() -> int:
     Code plugins, so there is no ``DUPLICATE_BRIDGE`` concern. The install
     writes ``$CODEX_HOME/hooks.json`` (default ``~/.codex/hooks.json``),
     seeds ``$CODEX_HOME/audio-hooks-data/``, and emits AI-readable
-    ``next_steps`` for any feature-flag edit the user's ``config.toml`` needs
-    so the calling AI agent can finish the job without prompting the human.
+    ``next_steps`` only when the user's ``config.toml`` explicitly disables
+    hooks or cannot be parsed.
     """
     codex_dir = _codex_home()
     if not codex_dir.exists():
@@ -1587,34 +1619,14 @@ def _install_codex() -> int:
             except Exception:
                 pass
 
-    # AI-first feature-flag handling. Codex hooks require
-    # `[features]\ncodex_hooks = true` in ~/.codex/config.toml.
+    # AI-first feature-state handling. Current Codex enables hooks by default;
+    # do not write or rewrite the user's config.toml from install --codex.
     config_path = codex_dir / "config.toml"
     flag_check = _check_codex_feature_flag(config_path)
     flag_state = flag_check["state"]
     next_steps: List[str] = []
 
-    if flag_state == "file_missing":
-        # We authored the whole file — safe to write a minimal config.toml.
-        try:
-            config_path.write_text(
-                "# Created by audio-hooks install --codex\n"
-                "# Codex requires this flag for hooks to fire.\n"
-                "[features]\n"
-                "codex_hooks = true\n",
-                encoding="utf-8",
-            )
-            flag_state = "freshly_written"
-        except OSError as e:
-            flag_state = "needs_user_action"
-            next_steps.append(
-                f"Could not write {config_path} ({e}). Create it with `[features]\\ncodex_hooks = true`."
-            )
-    elif flag_state == "already_enabled":
-        pass  # nothing to do
-    else:
-        # File exists but flag is missing/false/unparseable. We do NOT touch
-        # user-authored TOML — emit an AI-readable instruction instead.
+    if flag_state in ("disabled", "disabled_legacy", "parse_error"):
         next_step = flag_check.get("next_step")
         if next_step:
             next_steps.append(next_step)
@@ -1638,6 +1650,7 @@ def _install_codex() -> int:
                 "hook_runner": hook_runner_abs,
                 "python_bin": python_bin,
                 "feature_flag_state": flag_state,
+                "hooks_feature_state": flag_state,
                 "config_path": str(config_path),
             }, indent=2),
             encoding="utf-8",
@@ -1652,11 +1665,13 @@ def _install_codex() -> int:
         "data_dir": str(data_dir),
         "config_path": str(config_path),
         "feature_flag_state": flag_state,
+        "hooks_feature_state": flag_state,
         "next_steps": next_steps,
         "hint": (
-            "Codex supports 6 of audio-hooks' 26 hook events (SessionStart, PreToolUse, "
-            "PostToolUse, PermissionRequest, UserPromptSubmit, Stop). Other events no-op "
-            "cleanly under the codex invoker."
+            "Codex supports 10 of audio-hooks' 26 hook events (SessionStart, PreToolUse, "
+            "PermissionRequest, PostToolUse, PreCompact, PostCompact, UserPromptSubmit, "
+            "SubagentStart, SubagentStop, Stop). Other events no-op cleanly under the "
+            "codex invoker."
         ),
     })
     return 0
@@ -1667,8 +1682,7 @@ def _uninstall_codex(*, purge: bool) -> int:
 
     Preserves ``$CODEX_HOME/audio-hooks-data/`` by default so a future
     re-install picks up the user's preferences. ``--purge`` removes that
-    directory too. Never touches ``$CODEX_HOME/config.toml`` — the
-    ``codex_hooks`` feature flag may benefit other Codex hook plugins.
+    directory too. Never touches ``$CODEX_HOME/config.toml``.
     """
     codex_dir = _codex_home()
     target_path = codex_dir / "hooks.json"
@@ -1736,7 +1750,7 @@ def _uninstall_codex(*, purge: bool) -> int:
         "purged_data_dir": purged_data_dir,
         "next_steps": [
             "Restart Codex (or reload the config) so it stops invoking the audio-hooks runner",
-            "Codex's `[features].codex_hooks` flag was preserved (other hook plugins may use it)",
+            "Codex config.toml was left untouched",
         ],
     })
     return 0
@@ -2405,22 +2419,22 @@ def _build_manifest() -> Dict[str, Any]:
             },
             "codex": {
                 "auto_bridge": False,
-                "auto_bridge_note": "Codex does NOT auto-bridge Claude Code plugins. Native install via `audio-hooks install --codex` is the only path.",
+                "auto_bridge_note": "Codex does NOT auto-bridge Claude Code plugins. Install via the Codex plugin marketplace or native `audio-hooks install --codex`.",
                 "supported_events": [
                     "session_start",
                     "pretooluse",
-                    "posttooluse",
                     "permission_request",
+                    "posttooluse",
+                    "precompact",
+                    "postcompact",
                     "userpromptsubmit",
+                    "subagent_start",
+                    "subagent_stop",
                     "stop",
                 ],
                 "unsupported_events": [
                     "notification",
-                    "subagent_start",
-                    "subagent_stop",
                     "session_end",
-                    "precompact",
-                    "postcompact",
                     "worktree_create",
                     "worktree_remove",
                     "elicitation",
@@ -2434,7 +2448,8 @@ def _build_manifest() -> Dict[str, Any]:
                     "instructions_loaded",
                     "permission_denied",
                 ],
-                "feature_flag": "Codex requires `[features].codex_hooks = true` in $CODEX_HOME/config.toml. The install command writes a fresh config.toml when none exists, otherwise emits AI-readable next_steps.",
+                "feature_flag": "Codex hooks are enabled by default. `[features].hooks = false` in $CODEX_HOME/config.toml disables all hooks; remove it or set hooks = true to re-enable. Legacy `[features].codex_hooks = true` is recognized as explicitly enabled.",
+                "plugin_install_via": "codex plugin marketplace add ChanMeng666/echook && codex plugin add audio-hooks@chanmeng-audio-hooks",
                 "native_install_via": "audio-hooks install --codex",
                 "doc_url": "https://developers.openai.com/codex/hooks",
             },
@@ -2443,6 +2458,8 @@ def _build_manifest() -> Dict[str, Any]:
             "CLAUDE_PLUGIN_DATA": "Plugin install state directory (auto-set by Claude Code).",
             "CLAUDE_PLUGIN_ROOT": "Plugin install root (auto-set by Claude Code).",
             "CLAUDE_AUDIO_HOOKS_DATA": "Explicit override for state directory.",
+            "PLUGIN_DATA": "Codex plugin state directory (auto-set by Codex plugin loader).",
+            "PLUGIN_ROOT": "Codex plugin install root (auto-set by Codex plugin loader).",
             "CLAUDE_AUDIO_HOOKS_PROJECT": "Explicit override for project root.",
             "CLAUDE_HOOKS_DEBUG": "Set to 1/true/yes (case-insensitive) to write debug-level events to the NDJSON log AND dump the latest status line input JSON to ${state_dir}/statusline.last_input.json. Disable when not actively diagnosing — the dump may include workspace paths and the last assistant message.",
             "CURSOR_VERSION": "Set by Cursor IDE when invoking a hook (per cursor.com/docs/hooks). Used by detect_invoker() to identify Cursor as the caller.",

@@ -1,9 +1,9 @@
 """Tests for Codex CLI compatibility (5.x.x+).
 
-Codex (per developers.openai.com/codex/hooks) supports six hook events
+Codex (per developers.openai.com/codex/hooks) supports ten hook events
 (SessionStart, PreToolUse, PostToolUse, PermissionRequest, UserPromptSubmit,
-Stop) and does NOT auto-bridge Claude Code plugins. Adapting audio-hooks for
-Codex therefore requires:
+Stop, PreCompact, PostCompact, SubagentStart, SubagentStop). Adapting
+audio-hooks for Codex therefore requires:
 
   1. A separate ``codex-hooks/hooks.json`` template installed at
      ``$CODEX_HOME/hooks.json`` by ``audio-hooks install --codex``.
@@ -13,12 +13,12 @@ Codex therefore requires:
   3. Data-dir resolution that lands at ``$CODEX_HOME/audio-hooks-data/``
      when the invoker is codex (gated so a Cursor or Claude Code session
      on the same machine doesn't accidentally hijack it).
-  4. No-op handling for the 18 audio-hooks canonical events with no Codex
+  4. No-op handling for the audio-hooks canonical events with no Codex
      equivalent (mirroring how Notification/PermissionRequest no-op under
      Cursor).
-  5. AI-first feature-flag handling: install writes a fresh ``config.toml``
-     when none exists, otherwise emits ``next_steps`` instructing the
-     calling AI to add ``[features].codex_hooks = true`` itself.
+  5. Current feature handling: Codex hooks are on by default. The canonical
+     key is ``[features].hooks``; the old ``codex_hooks`` key is accepted only
+     as a backwards-compatible alias.
 
 This file pins those contracts.
 """
@@ -39,6 +39,8 @@ from typing import Any, Dict, Optional
 REPO = Path(__file__).resolve().parent.parent
 HOOK_RUNNER = REPO / "hooks" / "hook_runner.py"
 CODEX_TEMPLATE = REPO / "codex-hooks" / "hooks.json"
+CODEX_PLUGIN_TEMPLATE = REPO / "codex-hooks" / "plugin-hooks.json"
+CODEX_PLUGIN_MANIFEST = REPO / "plugins" / "audio-hooks" / ".codex-plugin" / "plugin.json"
 AUDIO_HOOKS_CLI = REPO / "bin" / "audio-hooks.py"
 
 
@@ -279,17 +281,19 @@ class TestResolveDataDirCodexFallback(unittest.TestCase):
 
 class TestCodexTemplateValidity(unittest.TestCase):
     """The bundled codex-hooks/hooks.json template must register exactly the
-    six events Codex supports, every command must end with `--invoker codex`,
+    ten events Codex supports, every command must end with `--invoker codex`,
     and no command must reference an unsupported audio-hooks canonical name.
     """
 
     EXPECTED_EVENTS = {
         "SessionStart", "PreToolUse", "PostToolUse",
         "PermissionRequest", "UserPromptSubmit", "Stop",
+        "PreCompact", "PostCompact", "SubagentStart", "SubagentStop",
     }
     CANONICAL_HANDLERS = {
         "session_start", "pretooluse", "posttooluse",
         "permission_request", "userpromptsubmit", "stop",
+        "precompact", "postcompact", "subagent_start", "subagent_stop",
     }
 
     def setUp(self):
@@ -300,7 +304,7 @@ class TestCodexTemplateValidity(unittest.TestCase):
         self.assertTrue(self.doc.get("_audio_hooks_managed"))
         self.assertIn("_audio_hooks_version", self.doc)
 
-    def test_six_supported_events_present(self):
+    def test_ten_supported_events_present(self):
         events = set(self.doc.get("hooks", {}).keys())
         self.assertEqual(events, self.EXPECTED_EVENTS)
 
@@ -339,18 +343,78 @@ class TestCodexTemplateValidity(unittest.TestCase):
         self.assertIn("{{HOOK_RUNNER}}", text)
 
 
+class TestCodexPluginTemplateValidity(unittest.TestCase):
+    """Codex plugin installs need a plugin-local hook template. It must not
+    rely on absolute path substitution and must not reuse Claude Code's
+    ${CLAUDE_PLUGIN_ROOT}-specific hooks/hooks.json.
+    """
+
+    EXPECTED_EVENTS = TestCodexTemplateValidity.EXPECTED_EVENTS
+
+    def setUp(self):
+        with open(CODEX_PLUGIN_TEMPLATE, "r", encoding="utf-8") as f:
+            self.doc = json.load(f)
+
+    def test_plugin_template_registers_codex_supported_events(self):
+        self.assertEqual(set(self.doc.get("hooks", {}).keys()), self.EXPECTED_EVENTS)
+
+    def test_plugin_template_uses_plugin_root_runner(self):
+        text = CODEX_PLUGIN_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("${PLUGIN_ROOT}", text)
+        self.assertIn("runner/run.py", text)
+        self.assertNotIn("{{PYTHON}}", text)
+        self.assertNotIn("{{HOOK_RUNNER}}", text)
+        self.assertNotIn("${CLAUDE_PLUGIN_ROOT}", text)
+
+    def test_every_plugin_command_carries_invoker_codex(self):
+        for evt, entries in self.doc["hooks"].items():
+            for entry in entries:
+                for handler in entry.get("hooks", []):
+                    cmd = handler.get("command", "")
+                    self.assertIn("--invoker codex", cmd, f"{evt}: {cmd!r}")
+
+
+class TestCodexPluginManifestValidity(unittest.TestCase):
+    """The Codex plugin manifest must point Codex at the Codex hook template."""
+
+    def test_manifest_points_to_codex_hook_template(self):
+        doc = json.loads(CODEX_PLUGIN_MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual(doc.get("name"), "audio-hooks")
+        self.assertEqual(doc.get("hooks"), "./codex-hooks/plugin-hooks.json")
+        self.assertEqual(doc.get("skills"), "./skills/")
+        hook_path = CODEX_PLUGIN_MANIFEST.parent.parent / doc["hooks"]
+        self.assertTrue(hook_path.exists(), f"missing hook template: {hook_path}")
+
+    def test_manifest_has_codex_interface_metadata(self):
+        doc = json.loads(CODEX_PLUGIN_MANIFEST.read_text(encoding="utf-8"))
+        interface = doc.get("interface", {})
+        for field in (
+            "displayName", "shortDescription", "longDescription",
+            "developerName", "category",
+        ):
+            self.assertIsInstance(interface.get(field), str)
+            self.assertTrue(interface[field].strip(), f"missing interface.{field}")
+        self.assertIsInstance(interface.get("capabilities"), list)
+        self.assertTrue(interface["capabilities"])
+        self.assertIsInstance(interface.get("defaultPrompt"), list)
+        self.assertTrue(interface["defaultPrompt"])
+        self.assertNotIn("type", interface)
+        self.assertNotIn("entry", interface)
+        self.assertNotIn("commands", interface)
+
+
 # ---------------------------------------------------------------------------
 # 4. Unsupported events no-op cleanly under codex invoker
 # ---------------------------------------------------------------------------
 
 class TestUnsupportedHooksSkipUnderCodex(unittest.TestCase):
-    """The 18 audio-hooks canonical events with no Codex equivalent must
+    """The audio-hooks canonical events with no Codex equivalent must
     return 0 with a debug NDJSON event when invoked with --invoker codex.
     """
 
     UNSUPPORTED = (
-        "notification", "subagent_start", "subagent_stop", "session_end",
-        "precompact", "postcompact", "worktree_create", "worktree_remove",
+        "notification", "session_end",
+        "worktree_create", "worktree_remove",
         "elicitation", "elicitation_result", "cwd_changed", "file_changed",
         "task_created", "task_completed", "teammate_idle", "config_change",
         "instructions_loaded", "permission_denied",
@@ -557,9 +621,9 @@ class TestInstallCodex(unittest.TestCase):
         self._install()
         self._install()
         doc = json.loads((self.codex_home / "hooks.json").read_text(encoding="utf-8"))
-        # 6 events, each with one entry from us
+        # 10 events, with two matcher entries each for PreCompact/PostCompact
         total = sum(len(v) for v in doc.get("hooks", {}).values())
-        self.assertEqual(total, 6, f"unexpected entry count: {total}")
+        self.assertEqual(total, 12, f"unexpected entry count: {total}")
 
     def test_install_preserves_foreign_entries(self):
         # Pre-write a user-authored hooks.json with a non-audio-hooks entry
@@ -589,9 +653,9 @@ class TestInstallCodex(unittest.TestCase):
 
 
 class TestInstallCodexFeatureFlag(unittest.TestCase):
-    """Install handles the ``[features].codex_hooks`` flag in three states:
-    file missing → write fresh; flag already enabled → skip; otherwise →
-    emit ``next_steps`` for the AI to follow up.
+    """Install reports current Codex hook feature state without rewriting
+    user-authored config. Hooks are enabled by default unless
+    ``[features].hooks = false`` is explicitly present.
     """
 
     def setUp(self):
@@ -609,54 +673,61 @@ class TestInstallCodexFeatureFlag(unittest.TestCase):
 
     def test_writes_fresh_config_when_missing(self):
         out = self._install()
-        self.assertEqual(out["feature_flag_state"], "freshly_written")
+        self.assertEqual(out["feature_flag_state"], "enabled_by_default")
         cfg = self.codex_home / "config.toml"
-        self.assertTrue(cfg.exists())
-        text = cfg.read_text(encoding="utf-8")
-        self.assertIn("[features]", text)
-        self.assertIn("codex_hooks = true", text)
+        self.assertFalse(cfg.exists(), "install must not create config.toml just to enable hooks")
 
     def test_skips_when_flag_already_enabled(self):
         cfg = self.codex_home / "config.toml"
         cfg.write_text(
-            "[features]\ncodex_hooks = true\n", encoding="utf-8",
+            "[features]\nhooks = true\n", encoding="utf-8",
         )
         out = self._install()
-        self.assertEqual(out["feature_flag_state"], "already_enabled")
+        self.assertEqual(out["feature_flag_state"], "explicitly_enabled")
         # Did not modify
         self.assertEqual(
             cfg.read_text(encoding="utf-8"),
-            "[features]\ncodex_hooks = true\n",
+            "[features]\nhooks = true\n",
         )
 
     def test_emits_next_step_when_section_missing(self):
         cfg = self.codex_home / "config.toml"
         cfg.write_text('model = "gpt-5"\n', encoding="utf-8")
         out = self._install()
-        self.assertEqual(out["feature_flag_state"], "section_missing")
+        self.assertEqual(out["feature_flag_state"], "enabled_by_default")
         # User config is NOT touched
         self.assertEqual(cfg.read_text(encoding="utf-8"), 'model = "gpt-5"\n')
-        # next_steps tells the AI agent what to do
-        self.assertTrue(any(
-            "[features]" in s and "codex_hooks" in s
+        self.assertFalse(any(
+            "codex_hooks" in s or "hooks = true" in s
             for s in out.get("next_steps", [])
-        ), f"missing config-edit instruction in next_steps: {out.get('next_steps')}")
+        ), f"should not request a config edit when hooks are default-on: {out.get('next_steps')}")
 
     def test_emits_next_step_when_flag_false(self):
         cfg = self.codex_home / "config.toml"
         cfg.write_text(
-            "[features]\ncodex_hooks = false\n", encoding="utf-8",
+            "[features]\nhooks = false\n", encoding="utf-8",
         )
         out = self._install()
-        self.assertEqual(out["feature_flag_state"], "flag_missing_or_false")
+        self.assertEqual(out["feature_flag_state"], "disabled")
+        self.assertTrue(any(
+            "hooks = false" in s or "hooks = true" in s
+            for s in out.get("next_steps", [])
+        ), f"missing hooks re-enable instruction in next_steps: {out.get('next_steps')}")
+
+    def test_legacy_codex_hooks_true_is_accepted_as_alias(self):
+        cfg = self.codex_home / "config.toml"
+        cfg.write_text(
+            "[features]\ncodex_hooks = true\n", encoding="utf-8",
+        )
+        out = self._install()
+        self.assertEqual(out["feature_flag_state"], "explicitly_enabled_legacy")
 
 
 class TestFeatureFlagRegexFallback(unittest.TestCase):
     """Force the ``tomllib`` import to fail so we exercise the Python <3.11
-    regex fallback in ``_check_codex_feature_flag``. CI v5.2.0 caught a bug
-    here: the fallback was returning ``flag_missing_or_false`` for both
-    "no [features] section" and "flag is false", so the AI agent's next_steps
-    instruction was wrong on Python 3.9.
+    regex fallback in ``_check_codex_feature_flag``. The fallback must mirror
+    current Codex semantics: default-on, ``hooks`` canonical key, and
+    ``codex_hooks`` as a legacy alias.
 
     We invoke the install in a child process with ``-c "import sys;
     sys.modules['tomllib'] = None; ..."`` so the fallback path runs even on
@@ -707,31 +778,27 @@ class TestFeatureFlagRegexFallback(unittest.TestCase):
         cfg.write_text('model = "gpt-5"\n', encoding="utf-8")
         out = self._install_with_tomllib_disabled()
         self.assertEqual(
-            out["feature_flag_state"], "section_missing",
-            "regex fallback must distinguish 'no [features] section' from "
-            "'flag is missing/false' so the AI agent's next_steps is correct",
+            out["feature_flag_state"], "enabled_by_default",
+            "missing [features] should not disable hooks",
         )
 
     def test_flag_false_under_regex_fallback(self):
         cfg = self.codex_home / "config.toml"
-        cfg.write_text("[features]\ncodex_hooks = false\n", encoding="utf-8")
+        cfg.write_text("[features]\nhooks = false\n", encoding="utf-8")
         out = self._install_with_tomllib_disabled()
-        self.assertEqual(out["feature_flag_state"], "flag_missing_or_false")
+        self.assertEqual(out["feature_flag_state"], "disabled")
 
     def test_flag_true_under_regex_fallback(self):
         cfg = self.codex_home / "config.toml"
-        cfg.write_text("[features]\ncodex_hooks = true\n", encoding="utf-8")
+        cfg.write_text("[features]\nhooks = true\n", encoding="utf-8")
         out = self._install_with_tomllib_disabled()
-        self.assertEqual(out["feature_flag_state"], "already_enabled")
+        self.assertEqual(out["feature_flag_state"], "explicitly_enabled")
 
     def test_section_present_but_flag_absent_under_regex_fallback(self):
-        # A [features] section that doesn't mention codex_hooks at all should
-        # be reported as "flag missing/false" so the AI is instructed to set
-        # the flag rather than appending a fresh section.
         cfg = self.codex_home / "config.toml"
         cfg.write_text("[features]\nsome_other_flag = true\n", encoding="utf-8")
         out = self._install_with_tomllib_disabled()
-        self.assertEqual(out["feature_flag_state"], "flag_missing_or_false")
+        self.assertEqual(out["feature_flag_state"], "enabled_by_default")
 
 
 class TestUninstallCodex(unittest.TestCase):
@@ -754,7 +821,7 @@ class TestUninstallCodex(unittest.TestCase):
         self.assertEqual(rc, 0)
         out = json.loads(stdout)
         self.assertEqual(out["mode"], "codex")
-        self.assertEqual(out["removed_entries"], 6)
+        self.assertEqual(out["removed_entries"], 12)
         # File should be gone (no foreign content)
         self.assertFalse((self.codex_home / "hooks.json").exists())
 
@@ -793,10 +860,10 @@ class TestUninstallCodex(unittest.TestCase):
 
     def test_uninstall_does_not_touch_config_toml(self):
         cfg = self.codex_home / "config.toml"
-        self.assertTrue(cfg.exists())
+        cfg.write_text("[features]\nhooks = true\n", encoding="utf-8")
         original_text = cfg.read_text(encoding="utf-8")
         self._uninstall()
-        # config.toml MUST be preserved — other Codex hook plugins may use the flag
+        # config.toml MUST be preserved exactly.
         self.assertEqual(cfg.read_text(encoding="utf-8"), original_text)
 
 
@@ -821,7 +888,35 @@ class TestEditorTargetsCodex(unittest.TestCase):
             doc = json.loads(stdout)
             codex_state = doc.get("editor_targets", {}).get("codex", {})
             self.assertEqual(codex_state.get("state"), "active")
-            self.assertTrue(codex_state.get("feature_flag_enabled"))
+            self.assertIn("native", codex_state.get("via", []))
+            self.assertEqual(codex_state.get("hooks_feature_state"), "enabled_by_default")
+
+
+class TestCodexManifestInstallCommand(unittest.TestCase):
+    def test_manifest_uses_current_codex_plugin_add_command(self):
+        rc, stdout, _ = _run_cli(["manifest"])
+        self.assertEqual(rc, 0)
+        doc = json.loads(stdout)
+        install_cmd = (
+            doc.get("supported_editors", {})
+            .get("codex", {})
+            .get("plugin_install_via", "")
+        )
+        self.assertIn("codex plugin add audio-hooks@chanmeng-audio-hooks", install_cmd)
+        self.assertNotIn("codex plugin install", install_cmd)
+
+
+class TestCodexDisplayLabels(unittest.TestCase):
+    def test_codex_invoker_label_is_codex(self):
+        saved_argv = sys.argv[:]
+        try:
+            sys.argv = ["hook_runner.py", "stop", "--invoker", "codex"]
+            mod = _load_module()
+            self.assertEqual(mod._invoker_display_name(), "Codex")
+        finally:
+            sys.argv = saved_argv
+            sys.modules.pop("invoker", None)
+            sys.modules.pop("hook_runner", None)
 
 
 if __name__ == "__main__":

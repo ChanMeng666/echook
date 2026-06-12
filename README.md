@@ -7,10 +7,10 @@
 **AI-operated audio notification system for Claude Code, Cursor IDE, and Codex CLI.**<br/>
 You type one slash command at install time. Then natural language forever.<br/>
 26 hook events, 2 audio themes, rate-limit alerts, webhooks, TTS, context monitor — all operated by your AI agent on your behalf.<br/>
-**🆕 5.2.x — echook rebrand + native Codex CLI.** Renamed from `claude-code-audio-hooks` → **echook** (Echo + Hook, /ˈɛkˌhʊk/) in 5.2.1: now that native install paths ship for **Claude Code, Cursor IDE, and Codex CLI**, leading with "Claude Code" in the name was misleading. **Door-only rename, zero migration:** the `audio-hooks` CLI, the `chanmeng-audio-hooks` marketplace name, and all state directories are unchanged — existing installs keep working via GitHub URL redirect. **5.2.0** added the Codex CLI path itself: `audio-hooks install --codex` writes `~/.codex/hooks.json` registering all 6 events Codex supports (per [developers.openai.com/codex/hooks](https://developers.openai.com/codex/hooks)). AI-first feature-flag handling — install authors a fresh `~/.codex/config.toml` when none exists, emits machine-readable `next_steps` for the calling AI agent when one needs editing. New `--invoker codex` CLI flag, new `editor_targets.codex` block in status, new `codex: {...}` sub-object in webhook payloads, +33 bridge-contract tests. See [CHANGELOG](./CHANGELOG.md#521---2026-05-05). All 5.1.x fixes still active.
+**5.2.x — echook rebrand + Codex support.** Renamed from `claude-code-audio-hooks` → **echook** (Echo + Hook, /ˈɛkˌhʊk/) in 5.2.1: now that install paths ship for **Claude Code, Cursor IDE, and Codex**, leading with "Claude Code" in the name was misleading. **Door-only rename, zero migration:** the `audio-hooks` CLI, the `chanmeng-audio-hooks` marketplace name, and all state directories are unchanged — existing installs keep working via GitHub URL redirect. Codex support now includes the Codex plugin path plus the native `audio-hooks install --codex` path, both registering the 10 Codex hook events: `SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, and `Stop`. See [CHANGELOG](./CHANGELOG.md#522---2026-06-12). All 5.1.x fixes still active.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-5.2.1-blue.svg)](https://github.com/ChanMeng666/echook)
+[![Version](https://img.shields.io/badge/version-5.2.2-blue.svg)](https://github.com/ChanMeng666/echook)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-green.svg)](https://github.com/ChanMeng666/echook)
 [![Editors](https://img.shields.io/badge/editors-Claude_Code_%7C_Cursor_%7C_Codex-brightgreen.svg)](#pick-your-platform)
 [![Install](https://img.shields.io/badge/install-just_talk_to_your_AI_agent-purple.svg)](#pick-your-platform)
@@ -40,7 +40,7 @@ https://github.com/user-attachments/assets/f57249be-a524-4e6f-8225-6b9500f1aea4
 - [Pick Your Platform](#pick-your-platform)
 - [Install in 60 Seconds](#install-in-60-seconds) — Claude Code
 - [Cursor IDE — Two Install Paths](#cursor-ide--same-project-two-install-paths)
-- [Codex CLI — Native Install](#codex-cli--native-install)
+- [Codex — Plugin or Native Install](#codex--plugin-or-native-install)
 - [Just Say It — Natural Language Control](#just-say-it--natural-language-control)
 - [How It Works](#how-it-works)
 - [Key Features](#key-features)
@@ -123,7 +123,7 @@ This is an **AI-first** project. You don't follow install steps yourself — you
 | **Claude Code** | *"Install the audio-hooks plugin from `github.com/ChanMeng666/echook`."* | [Install in 60 Seconds](https://github.com/ChanMeng666/echook#install-in-60-seconds) |
 | **Cursor IDE** (with Claude Code installed too — most users) | *"Run `audio-hooks status` and confirm `editor_targets.cursor.state` is `bridged-via-claude-code`."* (Cursor 3.2.16+ auto-bridges Claude Code plugins.) | [Cursor IDE — Path A](https://github.com/ChanMeng666/echook#path-a--cursor--claude-code-most-users) |
 | **Cursor IDE** (without Claude Code) | *"Clone `github.com/ChanMeng666/echook` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --cursor`, then verify with `audio-hooks status` + `audio-hooks test all`."* | [Cursor IDE — Path B](https://github.com/ChanMeng666/echook#path-b--cursor-without-claude-code) |
-| **Codex CLI** | *"Clone `github.com/ChanMeng666/echook` into `~/audio-hooks`, run `python ~/audio-hooks/bin/audio-hooks install --codex`, read the JSON output, and follow `next_steps` if `feature_flag_state` is `section_missing` or `flag_missing_or_false`."* | [Codex CLI — Native Install](https://github.com/ChanMeng666/echook#codex-cli--native-install) |
+| **Codex** | *"Install the audio-hooks Codex plugin from `github.com/ChanMeng666/echook`, then verify with `audio-hooks status` + `audio-hooks test all`."* Native fallback: clone the repo and run `python ~/audio-hooks/bin/audio-hooks install --codex`. | [Codex — Plugin or Native Install](https://github.com/ChanMeng666/echook#codex--plugin-or-native-install) |
 
 Once installed (any path), every natural-language prompt in [Just Say It](#just-say-it--natural-language-control) below works identically — same `audio-hooks` CLI, same JSON, same skill, regardless of which AI agent is driving.
 
@@ -246,24 +246,30 @@ Once installed (either path), every prompt in *Just Say It* below works on Curso
 
 ---
 
-## Codex CLI — Native Install
+## Codex — Plugin or Native Install
 
-OpenAI's Codex CLI does NOT auto-bridge Claude Code plugins (unlike Cursor), so there's exactly one install path: a native registration at `~/.codex/hooks.json`. The install is fully AI-first — paste this single prompt into Codex (or any AI agent that can run shell commands):
+Codex does NOT auto-bridge Claude Code plugins (unlike Cursor). Use the Codex plugin path when available; keep the native `~/.codex/hooks.json` path for users who prefer a cloned repo or are on an older Codex build.
 
-> **Clone `https://github.com/ChanMeng666/echook` into `~/audio-hooks`, then run `python ~/audio-hooks/bin/audio-hooks install --codex`. Read the JSON output: if `feature_flag_state` is `section_missing` or `flag_missing_or_false`, follow the `next_steps` instruction (use your Edit tool to add `[features]\ncodex_hooks = true` to `~/.codex/config.toml`). Then restart Codex and run `audio-hooks status` to confirm `editor_targets.codex.state == "active"`.**
+Plugin install prompt:
+
+> **Install the audio-hooks Codex plugin from `github.com/ChanMeng666/echook` by running `codex plugin marketplace add ChanMeng666/echook` and `codex plugin add audio-hooks@chanmeng-audio-hooks`. Then ask me to reload plugins if Codex requires it, and verify with `audio-hooks status` plus `audio-hooks test all`.**
+
+Native install prompt:
+
+> **Clone `https://github.com/ChanMeng666/echook` into `~/audio-hooks`, then run `python ~/audio-hooks/bin/audio-hooks install --codex`. Read the JSON output: only follow `next_steps` if `feature_flag_state` is `disabled`, `disabled_legacy`, or `parse_error`. Then restart Codex and run `audio-hooks status` to confirm `editor_targets.codex.state == "active"`.**
 
 What the install does:
 
-1. Writes `~/.codex/hooks.json` registering the 6 hook events Codex supports (`SessionStart`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `UserPromptSubmit`, `Stop`) — see [developers.openai.com/codex/hooks](https://developers.openai.com/codex/hooks). Each entry is tagged `_managed_by: "audio-hooks"` so uninstall removes only ours.
+1. Writes `~/.codex/hooks.json` registering the 10 hook events Codex supports (`SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`). Each entry is tagged `_managed_by: "audio-hooks"` so uninstall removes only ours.
 2. Seeds `~/.codex/audio-hooks-data/user_preferences.json` from the project default. Subsequent re-installs preserve this file.
-3. **Handles the feature flag without touching user TOML.** Codex requires `[features]\ncodex_hooks = true` in `~/.codex/config.toml`. If the file doesn't exist, install authors a fresh one with the flag enabled. If the file exists but the flag is missing, install emits a machine-readable `next_steps` instruction so the calling AI agent can add the flag with its Edit tool — we never round-trip the user's TOML, because that destroys comments and formatting.
+3. **Checks the hooks feature state without touching user TOML.** Codex hooks are enabled by default. If `~/.codex/config.toml` explicitly has `[features].hooks = false`, install emits a machine-readable `next_steps` instruction so the calling AI agent can remove that opt-out or set `hooks = true`. We never round-trip the user's TOML, because that destroys comments and formatting.
 4. Writes an install marker at `~/.codex/audio-hooks-data/install_marker.json` so `audio-hooks status` can render `editor_targets.codex.state`.
 
-The 18 audio-hooks canonical events with no Codex equivalent (`Notification`, `SubagentStop`, `PreCompact`, `WorktreeCreate`, `Elicitation`, etc.) no-op cleanly under the codex invoker with a debug NDJSON event — they never block, error, or interfere with Codex's session.
+The audio-hooks canonical events with no Codex equivalent (`Notification`, `SessionEnd`, `WorktreeCreate`, `Elicitation`, etc.) no-op cleanly under the codex invoker with a debug NDJSON event — they never block, error, or interfere with Codex's session.
 
 ### Uninstalling Codex audio-hooks
 
-> **Run `python ~/audio-hooks/bin/audio-hooks uninstall --codex`.** Pass `--purge` to also delete `~/.codex/audio-hooks-data/`. The uninstall **never touches `~/.codex/config.toml`** — the `codex_hooks` feature flag may benefit other Codex hook plugins.
+> **Run `python ~/audio-hooks/bin/audio-hooks uninstall --codex`.** Pass `--purge` to also delete `~/.codex/audio-hooks-data/`. The uninstall **never touches `~/.codex/config.toml`**.
 
 ### Codex + audio-hooks: natural-language control still works
 
@@ -377,7 +383,7 @@ sequenceDiagram
     You->>CC: Show me the last 20 errors and clear the log.
     CC-->>You: 2 errors found (WEBHOOK_TIMEOUT). Log cleared.
     You->>CC: What version of audio-hooks am I running?
-    CC-->>You: v5.2.1, plugin install.
+    CC-->>You: v5.2.2, plugin install.
     You->>CC: Please uninstall audio-hooks completely.
     CC-->>You: Plugin uninstalled. All hooks removed.
     end
@@ -596,7 +602,7 @@ Real-time context window and API quota bars — color-coded warnings before Clau
 </p>
 
 ```text
-[Opus] echook v5.2.1 | 6/26 Sounds | Webhook: ntfy | Theme: Voice
+[Opus] echook v5.2.2 | 6/26 Sounds | Webhook: ntfy | Theme: Voice
 [MUTED 23m]  feat/audio-v5  API Quota: 78%  Context: 65% (130K/200K)  /compact
 ```
 
@@ -929,10 +935,10 @@ echook/
 ├── scripts/
 │   ├── install-complete.sh / install-windows.ps1
 │   ├── uninstall.sh / build-plugin.sh
-│   ├── bump-version.sh               # atomic version bump across 6 files
+│   ├── bump-version.sh               # atomic version bump across 8 files
 │   ├── generate-audio.py
 │   └── ...
-├── tests/                            # 139 unittest cases (Cursor + Codex bridge contracts)
+├── tests/                            # 147 unittest cases (Cursor + Codex bridge contracts)
 ├── CLAUDE.md
 ├── README.md
 └── CHANGELOG.md
@@ -944,8 +950,8 @@ echook/
 2. Run `bash scripts/build-plugin.sh` to sync into plugin layout
 3. CI verifies in-sync via `bash scripts/build-plugin.sh --check`
 4. Validate: `claude plugin validate plugins/audio-hooks`
-5. Test: `python -m unittest discover -v tests` (139 tests; Ubuntu/Windows/macOS × Python 3.9/3.12/3.13 in CI)
-6. Bump version (when releasing): `bash scripts/bump-version.sh <new_version>` — atomically updates 6 canonical version locations and re-runs `build-plugin.sh`
+5. Test: `python -m unittest discover -v tests` (147 tests; Ubuntu/Windows/macOS × Python 3.9/3.12/3.13 in CI)
+6. Bump version (when releasing): `bash scripts/bump-version.sh <new_version>` — atomically updates 8 canonical version locations and re-runs `build-plugin.sh`
 
 ### Contributing
 

@@ -1,15 +1,11 @@
 {
-  "_comment": "Codex CLI hooks.json template for audio-hooks. This file is the canonical template; `audio-hooks install --codex` reads it, substitutes {{PYTHON}} and {{HOOK_RUNNER}} with absolute paths, and writes the result into ~/.codex/hooks.json (merging with any existing user hooks). DO NOT edit ~/.codex/hooks.json by hand — re-run install --codex instead.",
+  "_comment": "Codex CLI hooks.json template for audio-hooks. This file is the canonical native-install template; `audio-hooks install --codex` reads it, substitutes {{PYTHON}} and {{HOOK_RUNNER}} with absolute paths, and writes the result into ~/.codex/hooks.json (merging with any existing user hooks). DO NOT edit ~/.codex/hooks.json by hand — re-run install --codex instead.",
   "_schema_doc": "https://developers.openai.com/codex/hooks",
   "_audio_hooks_managed": true,
-  "_audio_hooks_version": "5.2.1",
+  "_audio_hooks_version": "5.2.2",
   "_unsupported_in_codex": [
     "Notification",
-    "SubagentStart",
-    "SubagentStop",
     "SessionEnd",
-    "PreCompact",
-    "PostCompact",
     "WorktreeCreate",
     "WorktreeRemove",
     "Elicitation",
@@ -23,12 +19,12 @@
     "InstructionsLoaded",
     "PermissionDenied"
   ],
-  "_unsupported_note": "Codex's hook surface (per developers.openai.com/codex/hooks) covers 6 events: SessionStart, PreToolUse, PostToolUse, PermissionRequest, UserPromptSubmit, Stop. Other audio-hooks canonical events have no Codex equivalent and the runner no-ops them under the codex invoker.",
-  "_feature_flag_required": "Codex requires `[features]\\ncodex_hooks = true` in ~/.codex/config.toml for hooks to fire. The install command writes a fresh config.toml when none exists, otherwise emits next_steps for the calling AI agent to add the flag.",
+  "_unsupported_note": "Codex's hook surface covers 10 events: SessionStart, PreToolUse, PermissionRequest, PostToolUse, PreCompact, PostCompact, UserPromptSubmit, SubagentStart, SubagentStop, Stop. Other audio-hooks canonical events have no Codex equivalent and the runner no-ops them under the codex invoker.",
+  "_feature_flag_required": "Codex hooks are enabled by default. `[features].hooks = false` in ~/.codex/config.toml disables all hooks; remove it or set hooks = true to re-enable. The legacy `[features].codex_hooks = true` flag is still recognized as explicitly enabled for older Codex builds.",
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
@@ -41,7 +37,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|apply_patch|mcp__.*",
+        "matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -53,7 +49,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|apply_patch|mcp__.*",
+        "matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -65,7 +61,7 @@
     ],
     "PermissionRequest": [
       {
-        "matcher": "Bash|apply_patch|mcp__.*",
+        "matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -76,12 +72,78 @@
         ]
       }
     ],
+    "PreCompact": [
+      {
+        "matcher": "manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" precompact --invoker codex",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" precompact --invoker codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" postcompact --invoker codex",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" postcompact --invoker codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" userpromptsubmit --invoker codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" subagent_start --invoker codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" subagent_stop --invoker codex",
             "timeout": 10
           }
         ]

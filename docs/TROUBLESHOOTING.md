@@ -1,6 +1,6 @@
 # Troubleshooting
 
-> **Version:** 5.2.0 | **Last Updated:** 2026-05-04
+> **Version:** 5.2.2 | **Last Updated:** 2026-06-12
 
 The troubleshooting story is one command:
 
@@ -27,7 +27,8 @@ It returns a JSON document listing the platform, audio player binary, the state 
 | `DUPLICATE_BRIDGE` | `install --cursor` aborted because Claude Code's plugin already auto-bridges to Cursor (would cause double audio) | `audio-hooks uninstall --plugin` first, **or** pass `--force` to `install --cursor` if you want both paths active (rare) |
 | `DUPLICATE_BRIDGE_RUNTIME_SKIP` | Runtime skipped a Cursor invocation because `install_marker.json` records `duplicate_bridge_forced: true` (you ran `install --cursor --force` over an active bridge) | `audio-hooks uninstall --cursor` to remove the native install — Claude Code's bridge then handles Cursor normally |
 | `CURSOR_NOT_FOUND` | `install --cursor` couldn't find `~/.cursor/` | Install Cursor IDE first, then re-run |
-| `CODEX_FEATURE_FLAG_MISSING` | Codex hooks are installed but `[features].codex_hooks = true` is not set in `~/.codex/config.toml`. Codex won't invoke any hooks. | Add `[features]\ncodex_hooks = true` to `~/.codex/config.toml` (or set the flag under the existing `[features]` section). Surfaced by `audio-hooks status` as `editor_targets.codex.warning`. |
+| `CODEX_HOOKS_DISABLED` | Codex hooks are installed but `[features].hooks = false` is set in `~/.codex/config.toml`. Codex won't invoke any hooks. | Remove the opt-out or set `hooks = true` under `[features]`, then restart Codex. Surfaced by `audio-hooks status` as `editor_targets.codex.warning`. |
+| `CODEX_CONFIG_PARSE_ERROR` | Codex hooks are installed but `~/.codex/config.toml` could not be parsed. | Fix the TOML syntax. Hooks are enabled by default unless `[features].hooks = false` is present. |
 | `INTERNAL_ERROR` | Unexpected internal error | `audio-hooks logs tail --level error --n 50` and report it as a GitHub issue |
 
 ## Symptoms
@@ -212,8 +213,8 @@ Run `audio-hooks status` and look at `editor_targets.codex`:
 | State | Fix |
 |---|---|
 | `inactive` | The native install isn't in place. Run `audio-hooks install --codex`. |
-| `active-but-flag-disabled` | The install is there but Codex's feature flag isn't enabled. Add `[features]\ncodex_hooks = true` to `~/.codex/config.toml` (use your AI agent's Edit tool — we never auto-edit user TOML), then restart Codex. |
-| `active-but-flag-unknown` | The flag couldn't be parsed (`config.toml` may have a syntax error). Read it and fix the TOML, then ensure `codex_hooks = true` under `[features]`. |
+| `active-but-hooks-disabled` | The install is there but `[features].hooks = false` disables Codex hooks. Remove that opt-out or set `hooks = true`, then restart Codex. |
+| `active-but-config-unreadable` | `config.toml` may have a syntax error. Read it and fix the TOML; hooks are enabled by default unless `[features].hooks = false` is present. |
 | `active` | Audio should be working. If it isn't, check `audio-hooks logs tail --level error` and run `audio-hooks diagnose` for player/file issues. |
 
 If you've never installed Codex itself, `~/.codex/` won't exist — install Codex from [openai/codex](https://github.com/openai/codex) first, then re-run `audio-hooks install --codex`.

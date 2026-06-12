@@ -5,13 +5,15 @@
 # Usage:
 #   bash scripts/bump-version.sh [--skip-tests] <new_version>
 #
-# Updates 6 canonical files:
+# Updates 8 canonical files:
 #   bin/audio-hooks.py                                  PROJECT_VERSION
 #   hooks/hook_runner.py                                HOOK_RUNNER_VERSION
 #   .claude-plugin/marketplace.json                     metadata.version + plugins[0].version
 #   plugins/audio-hooks/.claude-plugin/plugin.json      version
+#   plugins/audio-hooks/.codex-plugin/plugin.json       version
 #   cursor-hooks/hooks.json                             _audio_hooks_version
 #   codex-hooks/hooks.json                              _audio_hooks_version
+#   codex-hooks/plugin-hooks.json                       _audio_hooks_version
 #
 # Then runs scripts/build-plugin.sh to sync the generated plugin tree, and
 # (unless --skip-tests is given) runs the unittest suite as a sanity check.
@@ -147,13 +149,15 @@ bump_py_const("hooks/hook_runner.py", "HOOK_RUNNER_VERSION")
 #    The semver guard in bump_json_string skips Cursor-style `"version": 1` integers.
 bump_json_string(".claude-plugin/marketplace.json", '"version"', expected_count=2)
 
-# 4: plugin.json (separately canonical — build-plugin.sh does not regenerate it)
+# 4 + 5: plugin manifests (separately canonical — build-plugin.sh does not regenerate them)
 bump_json_string("plugins/audio-hooks/.claude-plugin/plugin.json", '"version"', expected_count=1)
+bump_json_string("plugins/audio-hooks/.codex-plugin/plugin.json", '"version"', expected_count=1)
 
-# 5 + 6: cursor + codex hook templates use _audio_hooks_version (NOT version,
+# 6 + 7 + 8: cursor + codex hook templates use _audio_hooks_version (NOT version,
 # which is Cursor's own schema-version integer).
 bump_json_string("cursor-hooks/hooks.json", '"_audio_hooks_version"', expected_count=1)
 bump_json_string("codex-hooks/hooks.json", '"_audio_hooks_version"', expected_count=1)
+bump_json_string("codex-hooks/plugin-hooks.json", '"_audio_hooks_version"', expected_count=1)
 
 # Sync the generated plugin tree (copies bin/, hooks/, cursor-hooks/, codex-hooks/, etc).
 # Use $BASH (set by the parent bash) so we get the same bash binary that ran us

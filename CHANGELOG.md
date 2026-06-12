@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [Unreleased]
+
+## [5.2.2] - 2026-06-12
+
+### Changed
+
+- Updated Codex support for the current hook model verified against Codex CLI 0.139.0: Codex now registers 10 events (`SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`) instead of the older 6-event set.
+- Added a Codex plugin manifest at `plugins/audio-hooks/.codex-plugin/plugin.json` plus a plugin-specific hook template at `codex-hooks/plugin-hooks.json` using `${PLUGIN_ROOT}/runner/run.py`. This prevents Codex from falling back to the Claude Code `hooks/hooks.json` file, whose `async: true` handlers are not supported by Codex.
+- Changed Codex feature handling to match default-on hooks. `audio-hooks install --codex` no longer creates or rewrites `~/.codex/config.toml`; it only reports `next_steps` when `[features].hooks = false` disables hooks or the TOML cannot be parsed. The legacy `codex_hooks` key is still recognized.
+- Codex notifications and webhook labels now display `Codex` instead of `Claude Code` when the runner is invoked with `--invoker codex`.
+- Added Codex plugin packaging tests that validate `.codex-plugin/plugin.json`, the Codex plugin hook template, `${PLUGIN_ROOT}` commands, and the absence of Claude-only `${CLAUDE_PLUGIN_ROOT}` references from Codex hook entries.
+- Expanded `scripts/bump-version.sh` so releases update the Codex plugin manifest and `codex-hooks/plugin-hooks.json` version metadata alongside the existing Claude, Cursor, and native Codex files.
+
+### Documentation
+
+- Updated README, installation, architecture, troubleshooting, skill, and AI-operator docs to describe the current Claude Code, Cursor, and Codex install paths accurately.
+- Added `AGENTS.md` as the Codex-facing operator guide, kept in sync with `CLAUDE.md`.
+
 ## [5.2.1] - 2026-05-05
 
 ### Renamed: `claude-code-audio-hooks` → `echook`

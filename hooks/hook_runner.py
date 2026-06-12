@@ -41,7 +41,7 @@ from invoker import detect_invoker, get_invoker as _get_invoker, strip_invoker_a
 
 # Version used for auto-sync: when the installed copy in ~/.claude/hooks/
 # detects a newer version in the project directory, it self-updates.
-HOOK_RUNNER_VERSION = "5.2.1"
+HOOK_RUNNER_VERSION = "5.2.2"
 
 # =============================================================================
 # STRUCTURED LOGGING (NDJSON)
@@ -168,6 +168,16 @@ _ERROR_HINTS: Dict[str, Dict[str, str]] = {
 # When the runner is launched with ``--invoker codex`` (the form Codex's
 # hooks.json template uses), ``detect_invoker`` returns ``"codex"`` from
 # argv parsing before any env-var checks.
+
+
+def _invoker_display_name() -> str:
+    """Human-readable app name for desktop and webhook notifications."""
+    invoker = _get_invoker()
+    if invoker == "codex":
+        return "Codex"
+    if invoker == "cursor":
+        return "Cursor"
+    return "Claude Code"
 
 
 def _prefs() -> UserPreferences:
@@ -1623,17 +1633,18 @@ def send_webhook(hook_type: str, context: str, stdin_data: dict, config: Dict[st
 
     fmt = webhook.get("format", "raw")
     headers: Dict[str, str] = {str(k): str(v) for k, v in (webhook.get("headers") or {}).items()}
+    display_name = _invoker_display_name()
 
     # Format payload based on target service
     if fmt == "slack":
-        payload: Any = {"text": f"\U0001f514 Claude Code: {context}"}
+        payload: Any = {"text": f"\U0001f514 {display_name}: {context}"}
     elif fmt == "discord":
-        payload = {"content": f"\U0001f514 Claude Code: {context}"}
+        payload = {"content": f"\U0001f514 {display_name}: {context}"}
     elif fmt == "teams":
-        payload = {"text": f"\U0001f514 Claude Code: {context}"}
+        payload = {"text": f"\U0001f514 {display_name}: {context}"}
     elif fmt == "ntfy":
         # ntfy.sh uses plain text body with header-based metadata
-        headers.setdefault("Title", "Claude Code")
+        headers.setdefault("Title", display_name)
         headers.setdefault("Priority", "default")
         headers.setdefault("Tags", "robot")
         payload = context  # plain text
@@ -1701,7 +1712,7 @@ def send_webhook(hook_type: str, context: str, stdin_data: dict, config: Dict[st
             "event_data": sanitized_event,
         }
     else:
-        payload = {"text": f"Claude Code: {context}"}
+        payload = {"text": f"{display_name}: {context}"}
 
     if isinstance(payload, str):
         body_bytes = payload.encode("utf-8")
@@ -1960,16 +1971,16 @@ def run_hook(hook_type: str, stdin_data: dict = None) -> int:
         log_event("debug", "skipped_no_cursor_equivalent", hook=hook_type)
         return 0
 
-    # Codex (per developers.openai.com/codex/hooks) only supports 6 events:
-    # SessionStart, PreToolUse, PostToolUse, PermissionRequest, UserPromptSubmit,
-    # Stop. Other audio-hooks canonical events have no Codex equivalent. The
+    # Codex supports 10 events: SessionStart, PreToolUse, PermissionRequest,
+    # PostToolUse, PreCompact, PostCompact, UserPromptSubmit, SubagentStart,
+    # SubagentStop, Stop. Other audio-hooks canonical events have no Codex
+    # equivalent. The
     # bundled codex-hooks/hooks.json template never registers them, but a
     # hand-edited ~/.codex/hooks.json could, and a future Codex release might
     # add equivalents — skip cleanly so the behaviour is locked-down and
     # observable in the NDJSON log.
     _CODEX_UNSUPPORTED = {
-        "notification", "subagent_start", "subagent_stop", "session_end",
-        "precompact", "postcompact", "worktree_create", "worktree_remove",
+        "notification", "session_end", "worktree_create", "worktree_remove",
         "elicitation", "elicitation_result", "cwd_changed", "file_changed",
         "task_created", "task_completed", "teammate_idle", "config_change",
         "instructions_loaded", "permission_denied",
@@ -2093,7 +2104,7 @@ def run_hook(hook_type: str, stdin_data: dict = None) -> int:
     # Desktop notification (unless mode is audio_only or disabled)
     if mode in ("notification_only", "audio_and_notification"):
         urgency = "critical" if hook_type in ("notification", "permission_request", "posttoolusefailure", "stop_failure", "elicitation") else "normal"
-        notif_sent = send_desktop_notification("Claude Code", context, urgency)
+        notif_sent = send_desktop_notification(_invoker_display_name(), context, urgency)
         if notif_sent:
             log_debug(f"Desktop notification sent for {hook_type}: {context}")
     elif mode == "disabled":

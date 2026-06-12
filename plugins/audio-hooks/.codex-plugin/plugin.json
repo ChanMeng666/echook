@@ -1,0 +1,47 @@
+{
+  "name": "audio-hooks",
+  "version": "5.2.2",
+  "description": "Audio notifications and system alerts for Claude Code, Cursor IDE, and Codex events.",
+  "author": {
+    "name": "Chan Meng",
+    "url": "https://github.com/ChanMeng666"
+  },
+  "homepage": "https://github.com/ChanMeng666/echook",
+  "repository": "https://github.com/ChanMeng666/echook",
+  "license": "MIT",
+  "keywords": [
+    "audio",
+    "notifications",
+    "hooks",
+    "tts",
+    "webhook",
+    "codex",
+    "codex-cli",
+    "claude-code",
+    "cursor"
+  ],
+  "skills": "./skills/",
+  "hooks": "./codex-hooks/plugin-hooks.json",
+  "interface": {
+    "displayName": "Audio Hooks",
+    "shortDescription": "Audio and desktop notifications for Codex, Claude Code, and Cursor events",
+    "longDescription": "Audio Hooks plays configurable sounds, desktop notifications, optional TTS, and webhooks for agent lifecycle events including permission requests, tool use, compaction, subagents, and task completion.",
+    "developerName": "Chan Meng",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Configure audio notifications for this coding session.",
+      "Test the audio-hooks notification setup.",
+      "Show the current audio-hooks status."
+    ],
+    "websiteURL": "https://github.com/ChanMeng666/echook",
+    "privacyPolicyURL": "https://github.com/ChanMeng666/echook",
+    "termsOfServiceURL": "https://github.com/ChanMeng666/echook",
+    "brandColor": "#2563EB",
+    "screenshots": []
+  }
+}

@@ -71,18 +71,22 @@ class UserPreferences:
 
         Priority order:
           1. ``CLAUDE_PLUGIN_DATA`` env var (set by Claude Code plugin loader)
-          2. ``CLAUDE_AUDIO_HOOKS_DATA`` env var (explicit override)
-          3. **Codex-native dir** at ``$CODEX_HOME/audio-hooks-data/`` —
+          2. ``PLUGIN_DATA`` env var (set by Codex plugin loader)
+          3. ``CLAUDE_AUDIO_HOOKS_DATA`` env var (explicit override)
+          4. **Codex-native dir** at ``$CODEX_HOME/audio-hooks-data/`` —
              gated by ``detect_invoker() == "codex"``. Sits ahead of the
              Claude Code shared dir so a developer machine that happens to
              have both Claude Code and Codex installed still lands at the
              right dir under Codex sessions.
-          4. Plugin cache dir (when running from plugin layout)
-          5. Shared Claude Code dir at ``~/.claude/plugins/data/<id>/``
-          6. Cursor-native dir at ``~/.cursor/audio-hooks-data/``
-          7. Legacy temp fallback
+          5. Plugin cache dir (when running from plugin layout)
+          6. Shared Claude Code dir at ``~/.claude/plugins/data/<id>/``
+          7. Cursor-native dir at ``~/.cursor/audio-hooks-data/``
+          8. Legacy temp fallback
         """
         v = os.environ.get("CLAUDE_PLUGIN_DATA")
+        if v:
+            return Path(v)
+        v = os.environ.get("PLUGIN_DATA")
         if v:
             return Path(v)
         v = os.environ.get("CLAUDE_AUDIO_HOOKS_DATA")
@@ -101,9 +105,7 @@ class UserPreferences:
             from invoker import get_invoker  # type: ignore
             if get_invoker() == "codex":
                 codex_home = Path(os.environ.get("CODEX_HOME") or str(home / ".codex"))
-                codex_native = codex_home / "audio-hooks-data"
-                if (codex_native / "user_preferences.json").exists():
-                    return codex_native
+                return codex_home / "audio-hooks-data"
         except Exception:
             pass
         if self._is_running_from_plugin():

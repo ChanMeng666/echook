@@ -1,6 +1,6 @@
 # Installation Guide
 
-> **Version:** 5.2.0 | **Last Updated:** 2026-05-04
+> **Version:** 5.2.2 | **Last Updated:** 2026-06-12
 
 The install is two slash commands inside Claude Code. This page is a pointer to the canonical install paths — there are no human-only steps to read through.
 
@@ -90,11 +90,17 @@ python ~/audio-hooks/bin/audio-hooks uninstall --cursor
 
 Removes only entries tagged `_managed_by: "audio-hooks"` from `~/.cursor/hooks.json`. Preserves `~/.cursor/audio-hooks-data/user_preferences.json` so a future re-install picks up your settings. Pass `--purge` to delete that data dir as well.
 
-## Codex CLI
+## Codex
 
-OpenAI's Codex CLI does NOT auto-bridge Claude Code plugins. There's exactly one install path: a native registration at `~/.codex/hooks.json`. Paste a single prompt into Codex (or any AI agent that can run shell commands):
+OpenAI's Codex does NOT auto-bridge Claude Code plugins. Use the Codex plugin path when available; use the native registration at `~/.codex/hooks.json` when the user prefers a cloned repo or is on an older Codex build.
 
-> *"Clone https://github.com/ChanMeng666/echook into ~/audio-hooks, then run `python ~/audio-hooks/bin/audio-hooks install --codex`. Read the JSON output: if `feature_flag_state` is `section_missing` or `flag_missing_or_false`, follow the `next_steps` instruction (use your Edit tool to add `[features]\ncodex_hooks = true` to `~/.codex/config.toml`). Then restart Codex."*
+Plugin install prompt:
+
+> *"Run `codex plugin marketplace add ChanMeng666/echook`, then `codex plugin add audio-hooks@chanmeng-audio-hooks`. Ask me to reload plugins if Codex requires it, then verify with `audio-hooks status` and `audio-hooks test all`."*
+
+Native install prompt:
+
+> *"Clone https://github.com/ChanMeng666/echook into ~/audio-hooks, then run `python ~/audio-hooks/bin/audio-hooks install --codex`. Read the JSON output: only follow `next_steps` if `feature_flag_state` is `disabled`, `disabled_legacy`, or `parse_error`. Then restart Codex."*
 
 The `install --codex` subcommand:
 
@@ -105,20 +111,20 @@ The `install --codex` subcommand:
 - Seeds `$CODEX_HOME/audio-hooks-data/user_preferences.json` from the bundled defaults.
 - Writes `$CODEX_HOME/audio-hooks-data/install_marker.json` for diagnostics.
 
-**Feature-flag handling (AI-first):** Codex hooks require `[features]\ncodex_hooks = true` in `$CODEX_HOME/config.toml`. The install:
+**Hooks feature-state handling (AI-first):** Codex hooks are enabled by default. The install:
 
-- **Authors a fresh `config.toml`** with the flag enabled when the file doesn't exist (safe — we own the whole file).
-- **Skips silently** when the flag is already true.
-- **Emits a `next_steps` instruction** in JSON when the file exists but the flag isn't set, so the calling AI agent can add it with its Edit tool. We never round-trip user-authored TOML — formatting and comments would be destroyed.
+- **Leaves `config.toml` untouched** when it is missing or has no hooks feature entry.
+- **Skips silently** when hooks are enabled by default or explicitly enabled.
+- **Emits a `next_steps` instruction** in JSON only when the file explicitly disables hooks with `[features].hooks = false` or cannot be parsed. We never round-trip user-authored TOML — formatting and comments would be destroyed.
 
-The 6 events Codex supports (`SessionStart`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `UserPromptSubmit`, `Stop`) are all registered. The other 18 audio-hooks canonical events have no Codex equivalent and the runner no-ops them with a `skipped_no_codex_equivalent` debug NDJSON event.
+The 10 events Codex supports (`SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`) are all registered. Other audio-hooks canonical events have no Codex equivalent and the runner no-ops them with a `skipped_no_codex_equivalent` debug NDJSON event.
 
 ### Verifying the Codex install
 
 ```bash
 audio-hooks status
 # expect editor_targets.codex.state == "active"
-# (or "active-but-flag-disabled" if you still need to enable codex_hooks)
+# (or "active-but-hooks-disabled" if [features].hooks = false is still present)
 ```
 
 ### Upgrading the Codex install
@@ -135,7 +141,7 @@ Re-running the install is idempotent: it strips any prior `_managed_by: "audio-h
 python ~/audio-hooks/bin/audio-hooks uninstall --codex
 ```
 
-Removes only entries tagged `_managed_by: "audio-hooks"` from `~/.codex/hooks.json`. Preserves `~/.codex/audio-hooks-data/user_preferences.json`. Pass `--purge` to also delete that directory. **Never touches `~/.codex/config.toml`** — the `codex_hooks` feature flag may benefit other Codex hook plugins.
+Removes only entries tagged `_managed_by: "audio-hooks"` from `~/.codex/hooks.json`. Preserves `~/.codex/audio-hooks-data/user_preferences.json`. Pass `--purge` to also delete that directory. **Never touches `~/.codex/config.toml`**.
 
 ## Lite tier (zero-dependency, no Python)
 

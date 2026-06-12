@@ -13,7 +13,7 @@ This plugin is the AI control surface for the echook project. The user does NOT 
 
 **Install / set up the project**
 
-The plugin install (which you are using right now) is the recommended path for Claude Code users. If a user is not yet on the plugin, tell them to run `/plugin marketplace add ChanMeng666/echook` and `/plugin install audio-hooks@chanmeng-audio-hooks` inside Claude Code. **Cursor IDE 3.2.16+ users get audio-hooks for free via Cursor's built-in third-party hooks bridge** — no separate Cursor install needed. For users who run Cursor *without* Claude Code, use `audio-hooks install --cursor` (see "Install for Cursor-only users" below). **Codex CLI users** must use `audio-hooks install --codex` — Codex does NOT auto-bridge Claude Code plugins, so the native install is the only path (see "Install for Codex CLI users" below). Once installed, verify with:
+The plugin install (which you are using right now) is the recommended path for Claude Code users. If a user is not yet on the plugin, tell them to run `/plugin marketplace add ChanMeng666/echook` and `/plugin install audio-hooks@chanmeng-audio-hooks` inside Claude Code. **Cursor IDE 3.2.16+ users get audio-hooks for free via Cursor's built-in third-party hooks bridge** — no separate Cursor install needed. For users who run Cursor *without* Claude Code, use `audio-hooks install --cursor` (see "Install for Cursor-only users" below). **Codex users** should use the Codex plugin path when available, or `audio-hooks install --codex` as the native hooks.json fallback — Codex does NOT auto-bridge Claude Code plugins (see "Install for Codex users" below). Once installed, verify with:
 
 ```bash
 audio-hooks status
@@ -305,18 +305,27 @@ There is **no `audio-hooks upgrade --cursor` subcommand** — `audio-hooks upgra
 
 **Stdin field mapping**: Cursor's `cursor_version`, `conversation_id`, `final_status`, `reason`, `duration_ms`, `is_background_agent`, `workspace_roots`, `model`, `error_message` are surfaced under a `cursor: {...}` sub-object in webhook payloads. `user_email` is **redacted by default**; opt in via `audio-hooks set webhook_settings.include_user_email true`.
 
-## Install for Codex CLI users (5.2.0+)
+## Install for Codex users
 
-**OpenAI's Codex CLI does NOT auto-bridge Claude Code plugins** — there's exactly one install path: a native registration at `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`). Run `audio-hooks status` and check `editor_targets.codex.state`:
+**OpenAI's Codex does NOT auto-bridge Claude Code plugins**. Prefer the Codex plugin path when available; use the native registration at `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`) as a fallback. Run `audio-hooks status` and check `editor_targets.codex.state`:
 
 | State | Meaning |
 |---|---|
-| `active` | Installed AND `[features].codex_hooks = true` is set in `~/.codex/config.toml`. Audio fires correctly. |
-| `active-but-flag-disabled` | Installed but the feature flag isn't enabled. **Use your Edit tool to add `[features]\ncodex_hooks = true` to `~/.codex/config.toml`** and tell the user to restart Codex. |
-| `active-but-flag-unknown` | Installed but `~/.codex/config.toml` couldn't be parsed. Investigate the file. |
+| `active` | Installed and hooks are enabled. Audio fires correctly. |
+| `active-but-hooks-disabled` | Installed but `[features].hooks = false` disables hooks. Remove that opt-out or set `hooks = true`, then tell the user to restart Codex. |
+| `active-but-config-unreadable` | Installed but `~/.codex/config.toml` couldn't be parsed. Fix the TOML; hooks are enabled by default unless `[features].hooks = false` is present. |
 | `inactive` | Not installed. Run `audio-hooks install --codex`. |
 
-**For users who want to install audio-hooks for Codex** (paste this single agent prompt — works whether or not they also have Claude Code):
+**Codex plugin install**:
+
+```bash
+codex plugin marketplace add ChanMeng666/echook
+codex plugin add audio-hooks@chanmeng-audio-hooks
+```
+
+If Codex asks for it, tell the user to type `/reload-plugins`, then verify with `audio-hooks status`, `audio-hooks diagnose`, and `audio-hooks test all`.
+
+**Native hooks.json install** (works whether or not they also have Claude Code):
 
 ```bash
 git clone https://github.com/ChanMeng666/echook ~/audio-hooks
@@ -327,10 +336,11 @@ Read the JSON output and act on it:
 
 | `feature_flag_state` | What you do |
 |---|---|
-| `freshly_written` | Nothing more — install authored a fresh `~/.codex/config.toml` with the flag enabled. Tell the user to restart Codex. |
-| `already_enabled` | Nothing more. Tell the user to restart Codex. |
-| `section_missing` | Use your Edit tool to append `[features]\ncodex_hooks = true` to `~/.codex/config.toml`. Then tell the user to restart Codex. |
-| `flag_missing_or_false` | Use your Edit tool to set `codex_hooks = true` under the existing `[features]` section in `~/.codex/config.toml`. Then tell the user to restart Codex. |
+| `enabled_by_default` | Nothing more. Tell the user to restart Codex. |
+| `explicitly_enabled` | Nothing more. Tell the user to restart Codex. |
+| `explicitly_enabled_legacy` | Nothing more. Tell the user to restart Codex. |
+| `disabled` / `disabled_legacy` | Use your Edit tool to remove the hooks opt-out or set `hooks = true` under `[features]`, then tell the user to restart Codex. |
+| `parse_error` | Fix `~/.codex/config.toml`, then tell the user to restart Codex. |
 
 **Why we don't auto-edit user-authored `config.toml`:** TOML round-trip with comment preservation is unreliable, and getting it wrong destroys the user's formatting. Letting the AI agent do the targeted edit via its Edit tool keeps the user's file safe.
 
@@ -349,12 +359,12 @@ python ~/audio-hooks/bin/audio-hooks uninstall --codex
 python ~/audio-hooks/bin/audio-hooks uninstall --codex --purge   # also delete ~/.codex/audio-hooks-data/
 ```
 
-The uninstall **never touches `~/.codex/config.toml`** — the `codex_hooks` flag may benefit other Codex hook plugins. If the user wants to fully revert, they can remove the flag themselves.
+The uninstall **never touches `~/.codex/config.toml`**.
 
 **Codex limitations** (these are Codex's, not ours, per [developers.openai.com/codex/hooks](https://developers.openai.com/codex/hooks)):
 
-- Codex supports 6 hook events: `SessionStart`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `UserPromptSubmit`, `Stop`. The other 18 audio-hooks canonical events have no Codex equivalent and the runner no-ops them with a `skipped_no_codex_equivalent` debug NDJSON event.
-- Codex's `SessionStart` doesn't support env-output propagation (Cursor's `{"env": {...}}` mechanism). The runtime `_resolve_data_dir()` chain handles this — there's a Codex-gated step at priority 3 that lands at `$CODEX_HOME/audio-hooks-data/` when `detect_invoker() == "codex"`.
+- Codex supports 10 hook events: `SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`. Other audio-hooks canonical events have no Codex equivalent and the runner no-ops them with a `skipped_no_codex_equivalent` debug NDJSON event.
+- Codex plugin invokes with `PLUGIN_DATA`; native hooks.json install lands at `$CODEX_HOME/audio-hooks-data/` when `detect_invoker() == "codex"`.
 
 **Stdin field mapping**: Codex's stdin uses **the same snake_case schema** as Claude Code (`session_id`, `tool_name`, `hook_event_name`, `transcript_path`, `turn_id`, `tool_use_id`, `tool_response`, `stop_hook_active`, `last_assistant_message`, `source`). No translation layer needed. Codex-specific fields (`turn_id`, `tool_use_id`, `permission_mode`, `tool_response`, `stop_hook_active`) are surfaced under a `codex: {...}` sub-object in webhook payloads (parallel to `cursor: {...}`).
 
