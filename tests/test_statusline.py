@@ -380,6 +380,350 @@ class TestCwdSegment(_StatuslineRenderBase):
         self.assertNotIn(self.FOLDER, out)
 
 
+class TestResetClock(unittest.TestCase):
+    """``_fmt_reset_clock`` turns a Unix epoch into a banner-style local clock
+    time. It must never raise and must blank out on bad/absent input."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def test_absent_and_zero_blank(self):
+        for v in (None, 0, -1, "", "abc", {}):
+            with self.subTest(value=v):
+                self.assertEqual(self.mod._fmt_reset_clock(v), "")
+
+    def test_on_the_hour_strips_minutes(self):
+        # 2021-01-01 21:00:00 UTC. We can't assume the runner's timezone, so
+        # assert the shape rather than an exact hour: no ":00", ends am/pm.
+        import time as _t
+        epoch = _t.mktime(_t.struct_time((2021, 1, 1, 21, 0, 0, 0, 0, -1)))
+        out = self.mod._fmt_reset_clock(epoch)
+        self.assertRegex(out, r"^\d{1,2}(am|pm)$")
+
+    def test_with_minutes_keeps_them(self):
+        import time as _t
+        epoch = _t.mktime(_t.struct_time((2021, 1, 1, 21, 30, 0, 0, 0, -1)))
+        out = self.mod._fmt_reset_clock(epoch)
+        self.assertRegex(out, r"^\d{1,2}:30(am|pm)$")
+
+    def test_string_epoch_coerced(self):
+        import time as _t
+        epoch = _t.mktime(_t.struct_time((2021, 1, 1, 9, 0, 0, 0, 0, -1)))
+        out = self.mod._fmt_reset_clock(str(int(epoch)))
+        self.assertRegex(out, r"^\d{1,2}(am|pm)$")
+
+
+class TestWeeklyQuotaSegment(_StatuslineRenderBase):
+    """The ``weekly_quota`` segment mirrors the banner's "82% of your weekly
+    limit · resets 9pm". Present only when the 7-day window is in the payload
+    (Claude.ai subscribers); silently absent otherwise."""
+
+    def test_present_with_reset(self):
+        payload = {
+            "session_id": "t",
+            "rate_limits": {"seven_day": {"used_percentage": 82, "resets_at": 1609495200}},
+        }
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        self.assertIn("Weekly: 82%", out)
+        self.assertIn("· resets", out)
+
+    def test_present_without_reset(self):
+        payload = {
+            "session_id": "t",
+            "rate_limits": {"seven_day": {"used_percentage": 50}},
+        }
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        self.assertIn("Weekly: 50%", out)
+        weekly_seg = [l for l in out.splitlines() if "Weekly:" in l][0]
+        self.assertNotIn("resets", weekly_seg.split("Weekly:")[1])
+
+    def test_absent_when_no_rate_limits(self):
+        payload = {"session_id": "t", "context_window": {"used_percentage": 30}}
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("Weekly:", out)
+
+    def test_filter_shows_only_weekly(self):
+        # Pin a status cache that restricts visible_segments to weekly_quota.
+        status = dict(self._MINIMAL_STATUS)
+        status["statusline"] = {"visible_segments": ["weekly_quota"]}
+        for sid in ("t", "default"):
+            (self.tmp / f"statusline.cache.{sid}").write_text(
+                json.dumps(status), encoding="utf-8"
+            )
+        payload = {
+            "session_id": "t",
+            "rate_limits": {"seven_day": {"used_percentage": 82}},
+            "context_window": {"used_percentage": 30, "context_window_size": 200000},
+        }
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        self.assertIn("Weekly: 82%", out)
+        self.assertNotIn("Context:", out)
+
+
+class TestApiQuotaReset(_StatuslineRenderBase):
+    """The existing 5-hour ``api_quota`` segment gains a reset clock for
+    symmetry with the weekly segment."""
+
+    def test_reset_appended(self):
+        payload = {
+            "session_id": "t",
+            "rate_limits": {"five_hour": {"used_percentage": 40, "resets_at": 1609495200}},
+        }
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        self.assertIn("API Quota: 40%", out)
+        self.assertIn("· resets", out)
+
+
+class TestCcVersionSegment(_StatuslineRenderBase):
+    """The ``cc_version`` segment shows Claude Code's own version from the
+    stdin ``version`` field — distinct from echook's own version."""
+
+    def test_present(self):
+        payload = {"session_id": "t", "version": "2.1.193"}
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        self.assertIn("CC v2.1.193", out)
+
+    def test_absent_when_no_version(self):
+        payload = {"session_id": "t", "model": {"display_name": "Opus"}}
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("CC v", out)
+
+
+class TestEffortSegment(_StatuslineRenderBase):
+    """The ``effort`` segment shows the reasoning effort level, present only on
+    models that report it."""
+
+    def test_present(self):
+        payload = {"session_id": "t", "effort": {"level": "high"}}
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        self.assertIn("high", out.splitlines()[0])
+
+    def test_absent_when_no_effort(self):
+        payload = {"session_id": "t", "model": {"display_name": "Opus"}}
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        # The effort chip uses the brain emoji; it must not appear.
+        self.assertNotIn("\U0001f9e0", out)
+
+
+class TestCostSegment(_StatuslineRenderBase):
+    """The ``cost`` segment shows session spend and the lines added/removed
+    diff, mirroring the cost data the banner/`/cost` surface."""
+
+    def test_present_with_diff(self):
+        payload = {
+            "session_id": "t",
+            "cost": {"total_cost_usd": 0.42, "total_lines_added": 156, "total_lines_removed": 23},
+        }
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        self.assertIn("$0.42", out)
+        self.assertIn("+156", out)
+        self.assertIn("-23", out)
+
+    def test_no_diff_when_zero_lines(self):
+        payload = {
+            "session_id": "t",
+            "cost": {"total_cost_usd": 0.05, "total_lines_added": 0, "total_lines_removed": 0},
+        }
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        self.assertIn("$0.05", out)
+        cost_seg = [l for l in out.splitlines() if "$0.05" in l][0]
+        self.assertNotIn("+0", cost_seg)
+
+    def test_absent_when_no_cost(self):
+        payload = {"session_id": "t", "model": {"display_name": "Opus"}}
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("$", out)
+
+
+class TestBannerSegmentsRobustness(_StatuslineRenderBase):
+    """The new banner segments must tolerate junk types without crashing —
+    same contract as the rest of the renderer."""
+
+    def test_junk_values_exit_clean(self):
+        payload = {
+            "session_id": "t",
+            "version": 12345,                       # non-string version
+            "effort": "high",                        # wrong shape (str not dict)
+            "rate_limits": {
+                "five_hour": {"used_percentage": "x", "resets_at": "y"},
+                "seven_day": {"used_percentage": None, "resets_at": {}},
+            },
+            "cost": {"total_cost_usd": "free", "total_lines_added": "lots"},
+        }
+        rc, _, _ = _run(json.dumps(payload), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+
+
+class TestVwidth(unittest.TestCase):
+    """``_vwidth`` measures the *visible* width of a rendered segment so the
+    reflow can pack lines that actually fit the terminal."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def test_plain_ascii(self):
+        self.assertEqual(self.mod._vwidth("hello"), 5)
+
+    def test_ansi_is_zero_width(self):
+        colored = "\033[36m[Opus]\033[0m"
+        self.assertEqual(self.mod._vwidth(colored), len("[Opus]"))
+
+    def test_emoji_counts_two(self):
+        # Each of the emoji the renderer emits should measure 2 cells.
+        for emoji in ("\U0001f9e0", "⚡", "\U0001f4c1", "\U0001f50a",
+                      "\U0001f4b2", "\U0001f33f"):
+            with self.subTest(emoji=emoji):
+                self.assertEqual(self.mod._vwidth(emoji), 2)
+
+    def test_variation_selector_is_zero_width(self):
+        # ⚠ + FE0F renders as one glyph; the selector adds no width.
+        self.assertEqual(self.mod._vwidth("⚠️"), self.mod._vwidth("⚠"))
+
+    def test_box_drawing_counts_one(self):
+        # The progress-bar glyphs must be one cell each or the bars mis-measure.
+        self.assertEqual(self.mod._vwidth("████░░░░"), 8)
+
+
+class TestPackLines(unittest.TestCase):
+    """``_pack_lines`` greedily wraps segments at boundaries to fit a width."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def test_all_fit_one_line(self):
+        out = self.mod._pack_lines(["aaa", "bbb", "ccc"], " | ", 80)
+        self.assertEqual(out, ["aaa | bbb | ccc"])
+
+    def test_wraps_at_boundary(self):
+        # width 9 holds "aaa | bbb" (9) but not a third segment.
+        out = self.mod._pack_lines(["aaa", "bbb", "ccc"], " | ", 9)
+        self.assertEqual(out, ["aaa | bbb", "ccc"])
+
+    def test_never_splits_a_segment(self):
+        # A segment wider than the budget gets its own line, intact.
+        out = self.mod._pack_lines(["short", "a-very-long-segment-here"], "  ", 10)
+        self.assertEqual(out, ["short", "a-very-long-segment-here"])
+
+    def test_no_packed_line_exceeds_width(self):
+        parts = [f"seg{i}" for i in range(20)]
+        for line in self.mod._pack_lines(parts, "  ", 20):
+            # Lines with more than one segment must respect the budget.
+            if "  " in line:
+                self.assertLessEqual(self.mod._vwidth(line), 20)
+
+    def test_empty_input(self):
+        self.assertEqual(self.mod._pack_lines([], " | ", 80), [])
+
+
+class TestTerminalWidth(unittest.TestCase):
+    """``_terminal_width`` resolves the packing width: explicit override first,
+    then the COLUMNS env var Claude Code provides, then a safe fallback."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def test_max_width_override_wins(self):
+        status = {"statusline": {"max_width": 42}}
+        self.assertEqual(self.mod._terminal_width(status), 42)
+
+    def test_zero_override_falls_through(self):
+        # max_width 0 means auto; with COLUMNS set we should read it.
+        prev = os.environ.get("COLUMNS")
+        os.environ["COLUMNS"] = "137"
+        try:
+            self.assertEqual(self.mod._terminal_width({"statusline": {"max_width": 0}}), 137)
+        finally:
+            if prev is None:
+                os.environ.pop("COLUMNS", None)
+            else:
+                os.environ["COLUMNS"] = prev
+
+    def test_empty_status_does_not_raise(self):
+        # Must return a positive int regardless of input.
+        self.assertGreater(self.mod._terminal_width({}), 0)
+        self.assertGreater(self.mod._terminal_width(None), 0)
+
+
+class TestReflow(_StatuslineRenderBase):
+    """The full renderer must wrap a content-rich status line across multiple
+    physical rows so no segment is ever truncated by Claude Code. This is the
+    regression guard for the "Webho…" overflow bug."""
+
+    _RICH_PAYLOAD = {
+        "session_id": "t",
+        "version": "2.1.193",
+        "model": {"display_name": "Opus 4.8 (1M context)"},
+        "effort": {"level": "high"},
+        "cwd": "/home/user/projects/claude-code-audio-hooks",
+        "rate_limits": {
+            "five_hour": {"used_percentage": 62, "resets_at": 1609495200},
+            "seven_day": {"used_percentage": 83, "resets_at": 1609495200},
+        },
+        "cost": {"total_cost_usd": 6.23, "total_lines_added": 466, "total_lines_removed": 28},
+        "context_window": {"used_percentage": 13, "context_window_size": 1000000},
+    }
+
+    def _load_vwidth(self):
+        return _load_module()._vwidth
+
+    def test_no_line_exceeds_width(self):
+        # At width 50 every individual segment fits, so every emitted row must
+        # stay within the budget (width - 1) — nothing should overflow.
+        rc, out, _ = _run(
+            json.dumps(self._RICH_PAYLOAD),
+            state_dir=self.tmp,
+            env_extra={"COLUMNS": "50"},
+        )
+        self.assertEqual(rc, 0)
+        vwidth = self._load_vwidth()
+        lines = [l for l in out.splitlines() if l]
+        self.assertGreater(len(lines), 2)  # it wrapped beyond two rows
+        for line in lines:
+            self.assertLessEqual(vwidth(line), 49, msg=f"overflow: {line!r}")
+
+    def test_webhook_segment_intact(self):
+        # The original bug truncated "Webhook: off" to "Webho…". Assert it
+        # survives whole even on a width that forces wrapping.
+        rc, out, _ = _run(
+            json.dumps(self._RICH_PAYLOAD),
+            state_dir=self.tmp,
+            env_extra={"COLUMNS": "60"},
+        )
+        self.assertEqual(rc, 0)
+        self.assertIn("Webhook: off", out)
+        self.assertNotIn("Webho…", out)
+
+    def test_max_width_override_forces_wrap(self):
+        # Pin a narrow max_width via the status cache (no COLUMNS dependency).
+        status = dict(self._MINIMAL_STATUS)
+        status["statusline"] = {"visible_segments": [], "max_width": 30}
+        for sid in ("t", "default"):
+            (self.tmp / f"statusline.cache.{sid}").write_text(
+                json.dumps(status), encoding="utf-8"
+            )
+        rc, out, _ = _run(json.dumps(self._RICH_PAYLOAD), state_dir=self.tmp)
+        self.assertEqual(rc, 0)
+        vwidth = self._load_vwidth()
+        for line in [l for l in out.splitlines() if l and ("  " in l or " | " in l)]:
+            self.assertLessEqual(vwidth(line), 29, msg=f"overflow: {line!r}")
+
+
 class TestDebugDump(_StatuslineRenderBase):
     """``CLAUDE_HOOKS_DEBUG`` must be strictly opt-in and mirror the
     truthy-value parsing used by hook_runner."""

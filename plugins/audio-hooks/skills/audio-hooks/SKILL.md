@@ -133,22 +133,38 @@ The status line displays real-time audio-hooks state and context window usage at
 
 After installing, the status line updates every 60 seconds and shows two lines:
 ```
-[Opus] 📁 D:\…\claude-code-audio-hooks | 🔊 echook v5.1.3 | 6/26 Sounds | Webhook: off | Theme: Voice
-🌿 main  ████░░░░ API Quota: 60%  █████░░░ Context: 65% (130K/200K) ⚠️ /compact
+[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | 🔊 echook v6.0.0 | 6/26 Sounds | Webhook: off | Theme: Voice
+🌿 main  ████░░░░ API Quota: 60% · resets 2pm  ███████░ Weekly: 82% · resets 9pm  █████░░░ Context: 65% (130K/200K) ⚠️ /compact  💲 $0.42 +156/-23
 ```
-The `📁` segment (`cwd`) shows the current working directory — abbreviated (home → `~`, long paths shortened to `<root>…<last folder>`) — so the user can tell at a glance which project the session is in.
+The status line pins the key facts from Claude Code's **startup banner** so they stay visible after the banner scrolls off the top of the terminal: the model + reasoning **effort** (`🧠`), Claude Code's own **version** (`⚡ CC v…`, distinct from echook's `🔊 echook v…`), the **cwd**, the **5-hour API quota** and the headline **weekly (7-day) limit + reset time** (`Weekly: 82% · resets 9pm`), and session **cost + diff** (`💲 $0.42 +156/-23`). The `📁` segment (`cwd`) is abbreviated (home → `~`, long paths shortened to `<root>…<last folder>`) so the user can tell at a glance which project the session is in.
+
+> The subscription **plan name** ("Claude Max"/"Pro") shown in the banner is *not* piped to status line scripts by Claude Code, so echook intentionally does not show it. The presence of the weekly/API-quota bars already implies a Claude.ai subscription.
 
 **Customise which status line segments to show**
 
-The status line has 10 segments the user can freely combine. By default all are shown. Set `statusline_settings.visible_segments` to an array of segment names to show only those:
+The status line has 14 segments the user can freely combine. By default all are shown. Set `statusline_settings.visible_segments` to an array of segment names to show only those:
 
-Line 1 segments: `model`, `cwd`, `version`, `sounds`, `webhook`, `theme`
-Line 2 segments: `snooze`, `branch`, `api_quota`, `context`
+Line 1 segments: `model`, `effort`, `cc_version`, `cwd`, `version`, `sounds`, `webhook`, `theme`
+Line 2 segments: `snooze`, `branch`, `api_quota`, `weekly_quota`, `context`, `cost`
+
+(`effort`, `cc_version`, `weekly_quota`, and `cost` are the banner-parity segments. Quota/cost/effort segments self-omit when Claude Code doesn't supply that data — e.g. `weekly_quota` is blank for non-subscribers, `effort` is blank on models without reasoning effort.)
+
+**Auto-reflow (no truncation).** Each line automatically wraps into as many rows as the terminal width needs — segments are never split, so a content-rich status line shows in full instead of being cut off with an ellipsis (`Webho…`). Width is read from the `COLUMNS` env var Claude Code provides (Claude Code v2.1.153+), falling back to 80 columns. If a user wants fewer rows, trim segments with `visible_segments`. To pin the wrap width explicitly (e.g. when `COLUMNS` is unreliable), set `statusline_settings.max_width` to a column count (`0` = auto):
+
+| User says | Run |
+|---|---|
+| "my status line wraps too much / pin it to 120 columns" | `audio-hooks set statusline_settings.max_width 120` |
+| "status line is getting cut off / truncated with …" | Usually means an old Claude Code (< v2.1.153, which doesn't export `COLUMNS`) — pin it: `audio-hooks set statusline_settings.max_width <your terminal width>` |
+| "go back to auto width" | `audio-hooks set statusline_settings.max_width 0` |
+| "the status line has too many rows" | Trim segments, e.g. `audio-hooks set statusline_settings.visible_segments '["model","cwd","context","weekly_quota"]'` |
 
 | User says | Run |
 |---|---|
 | "only show context usage in the status line" | `audio-hooks set statusline_settings.visible_segments '["context"]'` |
 | "show context and API quota only" | `audio-hooks set statusline_settings.visible_segments '["context","api_quota"]'` |
+| "show my weekly limit only" | `audio-hooks set statusline_settings.visible_segments '["weekly_quota"]'` |
+| "show the model, effort, and Claude Code version" | `audio-hooks set statusline_settings.visible_segments '["model","effort","cc_version"]'` |
+| "show session cost in the status line" | Read current with `audio-hooks get statusline_settings.visible_segments`, append `"cost"`, then set the updated array |
 | "show the current folder and context only" | `audio-hooks set statusline_settings.visible_segments '["cwd","context"]'` |
 | "show context, branch, and model" | `audio-hooks set statusline_settings.visible_segments '["model","context","branch"]'` |
 | "show everything in the status line" (reset) | `audio-hooks set statusline_settings.visible_segments '[]'` |

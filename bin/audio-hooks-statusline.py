@@ -8,8 +8,14 @@ When the array is empty (default) every segment is shown.
 
 Available segments
 ------------------
-Line 1: model, cwd, version, sounds, webhook, theme
-Line 2: snooze, branch, api_quota, context
+Line 1: model, effort, cc_version, cwd, version, sounds, webhook, theme
+Line 2: snooze, branch, api_quota, weekly_quota, context, cost
+
+``effort``, ``cc_version`` (Claude Code's own version), ``weekly_quota`` (the
+7-day rate-limit window + reset time) and ``cost`` mirror the Claude Code
+startup banner so that information stays visible after it scrolls off the top
+of the terminal. The subscription plan name ("Claude Max"/"Pro") is *not*
+piped to status line scripts, so it is intentionally not shown.
 
 The ``cwd`` segment shows the current working directory as an abbreviated
 path (home folder collapsed to ``~``; long paths shortened to
@@ -37,10 +43,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -54,10 +62,21 @@ RESET = "\033[0m"
 
 CACHE_TTL_SEC = 5
 
-ALL_SEGMENTS = {"model", "cwd", "version", "sounds", "webhook", "theme",
-                "snooze", "branch", "api_quota", "context"}
-LINE1_SEGMENTS = {"model", "cwd", "version", "sounds", "webhook", "theme"}
-LINE2_SEGMENTS = {"snooze", "branch", "api_quota", "context"}
+# Columns held back from the detected terminal width when packing lines.
+# `COLUMNS` reports the *full* terminal width, but the *usable* width is
+# smaller: the status line's `padding` setting indents it and most terminals
+# reserve the rightmost cell. Without this slack the packer overfills the last
+# row and Claude Code truncates it with an ellipsis. 4 covers padding ≤ 1 plus
+# the edge with room to spare; users on a narrower-than-reported terminal can
+# pin it exactly via `statusline_settings.max_width`.
+WIDTH_SAFETY_MARGIN = 4
+
+ALL_SEGMENTS = {"model", "effort", "cc_version", "cwd", "version", "sounds",
+                "webhook", "theme",
+                "snooze", "branch", "api_quota", "weekly_quota", "context", "cost"}
+LINE1_SEGMENTS = {"model", "effort", "cc_version", "cwd", "version", "sounds",
+                  "webhook", "theme"}
+LINE2_SEGMENTS = {"snooze", "branch", "api_quota", "weekly_quota", "context", "cost"}
 
 # Backwards compatibility: accept old segment names from existing configs
 _SEGMENT_ALIASES = {"hooks": "sounds", "rate_limit": "rate-limit", "ctx": "context"}
@@ -150,6 +169,31 @@ def _format_remaining(seconds: int) -> str:
     h = seconds // 3600
     m = (seconds % 3600) // 60
     return f"{h}h{m}m" if m else f"{h}h"
+
+
+def _fmt_reset_clock(epoch: Any) -> str:
+    """Render a rate-limit reset moment as a local clock time, banner-style.
+
+    Claude Code pipes ``rate_limits.*.resets_at`` as Unix epoch seconds. The
+    startup banner shows the reset as a wall-clock time ("resets 9pm"); we
+    mirror that — local 12-hour time, lowercase am/pm, a bare ``:00`` stripped
+    so ``21:00`` reads as ``9pm`` but ``21:30`` reads as ``9:30pm``.
+
+    Returns "" on absent/invalid input. Must never raise — the status line
+    degrades silently on a surprising value.
+    """
+    try:
+        ts = int(float(epoch))
+        if ts <= 0:
+            return ""
+        lt = time.localtime(ts)
+        hour12 = lt.tm_hour % 12 or 12
+        ampm = "am" if lt.tm_hour < 12 else "pm"
+        if lt.tm_min:
+            return f"{hour12}:{lt.tm_min:02d}{ampm}"
+        return f"{hour12}{ampm}"
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
 
 
 def _fmt_tokens(n: int) -> str:
@@ -270,6 +314,92 @@ def _normalise_segments(raw: list) -> set:
     return out
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _vwidth(text: str) -> int:
+    """Return the visible column width of a rendered segment.
+
+    The status line mixes ANSI color escapes (zero width), emoji and other
+    wide glyphs (two cells in virtually every terminal), variation selectors
+    and combining marks (zero width), and ordinary characters (one cell).
+    We need the *visible* width — not ``len()`` — to pack segments into lines
+    that fit the terminal without Claude Code truncating them with an ellipsis.
+
+    The estimate errs toward treating symbols/emoji as wide so we wrap a touch
+    early rather than overflow. It must never raise.
+    """
+    try:
+        s = _ANSI_RE.sub("", text)
+        w = 0
+        for ch in s:
+            o = ord(ch)
+            # Zero-width: combining marks, variation selectors, other format chars.
+            if o in (0xFE0E, 0xFE0F) or unicodedata.combining(ch) or \
+                    unicodedata.category(ch) in ("Mn", "Me", "Cf"):
+                continue
+            # Wide: CJK (W/F) plus the emoji/symbol planes we actually emit
+            # (🧠 ⚡ 📁 🔊 💲 🌿 🛑 ⚠). Box-drawing █/░ are East-Asian
+            # "Ambiguous" → one cell, which is how terminals render them here.
+            if unicodedata.east_asian_width(ch) in ("W", "F") or \
+                    0x1F300 <= o <= 0x1FAFF or 0x2600 <= o <= 0x27BF or \
+                    0x2B00 <= o <= 0x2BFF or 0x1F000 <= o <= 0x1F2FF:
+                w += 2
+            else:
+                w += 1
+        return w
+    except (TypeError, ValueError):
+        return len(text)
+
+
+def _terminal_width(status: Dict[str, Any]) -> int:
+    """Resolve the terminal width to pack against.
+
+    Priority: an explicit ``statusline_settings.max_width`` override (also the
+    deterministic hook for tests) → the ``COLUMNS`` env var that Claude Code
+    sets to the real terminal width before each run (v2.1.153+; read via
+    ``shutil.get_terminal_size`` which checks ``COLUMNS`` first) → a safe 80.
+    A piped stdout means ``os.get_terminal_size`` can't probe directly, which
+    is exactly why Claude Code exposes ``COLUMNS``.
+    """
+    try:
+        mw = int(((status or {}).get("statusline") or {}).get("max_width") or 0)
+        if mw > 0:
+            return mw
+    except (TypeError, ValueError, AttributeError):
+        pass
+    try:
+        cols = shutil.get_terminal_size(fallback=(80, 24)).columns
+        return cols if isinstance(cols, int) and cols > 0 else 80
+    except (OSError, ValueError):
+        return 80
+
+
+def _pack_lines(parts: list, joiner: str, width: int) -> list:
+    """Greedily pack rendered segments into physical lines no wider than
+    ``width`` visible columns, wrapping only at segment boundaries so a segment
+    is never split mid-way. A lone segment wider than ``width`` still gets its
+    own line — better than sharing a line that Claude Code would then truncate.
+    """
+    lines: list = []
+    cur: list = []
+    cur_w = 0
+    jw = _vwidth(joiner)
+    for p in parts:
+        pw = _vwidth(p)
+        if not cur:
+            cur, cur_w = [p], pw
+        elif cur_w + jw + pw <= width:
+            cur.append(p)
+            cur_w += jw + pw
+        else:
+            lines.append(joiner.join(cur))
+            cur, cur_w = [p], pw
+    if cur:
+        lines.append(joiner.join(cur))
+    return lines
+
+
 def _force_utf8_stdout() -> None:
     """Force stdout to UTF-8 with replace-on-error so Unicode output (▌█░🛑⚠️
     plus ANSI escapes) never raises UnicodeEncodeError on terminals or
@@ -295,10 +425,16 @@ def main() -> int:
     _maybe_dump_session(session)
     session_id = str(session.get("session_id") or "default")
     model = (session.get("model") or {}).get("display_name", "Claude")
+    # Reasoning effort (only present on models that support it) and Claude
+    # Code's own version — both straight from the stdin session, distinct from
+    # echook's `status["version"]` shown by the `version` segment.
+    effort = (session.get("effort") or {}).get("level") if isinstance(session.get("effort"), dict) else None
+    cc_version = session.get("version")
 
     rate_limits = (session.get("rate_limits") or {}) if isinstance(session.get("rate_limits"), dict) else {}
     git_worktree = (session.get("workspace") or {}).get("git_worktree") if isinstance(session.get("workspace"), dict) else None
     ctx_window = session.get("context_window") or {}
+    cost = (session.get("cost") or {}) if isinstance(session.get("cost"), dict) else {}
 
     # Current working directory: prefer the top-level `cwd` Claude Code pipes
     # in, falling back to workspace.current_dir / project_dir.
@@ -317,6 +453,11 @@ def main() -> int:
 
     def show(segment: str) -> bool:
         return segment in visible
+
+    # Width budget for reflow: hold back a safety margin under the detected
+    # terminal width so a packed row never brushes the usable edge (padding +
+    # reserved cell) and gets an ellipsis from Claude Code.
+    budget = max(20, _terminal_width(status) - WIDTH_SAFETY_MARGIN)
 
     # Line 1: model + project header
     if not status:
@@ -338,6 +479,10 @@ def main() -> int:
     l1_parts = []
     if show("model"):
         l1_parts.append(f"{CYAN}[{model}]{RESET}")
+    if show("effort") and effort:
+        l1_parts.append(f"\U0001f9e0 {effort}")
+    if show("cc_version") and cc_version:
+        l1_parts.append(f"⚡ CC v{cc_version}")
     if show("cwd") and cwd:
         l1_parts.append(f"\U0001f4c1 {_abbrev_path(cwd)}")
     if show("version"):
@@ -349,8 +494,11 @@ def main() -> int:
     if show("theme"):
         l1_parts.append(f"Theme: {theme_label}")
 
-    if visible & LINE1_SEGMENTS:
-        print(" | ".join(l1_parts) if len(l1_parts) > 1 else (l1_parts[0] if l1_parts else ""))
+    # Reflow Line 1 into as many physical rows as the terminal width needs so
+    # every segment shows in full (no Claude Code truncation / ellipsis).
+    if l1_parts:
+        for line in _pack_lines(l1_parts, " | ", budget):
+            print(line)
 
     # Line 2: conditional state
     parts = []
@@ -369,7 +517,24 @@ def main() -> int:
         if used is not None:
             try:
                 pct = float(used)
-                parts.append(f"{_bar(pct)} API Quota: {int(pct)}%")
+                resets = _fmt_reset_clock(five_hour.get("resets_at"))
+                reset_str = f" · resets {resets}" if resets else ""
+                parts.append(f"{_bar(pct)} API Quota: {int(pct)}%{reset_str}")
+            except (TypeError, ValueError):
+                pass
+
+    if show("weekly_quota"):
+        # The headline "You've used 82% of your weekly limit · resets 9pm"
+        # banner item — Claude Code's 7-day rate-limit window. Only present
+        # for Claude.ai subscribers; silently omitted otherwise.
+        seven_day = (rate_limits.get("seven_day") or {}) if isinstance(rate_limits, dict) else {}
+        used = seven_day.get("used_percentage")
+        if used is not None:
+            try:
+                pct = float(used)
+                resets = _fmt_reset_clock(seven_day.get("resets_at"))
+                reset_str = f" · resets {resets}" if resets else ""
+                parts.append(f"{_bar(pct)} Weekly: {int(pct)}%{reset_str}")
             except (TypeError, ValueError):
                 pass
 
@@ -399,8 +564,21 @@ def main() -> int:
             except (TypeError, ValueError):
                 pass
 
+    if show("cost"):
+        usd = cost.get("total_cost_usd")
+        if usd is not None:
+            try:
+                added = int(cost.get("total_lines_added") or 0)
+                removed = int(cost.get("total_lines_removed") or 0)
+                diff = f" {GREEN}+{added}{RESET}/{RED}-{removed}{RESET}" if (added or removed) else ""
+                parts.append(f"\U0001f4b2 ${float(usd):.2f}{diff}")
+            except (TypeError, ValueError):
+                pass
+
+    # Reflow Line 2 the same way — wrap at segment boundaries to fit the width.
     if parts:
-        print("  ".join(parts))
+        for line in _pack_lines(parts, "  ", budget):
+            print(line)
     return 0
 
 

@@ -128,8 +128,9 @@
   },
 
   "statusline_settings": {
-    "_comment": "Controls which segments appear in the Claude Code status line. Set visible_segments to an array of segment names to show only those. Available: model, cwd, version, sounds, webhook, theme (line 1); snooze, focus, branch, api_quota, context (line 2). Empty array or omission shows all segments.",
-    "visible_segments": []
+    "_comment": "Controls which segments appear in the Claude Code status line. Set visible_segments to an array of segment names to show only those. Available: model, effort, cc_version, cwd, version, sounds, webhook, theme (line 1); snooze, branch, api_quota, weekly_quota, context, cost (line 2). effort/cc_version/weekly_quota/cost mirror the Claude Code startup banner. Empty array or omission shows all segments. Each line auto-reflows into as many rows as the terminal width needs so nothing is truncated; max_width pins that width (0 = auto-detect via the COLUMNS env var Claude Code provides).",
+    "visible_segments": [],
+    "max_width": 0
   },
 
   "tts_settings": {

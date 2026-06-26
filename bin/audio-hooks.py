@@ -155,7 +155,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "6.0.0"
+PROJECT_VERSION = "6.1.0"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -715,6 +715,7 @@ def cmd_status(_args: List[str]) -> int:
         "editor_targets": _detect_editor_targets(),
         "statusline": {
             "visible_segments": sl.get("visible_segments", []),
+            "max_width": sl.get("max_width", 0),
         },
         "customizations": customizations,
     })
@@ -1909,7 +1910,10 @@ def cmd_statusline(args: List[str]) -> int:
             settings["statusLine"] = {
                 "type": "command",
                 "command": cmd_str,
-                "padding": 1,
+                # padding 0 lets the line use the full terminal width; the
+                # script's own WIDTH_SAFETY_MARGIN reserves the edge so nothing
+                # is truncated. (1 indented the line and shrank usable width.)
+                "padding": 0,
                 "refreshInterval": 60,
             }
             settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")

@@ -152,6 +152,15 @@ After any status line refresh, the latest stdin JSON is dumped to `${state_dir}/
 
 > ⚠️ The dump may contain workspace paths and the last assistant message — disable `CLAUDE_HOOKS_DEBUG` when not actively diagnosing.
 
+### Status line is cut off with an ellipsis (`Webho…`, `+743/-…`)
+
+Since v6.1.0 each line auto-reflows into as many rows as your terminal width needs, so this should not happen. If it still does, one of these applies:
+
+- **Old Claude Code (< v2.1.153).** Those versions don't export the `COLUMNS` env var, so the script can't detect your width and falls back to assuming 80 columns. Either update Claude Code, or pin your real width: `audio-hooks set statusline_settings.max_width <columns>` (e.g. `120`).
+- **Your terminal reports a width wider than what's usable** (unusual padding, a wrapping prompt, etc.). Pin it lower: `audio-hooks set statusline_settings.max_width <columns>`. Set it back to auto with `audio-hooks set statusline_settings.max_width 0`.
+- **Too many rows instead?** That's the no-truncation trade-off — trim segments to taste, e.g. `audio-hooks set statusline_settings.visible_segments '["model","cwd","context","weekly_quota"]'`.
+- **Re-running `audio-hooks statusline install`** re-registers the line with `padding: 0` (full terminal width), which maximises usable space.
+
 ### Cursor IDE: no audio at all
 
 Run `audio-hooks status` and look at `editor_targets.cursor.state`:

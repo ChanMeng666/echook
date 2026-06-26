@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.0] - 2026-06-26
+
+### Added
+
+- **Status line pins the Claude Code startup banner.** Four new banner-parity segments, on by default, surface the facts that scroll off the top of the terminal as a session grows:
+  - `weekly_quota` — the headline *"You've used 82% of your weekly limit · resets 9pm"* (Claude Code's 7-day `rate_limits.seven_day` window), with a color-coded bar and local reset clock time. Self-omits for non-subscribers.
+  - `cc_version` — Claude Code's own version (`⚡ CC v2.1.193`), distinct from echook's `🔊 echook v…`.
+  - `effort` — the model's reasoning effort level (`🧠 high`), shown next to the model segment.
+  - `cost` — session spend and lines changed (`💲 $0.42 +156/-23`) from Claude Code's `cost` object.
+  - The existing 5-hour `api_quota` segment now also shows its reset clock time, for symmetry with `weekly_quota`.
+  - The status line now has **14 segments** (was 10); all are shown by default and remain freely combinable via `statusline_settings.visible_segments`.
+- **Width-aware reflow — no more truncation.** Each line now reflows into as many physical rows as the terminal width needs, wrapping only at segment boundaries, so a content-rich status line is shown **in full** instead of being cut off with an ellipsis (`Webho…`, `+743/-…`). Width comes from the `COLUMNS` env var Claude Code sets (v2.1.153+), falling back to 80, minus a 4-column safety margin (`WIDTH_SAFETY_MARGIN`) — `COLUMNS` reports the full width but the line's `padding` and the terminal's reserved edge cell shrink the *usable* width, so packing against raw `COLUMNS` overfilled the last row. The status line is now registered with `padding: 0` (was `1`) to use the full width. New `statusline_settings.max_width` key (default `0` = auto) pins the width explicitly. Implemented via new `_vwidth()` (ANSI/emoji-aware visible-width), `_pack_lines()` (greedy boundary packing), and `_terminal_width()` helpers. The fix applies automatically on the next refresh; re-running `audio-hooks statusline install` additionally adopts `padding: 0`.
+- `_fmt_reset_clock()` helper in `bin/audio-hooks-statusline.py` — formats a Unix-epoch `resets_at` as a banner-style local clock time (`9pm` / `9:30pm`).
+- `tests/test_statusline.py` — new test classes for each segment plus reset-clock formatting and junk-input robustness.
+
+### Note
+
+- The subscription **plan name** ("Claude Max"/"Pro") shown in the banner is *not* piped to status line scripts by Claude Code, so it is intentionally not rendered. The presence of the quota bars already implies a Claude.ai subscription.
+
 ## [6.0.0] - 2026-06-23
 
 Refocus release: echook is now a two-track tool — **audio + out-of-band notification** and the **status line** — and nothing else. Features that distracted the user or sat outside those tracks were removed; the notification features that serve away-from-screen and window-switching users were kept and hardened instead of cut.

@@ -6,8 +6,8 @@
 
 **AI-operated audio notification system for Claude Code, Cursor IDE, and Codex CLI.**<br/>
 You type one slash command at install time. Then natural language forever.<br/>
-26 hook events, 2 audio themes, rate-limit alerts, webhooks, TTS, context monitor — all operated by your AI agent on your behalf.<br/>
-**v6.0.0 — refocus + AI-agent-first.** echook is now two tracks only — **audio/notification** and the **status line** — with every operation driven by a non-interactive CLI. No human menus, no `curl | bash`, nothing to hand-edit. See the [CHANGELOG](./CHANGELOG.md).
+26 hook events, 2 audio themes, rate-limit alerts, webhooks, TTS, and a status line that pins your Claude Code startup banner — all operated by your AI agent on your behalf.<br/>
+**v6.1.0 — the status line now pins your Claude Code startup banner** (version, model + effort, cwd, the headline *weekly limit + reset*, and session cost) and **auto-reflows** so nothing is ever truncated. Built on **v6.0.0's** two-track refocus — **audio/notification** and the **status line** — with every operation driven by a non-interactive CLI. No human menus, no `curl | bash`, nothing to hand-edit. See the [CHANGELOG](./CHANGELOG.md).
 
 <sub>**5.2.x — echook rebrand + Codex support.** Renamed `claude-code-audio-hooks` → **echook** (Echo + Hook) in 5.2.1 — a door-only rename with zero migration (CLI, marketplace name, and state dirs all unchanged; existing installs keep working). 5.2.0 added Codex CLI as a third editor target. Full history in the [CHANGELOG](./CHANGELOG.md).</sub>
 
@@ -74,6 +74,17 @@ https://github.com/user-attachments/assets/f57249be-a524-4e6f-8225-6b9500f1aea4
 
 ## What's New
 
+### v6.1.0 — Status line pins your startup banner + auto-reflow
+
+When you open Claude Code, the startup banner shows your version, model + effort, cwd, and the headline *"You've used 82% of your weekly limit · resets 9pm"* — then it scrolls off the top of the terminal and you can't get it back. v6.1.0 keeps those facts permanently at the bottom, and makes the whole status line wrap instead of truncate.
+
+| What | Detail |
+|---|---|
+| **4 new banner-parity segments** | `weekly_quota` (the 7-day limit + reset clock — the headline banner item), `cc_version` (Claude Code's own version), `effort` (reasoning effort), and `cost` (session spend + lines `+/-`). The existing 5-hour `api_quota` segment now shows its reset time too. **14 segments** total, all on by default. |
+| **Width-aware auto-reflow** | Each line wraps into as many rows as your terminal width needs (read from the `COLUMNS` env var Claude Code provides on v2.1.153+), splitting only at segment boundaries — so a content-rich status line shows **in full** instead of being cut off with an ellipsis (`Webho…`). New `statusline_settings.max_width` pins the width explicitly when needed. |
+| **What's *not* shown** | The subscription **plan name** ("Claude Max"/"Pro") is the one banner item Claude Code doesn't expose to status line scripts, so it's intentionally omitted (the quota bars already imply a subscription). |
+| **Tested** | Full suite is now **207 tests** green across the Ubuntu/Windows/macOS × Python 3.9/3.12/3.13 matrix, including segment rendering, visible-width measurement, and reflow regression guards. |
+
 ### v6.0.0 — Refocus + AI-agent-first hardening
 
 echook is now **two tracks only — audio/notification and the status line** — and every operation is a non-interactive `audio-hooks` CLI command. This release sharpened the product and removed everything a human used to have to do by hand.
@@ -104,7 +115,7 @@ v5.0 is an **AI-first redesign**. Every project surface is now machine-operable 
 | **Native matcher routing** | `hooks.json` registers per-matcher handlers with unique audio per variant. |
 | **Rate-limit alerts** | One-shot warning at 80%/95% of your 5h or 7d quota. |
 | **TTS speak Claude's reply** | Instead of "Task completed", TTS speaks Claude's actual final message. |
-| **Status line with context monitor** | Color-coded Context and API Quota bars with `/compact` reminders. |
+| **Status line with context monitor** | Color-coded Context and API Quota bars with `/compact` reminders. (Expanded into a full startup-banner pin in v6.1.0.) |
 | **ElevenLabs audio generator** | One-line manifest edit + one-command rebuild for new audio. |
 
 ### v5.0 in Action
@@ -423,7 +434,7 @@ sequenceDiagram
     You->>CC: Show me the last 20 errors and clear the log.
     CC-->>You: 2 errors found (WEBHOOK_TIMEOUT). Log cleared.
     You->>CC: What version of audio-hooks am I running?
-    CC-->>You: v6.0.0, plugin install.
+    CC-->>You: v6.1.0, plugin install.
     You->>CC: Please uninstall audio-hooks completely.
     CC-->>You: Plugin uninstalled. All hooks removed.
     end
@@ -472,8 +483,10 @@ Each prompt is one message. Your AI agent (Claude Code, Cursor, or Codex) parses
 | **Status Line** | |
 | Add a status bar | *"Install the audio-hooks status line."* |
 | Status bar: context only | *"Only show context usage in the audio-hooks status line."* |
-| Status bar: context + API quota | *"Show context and API quota in the audio-hooks status line."* |
+| Status bar: weekly limit only | *"Show only my weekly limit in the audio-hooks status line."* |
+| Status bar: cost + model + effort | *"Show session cost, the model, and effort in the status line."* |
 | Status bar: show everything | *"Reset the audio-hooks status line to show all segments."* |
+| Status bar: too many rows | *"Pin the audio-hooks status line width to 120 columns."* |
 | Remove status bar | *"Uninstall the audio-hooks status line."* |
 | **File Watching** | |
 | Watch .env for changes | *"Enable the audio-hooks file_changed hook and watch `.env` and `.envrc`."* |
@@ -628,39 +641,44 @@ flowchart TB
 
 ## Key Features
 
-### Status Line with Context Monitor
+### Status Line — Startup Banner Pin + Context Monitor
 
-Real-time context window and API quota bars — color-coded warnings before Claude enters the "agent dumb zone".
+Pins your Claude Code startup banner at the bottom (so it never scrolls away) and adds real-time context-window and quota bars — color-coded warnings before Claude enters the "agent dumb zone". Auto-reflows to fit any terminal width, so nothing is truncated.
 
 <p align="center">
 <img src="docs/images/statusline-context-monitor.png" alt="Status Line — context window monitor" width="720">
 </p>
 
 ```text
-[Opus] 📁 D:\…\claude-code-audio-hooks | echook v6.0.0 | 6/26 Sounds | Webhook: ntfy | Theme: Voice
-[MUTED 23m]  feat/audio-v5  API Quota: 78%  Context: 65% (130K/200K)  /compact
+[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | echook v6.1.0 | 6/26 Sounds | Theme: Voice
+[MUTED 23m]  feat/audio-v5  API Quota: 78% · resets 2pm  Weekly: 82% · resets 9pm  Context: 65% (130K/200K)  /compact  💲 $0.42 +156/-23
 ```
 
-**Status line anatomy** — two lines, 10 freely-combinable segments:
+> Each logical line auto-reflows into as many rows as your terminal needs — segments are never split, so on a narrow terminal this renders as more rows rather than being cut off.
+
+**It pins your startup banner.** When you open Claude Code, the banner shows your version, model + effort, cwd, and *"You've used 82% of your weekly limit · resets 9pm"* — then it scrolls off the top and you can't get it back. echook keeps those facts permanently at the bottom: Claude Code **version**, model + **effort**, **cwd**, the **weekly (7-day) limit + reset**, **API quota + reset**, and session **cost**. *(The subscription plan name — "Claude Max"/"Pro" — is the one banner item Claude Code doesn't expose to status line scripts, so it's intentionally omitted.)*
+
+**Status line anatomy** — two logical lines (each auto-reflows to fit your terminal width), 14 freely-combinable segments:
 
 ```mermaid
 flowchart LR
     subgraph L1["Line 1 — identity"]
         direction LR
-        M["model<br/>[Opus]"] --- CWD["📁 cwd<br/>…/echook"] --- V["version"] --- S["sounds"] --- W["webhook"] --- T["theme"]
+        M["model<br/>[Opus]"] --- E["🧠 effort"] --- CCV["⚡ cc_version"] --- CWD["📁 cwd<br/>…/echook"] --- V["version"] --- S["sounds"] --- W["webhook"] --- T["theme"]
     end
     subgraph L2["Line 2 — live state"]
         direction LR
-        SN["snooze"] --- B["🌿 branch"] --- AQ["api_quota bar"] --- CX["context bar<br/>+ /compact hint"]
+        SN["snooze"] --- B["🌿 branch"] --- AQ["api_quota bar"] --- WQ["weekly_quota bar<br/>+ reset"] --- CX["context bar<br/>+ /compact hint"] --- CO["💲 cost"]
     end
     L1 ~~~ L2
 
     style CWD fill:#7ED321,color:#000
     style CX fill:#F5A623,color:#000
     style AQ fill:#F5A623,color:#000
+    style WQ fill:#F5A623,color:#000
 ```
 
-> The green **`cwd`** segment shows which project a session is in. Read more under [10 customisable segments](#key-features) below.
+> The green **`cwd`** segment shows which project a session is in. Read more under [14 customisable segments](#key-features) below.
 
 | Color | Range | Meaning | Action |
 |---|---|---|---|
@@ -671,12 +689,14 @@ flowchart LR
 **Absolute counts (v5.1.3+).** When Claude Code reports the context window size, the segment also shows current/max tokens, e.g. `Context: 83% (166K/200K)`. This makes the math obvious when you `/model`-switch between context-window variants — switching from Opus 4.7 (1M) to Sonnet 4.6 (200K) keeps your tokens identical but shrinks the denominator 5×, so a sudden jump from `17%` to `83%` is **expected**, not a bug. See `docs/TROUBLESHOOTING.md#context-97-or-any-sudden-jump-right-after-switching-models` for the full explanation.
 
 <details>
-<summary><kbd>10 customisable segments</kbd></summary>
+<summary><kbd>14 customisable segments</kbd></summary>
 <br>
 
 | Segment | Shows |
 |---|---|
-| `model` | Model name (e.g. `[Opus]`) |
+| `model` | Model name (e.g. `[Opus 4.8 (1M context)]`) |
+| `effort` | Reasoning effort level (`🧠 high`) — banner parity |
+| `cc_version` | Claude Code's own version (`⚡ CC v2.1.193`) — banner parity |
 | `cwd` | Current working directory (abbreviated path — tells you which project you're in) |
 | `version` | echook version |
 | `sounds` | Enabled sound count |
@@ -684,8 +704,14 @@ flowchart LR
 | `theme` | Audio theme |
 | `snooze` | Mute countdown (when active) |
 | `branch` | Git branch name |
-| `api_quota` | API usage quota bar |
+| `api_quota` | 5-hour API usage quota bar + reset time |
+| `weekly_quota` | 7-day weekly limit bar + reset time (*"Weekly: 82% · resets 9pm"*) — banner parity |
 | `context` | Context window usage bar |
+| `cost` | Session cost + lines added/removed (`💲 $0.42 +156/-23`) — banner parity |
+
+Quota/cost/effort segments self-omit when Claude Code doesn't supply that data (e.g. `weekly_quota` is blank for non-subscribers, `effort` for models without reasoning effort).
+
+**Auto-reflow:** each line wraps into as many rows as your terminal width needs (read from the `COLUMNS` env var Claude Code provides on v2.1.153+) — segments are never split, so nothing is cut off with an ellipsis. Want fewer rows? Trim segments with `visible_segments`, or pin the width with `statusline_settings.max_width`.
 
 </details>
 
@@ -798,7 +824,8 @@ Single Python binary on PATH. JSON output, no prompts, no spinners.
 | `rate_limit_alerts.enabled` | bool | `true` | Watch stdin rate_limits |
 | `rate_limit_alerts.five_hour_thresholds` | int[] | `[80, 95]` | 5h window thresholds |
 | `rate_limit_alerts.seven_day_thresholds` | int[] | `[80, 95]` | 7d window thresholds |
-| `statusline_settings.visible_segments` | string[] | `[]` (all) | Status line segments to show |
+| `statusline_settings.visible_segments` | string[] | `[]` (all) | Status line segments to show (any of: `model`, `effort`, `cc_version`, `cwd`, `version`, `sounds`, `webhook`, `theme`, `snooze`, `branch`, `api_quota`, `weekly_quota`, `context`, `cost`) |
+| `statusline_settings.max_width` | int | `0` (auto) | Pin the reflow width in columns; `0` auto-detects via the `COLUMNS` env var Claude Code provides |
 
 ### Environment Variables
 
@@ -1002,7 +1029,7 @@ echook/
 2. Run `bash scripts/build-plugin.sh` to sync into plugin layout
 3. CI verifies in-sync via `bash scripts/build-plugin.sh --check`
 4. Validate: `claude plugin validate plugins/audio-hooks`
-5. Test: `python -m unittest discover -v tests` (174 tests; Ubuntu/Windows/macOS × Python 3.9/3.12/3.13 in CI)
+5. Test: `python -m unittest discover -v tests` (207 tests; Ubuntu/Windows/macOS × Python 3.9/3.12/3.13 in CI)
 6. Bump version (when releasing): `bash scripts/bump-version.sh <new_version>` — atomically updates 8 canonical version locations and re-runs `build-plugin.sh`
 
 ### Contributing
@@ -1025,7 +1052,7 @@ Pull requests welcome. Fork, clone, make changes to canonical files, run `build-
 | [**docs/TROUBLESHOOTING.md**](docs/TROUBLESHOOTING.md) | Diagnostic recipes for common issues |
 | [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) | System architecture and design decisions |
 | [**CHANGELOG.md**](CHANGELOG.md) | Detailed version history |
-| [**GitHub Releases**](https://github.com/ChanMeng666/echook/releases) | Tagged, versioned distribution — every release from v6.0.0 back, with notes. [Latest release](https://github.com/ChanMeng666/echook/releases/latest). |
+| [**GitHub Releases**](https://github.com/ChanMeng666/echook/releases) | Tagged, versioned distribution — every release from v6.1.0 back, with notes. [Latest release](https://github.com/ChanMeng666/echook/releases/latest). |
 | [**CI (smoke.yml)**](https://github.com/ChanMeng666/echook/actions/workflows/smoke.yml) | Live build status across Ubuntu/Windows/macOS × Python 3.9/3.12/3.13. |
 | `audio-hooks manifest` | Live source of truth — includes `subcommands`, `hooks`, `config_keys`, `error_codes`, `env_vars`, `editor_targets`, `supported_editors`, and `pointers` (paths to every doc above). Always up to date. |
 
