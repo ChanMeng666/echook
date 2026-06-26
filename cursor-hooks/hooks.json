@@ -2,12 +2,12 @@
   "_comment": "Cursor IDE hooks.json template for audio-hooks. This file is the canonical template; `audio-hooks install --cursor` reads it, substitutes {{PYTHON}} and {{HOOK_RUNNER}} with absolute paths, and writes the result into ~/.cursor/hooks.json (merging with any existing user hooks). DO NOT edit ~/.cursor/hooks.json by hand — re-run install --cursor instead.",
   "_schema_doc": "https://cursor.com/docs/hooks",
   "_audio_hooks_managed": true,
-  "_audio_hooks_version": "6.1.0",
+  "_audio_hooks_version": "6.2.0",
   "_unsupported_in_cursor": [
     "Notification",
     "PermissionRequest"
   ],
-  "_unsupported_note": "Cursor's third-party-hooks bridge maps 8 of 10 Claude Code events. Notification and PermissionRequest have no Cursor equivalent (cursor.com/docs/reference/third-party-hooks) and are intentionally absent from this hooks.json.",
+  "_unsupported_note": "Cursor has no Notification or PermissionRequest hook (cursor.com/docs/hooks) — those canonical audio-hooks events never fire here. v6.2: tool execution is mapped via Cursor's GRANULAR per-type events (beforeShellExecution / beforeMCPExecution / beforeReadFile and their *after* counterparts) instead of the coarse preToolUse/postToolUse umbrella, so shell, MCP and file-read each get a distinct sound. The umbrella preToolUse/postToolUse are intentionally NOT registered to avoid double-firing with the granular events; Write/Edit are still surfaced after-the-fact via afterFileEdit, and Task tools via subagentStart.",
   "version": 1,
   "hooks": {
     "sessionStart": [
@@ -42,15 +42,51 @@
         "loop_limit": 0
       }
     ],
-    "preToolUse": [
+    "beforeShellExecution": [
       {
-        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" pretooluse",
+        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" shell_before",
         "timeout": 10
       }
     ],
-    "postToolUse": [
+    "afterShellExecution": [
       {
-        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" posttooluse",
+        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" shell_after",
+        "timeout": 10
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" mcp_before",
+        "timeout": 10
+      }
+    ],
+    "afterMCPExecution": [
+      {
+        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" mcp_after",
+        "timeout": 10
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" file_read",
+        "timeout": 10
+      }
+    ],
+    "beforeTabFileRead": [
+      {
+        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" file_read",
+        "timeout": 10
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" file_changed",
+        "timeout": 10
+      }
+    ],
+    "afterTabFileEdit": [
+      {
+        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" tab_file_edit",
         "timeout": 10
       }
     ],
@@ -60,9 +96,21 @@
         "timeout": 10
       }
     ],
-    "afterFileEdit": [
+    "afterAgentResponse": [
       {
-        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" file_changed",
+        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" agent_response",
+        "timeout": 10
+      }
+    ],
+    "afterAgentThought": [
+      {
+        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" agent_thinking",
+        "timeout": 10
+      }
+    ],
+    "workspaceOpen": [
+      {
+        "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" workspace_open",
         "timeout": 10
       }
     ],

@@ -155,7 +155,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "6.1.0"
+PROJECT_VERSION = "6.2.0"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -186,6 +186,21 @@ HOOK_CATALOG: List[Dict[str, Any]] = [
     {"name": "cwd_changed",          "default": False, "audio": "cwd-changed.mp3",           "description": "Working directory changed (v5.0)"},
     {"name": "file_changed",         "default": False, "audio": "file-changed.mp3",          "description": "Watched file changed on disk (v5.0)"},
     {"name": "task_created",         "default": False, "audio": "task-created.mp3",          "description": "Task created via TaskCreate (v5.0)"},
+    # New in v6.2 — Claude Code lifecycle events added since v5.0.
+    {"name": "setup",                "default": False, "audio": "setup-ready.mp3",           "description": "First-run/maintenance setup finished (Claude Code Setup; matchers: init|maintenance) (v6.2)"},
+    {"name": "user_prompt_expansion","default": False, "audio": "prompt-expanded.mp3",       "description": "A typed command/skill expanded into a prompt (Claude Code; noisy) (v6.2)"},
+    {"name": "post_tool_batch",      "default": False, "audio": "batch-complete.mp3",        "description": "A batch of parallel tool calls resolved (Claude Code) (v6.2)"},
+    {"name": "message_display",      "default": False, "audio": "message-display.mp3",       "description": "Assistant message displayed (Claude Code; very noisy) (v6.2)"},
+    # New in v6.2 — Cursor granular per-tool-type events (Cursor-only).
+    {"name": "shell_before",         "default": False, "audio": "shell-starting.mp3",        "description": "Shell command about to run (Cursor beforeShellExecution) (v6.2)"},
+    {"name": "shell_after",          "default": False, "audio": "shell-done.mp3",            "description": "Shell command finished (Cursor afterShellExecution) (v6.2)"},
+    {"name": "mcp_before",           "default": False, "audio": "mcp-starting.mp3",          "description": "MCP tool about to run (Cursor beforeMCPExecution) (v6.2)"},
+    {"name": "mcp_after",            "default": False, "audio": "mcp-done.mp3",              "description": "MCP tool finished (Cursor afterMCPExecution) (v6.2)"},
+    {"name": "file_read",            "default": False, "audio": "file-read.mp3",             "description": "Agent reading a file (Cursor beforeReadFile/beforeTabFileRead) (v6.2)"},
+    {"name": "agent_response",       "default": False, "audio": "agent-response.mp3",        "description": "Assistant message completed (Cursor afterAgentResponse) (v6.2)"},
+    {"name": "agent_thinking",       "default": False, "audio": "thinking-done.mp3",         "description": "Reasoning block finished (Cursor afterAgentThought) (v6.2)"},
+    {"name": "workspace_open",       "default": False, "audio": "workspace-open.mp3",        "description": "Workspace opened / folder changed (Cursor workspaceOpen) (v6.2)"},
+    {"name": "tab_file_edit",        "default": False, "audio": "tab-edit.mp3",              "description": "Tab inline edit applied (Cursor afterTabFileEdit; very noisy) (v6.2)"},
 ]
 
 
@@ -2392,11 +2407,25 @@ def _build_manifest() -> Dict[str, Any]:
                     "stop", "subagent_stop", "session_start",
                     "session_end", "precompact",
                 ],
+                # v6.2: the native `--cursor` template maps Cursor's full Agent-hook
+                # surface, splitting tool execution into per-type events (shell / MCP /
+                # file-read) so each gets its own sound — something the coarse auto-bridge
+                # cannot do. The umbrella preToolUse/postToolUse are dropped natively to
+                # avoid double-firing with the granular events.
+                "native_events_subset": [
+                    "session_start", "session_end", "stop",
+                    "subagent_start", "subagent_stop", "posttoolusefailure",
+                    "file_changed", "precompact", "userpromptsubmit",
+                    "shell_before", "shell_after", "mcp_before", "mcp_after",
+                    "file_read", "agent_response", "agent_thinking",
+                    "workspace_open", "tab_file_edit",
+                ],
                 "unbridged_events": [
                     "notification",  # No Cursor equivalent
                     "permission_request",  # No Cursor equivalent
                 ],
                 "native_install_via": "audio-hooks install --cursor",
+                "doc_url": "https://cursor.com/docs/hooks",
             },
             "codex": {
                 "auto_bridge": False,
@@ -2428,6 +2457,20 @@ def _build_manifest() -> Dict[str, Any]:
                     "config_change",
                     "instructions_loaded",
                     "permission_denied",
+                    # v6.2 — Codex has no equivalent for the new Claude Code / Cursor events.
+                    "setup",
+                    "user_prompt_expansion",
+                    "post_tool_batch",
+                    "message_display",
+                    "shell_before",
+                    "shell_after",
+                    "mcp_before",
+                    "mcp_after",
+                    "file_read",
+                    "agent_response",
+                    "agent_thinking",
+                    "workspace_open",
+                    "tab_file_edit",
                 ],
                 "feature_flag": "Codex hooks are enabled by default. `[features].hooks = false` in $CODEX_HOME/config.toml disables all hooks; remove it or set hooks = true to re-enable. Legacy `[features].codex_hooks = true` is recognized as explicitly enabled.",
                 "plugin_install_via": "codex plugin marketplace add ChanMeng666/echook && codex plugin add audio-hooks@chanmeng-audio-hooks",

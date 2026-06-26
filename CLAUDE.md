@@ -1,6 +1,6 @@
 # echook — AI Operator Guide
 
-> v6.1.0 · Multi-platform: Claude Code (plugin) · Cursor (native + auto-bridge) · Codex (plugin + native). Source-of-truth for every capability is `audio-hooks manifest` (live JSON, includes `pointers`, `editor_targets`, `supported_editors`). This file is orientation only.
+> v6.2.0 · Multi-platform: Claude Code (plugin) · Cursor (native + auto-bridge) · Codex (plugin + native). Source-of-truth for every capability is `audio-hooks manifest` (live JSON, includes `pointers`, `editor_targets`, `supported_editors`). This file is orientation only.
 
 <critical>
 1. **`audio-hooks` CLI is the only interface.** Single Python binary, JSON output, stable error codes. Never hand-edit `user_preferences.json` — use `audio-hooks set <dotted.key> <value>`.
@@ -22,7 +22,7 @@ Verify with `audio-hooks status` + `audio-hooks diagnose` + `audio-hooks test al
 
 ## Tests, CI, and version bumps
 
-- **Run tests:** `python -m unittest discover -v tests` (207 tests). NOT pytest — no `pyproject.toml` / `pytest.ini`.
+- **Run tests:** `python -m unittest discover -v tests` (208 tests). NOT pytest — no `pyproject.toml` / `pytest.ini`.
 - **CI:** `.github/workflows/smoke.yml` — Ubuntu/Windows/macOS × Python 3.9/3.12/3.13, plus `bash scripts/build-plugin.sh --check`.
 - **Bump version:** `bash scripts/bump-version.sh <new_version>` — rewrites all 8 canonical version locations and runs `build-plugin.sh`. Idempotent. Outputs JSON with `files_changed` and `next_steps`.
 
@@ -36,5 +36,5 @@ Verify with `audio-hooks status` + `audio-hooks diagnose` + `audio-hooks test al
 
 - **Cursor does not inject `CLAUDE_PLUGIN_DATA`** when bridging — `UserPreferences._resolve_data_dir()` in `hooks/user_preferences.py` is the fallback chain. Do not assume the env var exists.
 - **Codex sets no `CODEX_VERSION` env var.** Invoker detection uses the `--invoker codex` CLI flag baked into the Codex install template, parsed by `hooks/invoker.py`.
-- **Cursor (8/26 events) and Codex (10/26 events) have smaller hook surfaces.** The runner no-ops unsupported events with `skipped_no_*_equivalent` debug NDJSON. Live mapping: `audio-hooks manifest` → `supported_editors`.
+- **Claude Code maps all 39 canonical events; Cursor (native: 19 of 39 — incl. granular per-tool shell/MCP/file events; auto-bridge: 8 coarse) and Codex (10 of 39) have smaller hook surfaces.** The runner no-ops unsupported events with `skipped_no_*_equivalent` debug NDJSON. Live mapping: `audio-hooks manifest` → `supported_editors`.
 - **Windows paths in install templates must be JSON-escaped** (`D:\path` → `D:\\path`). 5.1.6 fix; covered by `tests/test_codex_hooks.py` and `tests/test_cursor_bridge.py`.

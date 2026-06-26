@@ -86,7 +86,46 @@
     "file_changed": false,
 
     "_comment_task_created": "v5.0: Plays when a task is created via TaskCreate - RECOMMENDED",
-    "task_created": false
+    "task_created": false,
+
+    "_comment_setup": "v6.2: Plays when first-run/maintenance setup finishes (Claude Code Setup) - RECOMMENDED for long inits",
+    "setup": false,
+
+    "_comment_user_prompt_expansion": "v6.2: Plays when a typed command/skill expands into a prompt (Claude Code) - OPTIONAL (noisy)",
+    "user_prompt_expansion": false,
+
+    "_comment_post_tool_batch": "v6.2: Plays after a batch of parallel tool calls resolves (Claude Code) - OPTIONAL",
+    "post_tool_batch": false,
+
+    "_comment_message_display": "v6.2: Plays when an assistant message is displayed (Claude Code) - OPTIONAL (very noisy)",
+    "message_display": false,
+
+    "_comment_shell_before": "v6.2 (Cursor): Plays before a shell command runs - OPTIONAL. Distinct sound from MCP/file events.",
+    "shell_before": false,
+
+    "_comment_shell_after": "v6.2 (Cursor): Plays after a shell command finishes - OPTIONAL",
+    "shell_after": false,
+
+    "_comment_mcp_before": "v6.2 (Cursor): Plays before an MCP tool runs - OPTIONAL. Distinct sound for external service calls.",
+    "mcp_before": false,
+
+    "_comment_mcp_after": "v6.2 (Cursor): Plays after an MCP tool finishes - OPTIONAL",
+    "mcp_after": false,
+
+    "_comment_file_read": "v6.2 (Cursor): Plays when the agent reads a file - OPTIONAL (noisy)",
+    "file_read": false,
+
+    "_comment_agent_response": "v6.2 (Cursor): Plays when an assistant message completes - OPTIONAL (lighter than stop)",
+    "agent_response": false,
+
+    "_comment_agent_thinking": "v6.2 (Cursor): Plays when a reasoning block finishes - OPTIONAL",
+    "agent_thinking": false,
+
+    "_comment_workspace_open": "v6.2 (Cursor): Plays when a workspace is opened / folder changes - OPTIONAL",
+    "workspace_open": false,
+
+    "_comment_tab_file_edit": "v6.2 (Cursor): Plays when a Tab inline edit is applied - OPTIONAL (very noisy)",
+    "tab_file_edit": false
   },
 
   "playback_settings": {
@@ -157,7 +196,19 @@
       "permission_denied": "Permission denied by classifier",
       "cwd_changed": "Working directory changed",
       "file_changed": "Watched file changed",
-      "task_created": "Task created"
+      "task_created": "Task created",
+      "setup": "Environment ready",
+      "user_prompt_expansion": "Command expanded",
+      "post_tool_batch": "Tool batch finished",
+      "shell_before": "Shell command starting",
+      "shell_after": "Shell command finished",
+      "mcp_before": "MCP tool starting",
+      "mcp_after": "MCP tool finished",
+      "file_read": "Reading file",
+      "agent_response": "Response ready",
+      "agent_thinking": "Finished thinking",
+      "workspace_open": "Workspace opened",
+      "tab_file_edit": "Inline edit applied"
     }
   },
 

@@ -134,6 +134,25 @@
     "FileChanged": [
       { "matcher": ".env|.envrc|.env.local",
         "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" file_changed", "async": true, "timeout": 10 }] }
+    ],
+
+    "Setup": [
+      { "matcher": "init",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" setup_init", "async": true, "timeout": 10 }] },
+      { "matcher": "maintenance",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" setup_maintenance", "async": true, "timeout": 10 }] }
+    ],
+
+    "UserPromptExpansion": [
+      { "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" user_prompt_expansion", "async": true, "timeout": 10 }] }
+    ],
+
+    "PostToolBatch": [
+      { "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" post_tool_batch", "async": true, "timeout": 10 }] }
+    ],
+
+    "MessageDisplay": [
+      { "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" message_display", "async": true, "timeout": 10 }] }
     ]
   }
 }

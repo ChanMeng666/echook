@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.2.0] - 2026-06-26
+
+Complete-the-hook-surface release: every lifecycle event the three editors now document is mapped to echook's two tracks. **13 new canonical events (26 → 39 total)**, all opt-in (default off). Codex was already complete at 10 events and is unchanged.
+
+### Added
+
+- **Four new Claude Code events** (verified against code.claude.com/docs/en/hooks):
+  - `setup` — first-run/maintenance setup finished (Claude Code `Setup`, matchers `init`/`maintenance`). Designed for the away-from-desk case: get pinged when a long `claude --init` or maintenance run is ready. Routed via synthetic variants `setup_init` / `setup_maintenance`.
+  - `user_prompt_expansion` — a typed command/skill expanded into a prompt (`UserPromptExpansion`).
+  - `post_tool_batch` — a batch of parallel tool calls resolved (`PostToolBatch`).
+  - `message_display` — an assistant message was displayed (`MessageDisplay`; very noisy, 10s hook timeout).
+- **Nine new Cursor events with per-tool-type sounds** (verified against cursor.com/docs/hooks). The native `audio-hooks install --cursor` template now maps Cursor's **granular** execution events so shell, MCP, and file-read each get a *distinct* sound — something the coarse `preToolUse`/`postToolUse` umbrella cannot do, and especially valuable because Cursor has no `Notification`/`PermissionRequest` hook:
+  - `shell_before` / `shell_after` (`beforeShellExecution` / `afterShellExecution`)
+  - `mcp_before` / `mcp_after` (`beforeMCPExecution` / `afterMCPExecution`)
+  - `file_read` (`beforeReadFile` + `beforeTabFileRead`)
+  - `agent_response` (`afterAgentResponse`), `agent_thinking` (`afterAgentThought`)
+  - `workspace_open` (`workspaceOpen`), `tab_file_edit` (`afterTabFileEdit`)
+- New `get_notification_context()` cases for all 13 events (read `command` / `tool_name` / `file_path` / `text` / `duration_ms` / `workspace_roots` from each event's payload), plus `enabled_hooks`, `tts_settings.messages`, `DEFAULT_AUDIO_FILES`, and `CUSTOM_AUDIO_FILES` entries.
+- 26 new audio files (13 voice + 13 chime), each generated from a bespoke ElevenLabs prompt recorded in `config/audio_manifest.json` — distinct sounds per event (e.g. shell vs MCP vs file-read).
+
+### Changed
+
+- **Cursor native template (`cursor-hooks/hooks.json`) rewritten for granular per-type events.** The coarse `preToolUse` / `postToolUse` are **no longer registered natively** — they would double-fire with the granular events. Write/Edit are still surfaced after-the-fact via `afterFileEdit → file_changed`, and Task tools via `subagentStart`. (The Claude Code auto-bridge subset is unchanged; this affects only the native `--cursor` install, which is for Cursor users without Claude Code.)
+- `manifest.supported_editors`: `claude-code.events` now lists 39; added `cursor.native_events_subset` (19 events) and extended `codex.unsupported_events` with all 13 new events (Codex has no equivalent).
+- Invoker gating in `hook_runner.py`: the four Claude-Code-only events are skipped under the Cursor invoker, and all 13 new events are skipped under the Codex invoker, each with the existing `skipped_no_*_equivalent` debug NDJSON.
+
+### Note
+
+- **echook consumes these events to *notify* only.** Cursor's and Claude Code's block/modify powers (`deny` / `ask` / `updatedInput` / `followup_message`) are deliberately ignored — using them to steer or gate the agent would break the two-track scope (notification + status line).
+- All 26 new audio files were generated with the project's standard ElevenLabs voice (Jessica) and sound-effect pipeline, matching the existing themes; regenerate any of them via `scripts/generate-audio.py --force --only <filename>`.
+
 ## [6.1.0] - 2026-06-26
 
 ### Added

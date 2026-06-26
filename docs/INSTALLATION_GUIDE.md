@@ -22,7 +22,7 @@ Then verify and smoke-test:
 > run audio-hooks test all
 ```
 
-That's it. All 26 hook events register, every audio file is bundled, and `${CLAUDE_PLUGIN_DATA}/user_preferences.json` is auto-initialised on first read. The `/audio-hooks` SKILL ships with the plugin so you can configure everything via natural language afterwards.
+That's it. All 39 hook events register, every audio file is bundled, and `${CLAUDE_PLUGIN_DATA}/user_preferences.json` is auto-initialised on first read. The `/audio-hooks` SKILL ships with the plugin so you can configure everything via natural language afterwards.
 
 ## Alternative: script install (cloned repo, no plugin system)
 

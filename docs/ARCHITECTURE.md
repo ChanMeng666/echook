@@ -210,7 +210,7 @@ Native matcher routing happens at the `settings.json` layer (Claude Code's match
 Two-line bottom bar registered in `~/.claude/settings.json` via `audio-hooks statusline install`. Reads stdin JSON Claude Code provides (model name, `effort.level`, Claude Code `version`, session_id, `cwd` / `workspace.current_dir`, workspace.git_worktree, `rate_limits.{five_hour,seven_day}`, `context_window`, `cost`) and emits two lines of plain text with ANSI colors:
 
 ```text
-[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | 🔊 echook v6.0.0 | 6/26 Sounds | Theme: Voice
+[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | 🔊 echook v6.2.0 | 6/39 Sounds | Theme: Voice
 [MUTED 23m]  🌿 feat/audio-v5  ████░░░░ API Quota: 78% · resets 2pm  ███████░ Weekly: 82% · resets 9pm  █████░░░ Context: 65% (130K/200K) ⚠️ /compact  💲 $0.42 +156/-23
 ```
 

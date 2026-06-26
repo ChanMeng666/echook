@@ -6,8 +6,8 @@
 
 **AI-operated audio notification system for Claude Code, Cursor IDE, and Codex CLI.**<br/>
 You type one slash command at install time. Then natural language forever.<br/>
-26 hook events, 2 audio themes, rate-limit alerts, webhooks, TTS, and a status line that pins your Claude Code startup banner — all operated by your AI agent on your behalf.<br/>
-**v6.1.0 — the status line now pins your Claude Code startup banner** (version, model + effort, cwd, the headline *weekly limit + reset*, and session cost) and **auto-reflows** so nothing is ever truncated. Built on **v6.0.0's** two-track refocus — **audio/notification** and the **status line** — with every operation driven by a non-interactive CLI. No human menus, no `curl | bash`, nothing to hand-edit. See the [CHANGELOG](./CHANGELOG.md).
+39 hook events, 2 audio themes, rate-limit alerts, webhooks, TTS, and a status line that pins your Claude Code startup banner — all operated by your AI agent on your behalf.<br/>
+**v6.2.0 — complete hook coverage across all three editors.** Added every newly-documented lifecycle event (Claude Code `Setup` / `UserPromptExpansion` / `PostToolBatch` / `MessageDisplay`) and mapped Cursor's **granular per-tool-type events** so shell, MCP, and file-read each get a *distinct* sound — 13 new events, 26 → 39 total. Built on **v6.1.0's** status-line banner pin and **v6.0.0's** two-track refocus — **audio/notification** and the **status line** — with every operation driven by a non-interactive CLI. See the [CHANGELOG](./CHANGELOG.md).
 
 <sub>**5.2.x — echook rebrand + Codex support.** Renamed `claude-code-audio-hooks` → **echook** (Echo + Hook) in 5.2.1 — a door-only rename with zero migration (CLI, marketplace name, and state dirs all unchanged; existing installs keep working). 5.2.0 added Codex CLI as a third editor target. Full history in the [CHANGELOG](./CHANGELOG.md).</sub>
 
@@ -73,6 +73,17 @@ https://github.com/user-attachments/assets/f57249be-a524-4e6f-8225-6b9500f1aea4
 ---
 
 ## What's New
+
+### v6.2.0 — Complete hook coverage + per-tool-type sounds on Cursor
+
+The three editors each grew their lifecycle surfaces since echook's last hook pass. v6.2.0 brings every documented event under the two echook tracks — **13 new events, 26 → 39 total** — all opt-in (default off).
+
+| What | Detail |
+|---|---|
+| **4 new Claude Code events** | `Setup` (first-run/maintenance setup finished — get pinged when a long `claude --init` is ready), `UserPromptExpansion`, `PostToolBatch`, `MessageDisplay`. |
+| **Cursor per-tool-type sounds** | Cursor's granular hooks (`beforeShellExecution` / `beforeMCPExecution` / `beforeReadFile` + their *after* counterparts, `afterAgentThought`, `workspaceOpen`, Tab edits) are now mapped to **distinct sounds** — you can *hear* shell vs MCP vs file-read. Cursor has no `Notification`/`PermissionRequest` hook, so this granular surface is how Cursor users get rich, per-action cues. The coarse `preToolUse`/`postToolUse` umbrella is dropped natively to avoid double-firing. |
+| **Notification-only, by design** | echook consumes these events to *notify* — it never uses their `deny`/`ask`/`updatedInput`/`followup_message` powers to block or steer the agent (that would break the two-track scope). |
+| **Codex** | Already complete at 10 events — no change. |
 
 ### v6.1.0 — Status line pins your startup banner + auto-reflow
 
@@ -171,7 +182,7 @@ flowchart TB
     CXP --> CLI
     CXN --> CLI
 
-    CLI --> OUT["26 hook events · 2 themes · webhooks<br/>TTS · rate-limit alerts · status line"]
+    CLI --> OUT["39 hook events · 2 themes · webhooks<br/>TTS · rate-limit alerts · status line"]
 
     style REPO fill:#4A90E2,color:#fff
     style CLI fill:#7ED321,color:#000
@@ -428,13 +439,13 @@ sequenceDiagram
     You->>CC: Enable the audio-hooks file_changed hook and<br/>configure it to watch .env and .envrc.
     CC-->>You: file_changed enabled, watching [.env, .envrc].
     You->>CC: Test all my audio-hooks hooks and tell me<br/>if any failed.
-    CC-->>You: audio-hooks test all — 26/26 passed.
+    CC-->>You: audio-hooks test all — 39/39 passed.
     You->>CC: What's the current state of audio-hooks?
     CC-->>You: audio-hooks status — theme: default,<br/>18 hooks enabled, 0 errors.
     You->>CC: Show me the last 20 errors and clear the log.
     CC-->>You: 2 errors found (WEBHOOK_TIMEOUT). Log cleared.
     You->>CC: What version of audio-hooks am I running?
-    CC-->>You: v6.1.0, plugin install.
+    CC-->>You: v6.2.0, plugin install.
     You->>CC: Please uninstall audio-hooks completely.
     CC-->>You: Plugin uninstalled. All hooks removed.
     end
@@ -650,7 +661,7 @@ Pins your Claude Code startup banner at the bottom (so it never scrolls away) an
 </p>
 
 ```text
-[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | echook v6.1.0 | 6/26 Sounds | Theme: Voice
+[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | echook v6.2.0 | 6/39 Sounds | Theme: Voice
 [MUTED 23m]  feat/audio-v5  API Quota: 78% · resets 2pm  Weekly: 82% · resets 9pm  Context: 65% (130K/200K)  /compact  💲 $0.42 +156/-23
 ```
 
@@ -726,7 +737,7 @@ Say *"switch to chimes"* or *"switch to voice"* — Claude Code handles the rest
 
 ### 26 Hook Events
 
-26 events covering the full Claude Code lifecycle — from session start to file changes, permission requests to rate-limit warnings. 6 are enabled by default; toggle any with natural language.
+39 events covering the full Claude Code lifecycle — from session start to file changes, permission requests to rate-limit warnings, plus Cursor's granular per-tool-type events. 6 are enabled by default; toggle any with natural language.
 
 <details>
 <summary><kbd>Full hook events table</kbd></summary>
@@ -791,7 +802,7 @@ Single Python binary on PATH. JSON output, no prompts, no spinners.
 | `audio-hooks version` | Version + install mode detection |
 | `audio-hooks get <dotted.key>` | Read any config key |
 | `audio-hooks set <dotted.key> <value>` | Write any config key (auto-coerces) |
-| `audio-hooks hooks list` | All 26 hooks with current state |
+| `audio-hooks hooks list` | All 39 hooks with current state |
 | `audio-hooks hooks enable/disable <name>` | Toggle a hook |
 | `audio-hooks hooks enable-only <a> <b>` | Exclusive enable |
 | `audio-hooks theme list/set <name>` | Audio theme |
@@ -1029,7 +1040,7 @@ echook/
 2. Run `bash scripts/build-plugin.sh` to sync into plugin layout
 3. CI verifies in-sync via `bash scripts/build-plugin.sh --check`
 4. Validate: `claude plugin validate plugins/audio-hooks`
-5. Test: `python -m unittest discover -v tests` (207 tests; Ubuntu/Windows/macOS × Python 3.9/3.12/3.13 in CI)
+5. Test: `python -m unittest discover -v tests` (208 tests; Ubuntu/Windows/macOS × Python 3.9/3.12/3.13 in CI)
 6. Bump version (when releasing): `bash scripts/bump-version.sh <new_version>` — atomically updates 8 canonical version locations and re-runs `build-plugin.sh`
 
 ### Contributing

@@ -2,7 +2,7 @@
   "_comment": "Codex CLI hooks.json template for audio-hooks. This file is the canonical native-install template; `audio-hooks install --codex` reads it, substitutes {{PYTHON}} and {{HOOK_RUNNER}} with absolute paths, and writes the result into ~/.codex/hooks.json (merging with any existing user hooks). DO NOT edit ~/.codex/hooks.json by hand — re-run install --codex instead.",
   "_schema_doc": "https://developers.openai.com/codex/hooks",
   "_audio_hooks_managed": true,
-  "_audio_hooks_version": "6.1.0",
+  "_audio_hooks_version": "6.2.0",
   "_unsupported_in_codex": [
     "Notification",
     "SessionEnd",

@@ -81,7 +81,35 @@
       "duration_seconds": 1.2,
       "prompt_influence": 0.4,
       "_v5": true
-    }
+    },
+
+    { "filename": "setup-ready.mp3",            "theme": "default", "type": "voice", "text": "Environment ready",        "_v6_2": true },
+    { "filename": "prompt-expanded.mp3",        "theme": "default", "type": "voice", "text": "Command expanded",         "_v6_2": true },
+    { "filename": "batch-complete.mp3",         "theme": "default", "type": "voice", "text": "Tool batch finished",      "_v6_2": true },
+    { "filename": "message-display.mp3",        "theme": "default", "type": "voice", "text": "New message",              "_v6_2": true },
+    { "filename": "shell-starting.mp3",         "theme": "default", "type": "voice", "text": "Running a command",        "_v6_2": true },
+    { "filename": "shell-done.mp3",             "theme": "default", "type": "voice", "text": "Command finished",         "_v6_2": true },
+    { "filename": "mcp-starting.mp3",           "theme": "default", "type": "voice", "text": "Calling a tool",           "_v6_2": true },
+    { "filename": "mcp-done.mp3",               "theme": "default", "type": "voice", "text": "Tool finished",            "_v6_2": true },
+    { "filename": "file-read.mp3",              "theme": "default", "type": "voice", "text": "Reading a file",           "_v6_2": true },
+    { "filename": "agent-response.mp3",         "theme": "default", "type": "voice", "text": "Response ready",           "_v6_2": true },
+    { "filename": "thinking-done.mp3",          "theme": "default", "type": "voice", "text": "Finished thinking",        "_v6_2": true },
+    { "filename": "workspace-open.mp3",         "theme": "default", "type": "voice", "text": "Workspace opened",         "_v6_2": true },
+    { "filename": "tab-edit.mp3",               "theme": "default", "type": "voice", "text": "Inline edit applied",      "_v6_2": true },
+
+    { "filename": "chime-setup-ready.mp3",      "theme": "custom", "type": "sound_effect", "text": "bright modern UI ready chime, warm two-tone ascending bell, welcoming, 1 second",                   "duration_seconds": 1.2, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-prompt-expanded.mp3",  "theme": "custom", "type": "sound_effect", "text": "soft modern UI expand tap, quick light unfolding pop, subtle, 1 second",                              "duration_seconds": 1.2, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-batch-complete.mp3",   "theme": "custom", "type": "sound_effect", "text": "modern UI batch completion, two quick ascending ticks then a soft bell, brisk, 1 second",            "duration_seconds": 1.2, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-message-display.mp3",  "theme": "custom", "type": "sound_effect", "text": "very subtle modern UI message pop, single soft tick, minimal, under 1 second",                     "duration_seconds": 1.0, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-shell-starting.mp3",   "theme": "custom", "type": "sound_effect", "text": "modern terminal UI prompt, low soft single beep, neutral, under 1 second",                          "duration_seconds": 1.0, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-shell-done.mp3",        "theme": "custom", "type": "sound_effect", "text": "modern terminal UI completion, low-to-mid two-tone soft tick, neutral, 1 second",                  "duration_seconds": 1.0, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-mcp-starting.mp3",     "theme": "custom", "type": "sound_effect", "text": "modern UI network call start, bright single high ping, digital, under 1 second",                    "duration_seconds": 1.0, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-mcp-done.mp3",         "theme": "custom", "type": "sound_effect", "text": "modern UI network call done, bright two-tone descending ping, digital, 1 second",                  "duration_seconds": 1.0, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-file-read.mp3",        "theme": "custom", "type": "sound_effect", "text": "soft modern UI page flip, gentle paper-like swish, brief, under 1 second",                          "duration_seconds": 1.0, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-agent-response.mp3",   "theme": "custom", "type": "sound_effect", "text": "gentle modern UI reply chime, single warm mid bell, pleasant, 1 second",                          "duration_seconds": 1.2, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-thinking-done.mp3",    "theme": "custom", "type": "sound_effect", "text": "soft modern UI thought-complete chime, light ascending shimmer, calm, 1 second",                  "duration_seconds": 1.2, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-workspace-open.mp3",   "theme": "custom", "type": "sound_effect", "text": "modern UI app open chime, warm rising three-note arpeggio, welcoming, 1 second",                "duration_seconds": 1.2, "prompt_influence": 0.4, "_v6_2": true },
+    { "filename": "chime-tab-edit.mp3",         "theme": "custom", "type": "sound_effect", "text": "very subtle modern UI keystroke tick, single faint click, minimal, under 1 second",               "duration_seconds": 1.0, "prompt_influence": 0.4, "_v6_2": true }
   ],
 
   "_legacy_files_note": "The 22 pre-v5.0 audio files (notification-urgent.mp3, task-complete.mp3, etc.) were generated before this manifest existed and are NOT regenerated by default. To rebuild any of them, add an entry here matching the filename and run `python scripts/generate-audio.py --only <filename>`."

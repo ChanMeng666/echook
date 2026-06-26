@@ -55,7 +55,7 @@ Duration syntax: `30m`, `1h`, `90s`, `2d`, or a bare integer (interpreted as min
 
 **Enable / disable individual hooks**
 
-Run `audio-hooks hooks list` to see all 26 hooks with their current state. Then:
+Run `audio-hooks hooks list` to see all 39 hooks with their current state. Then:
 
 | User says | Run |
 |---|---|
@@ -64,6 +64,8 @@ Run `audio-hooks hooks list` to see all 26 hooks with their current state. Then:
 | "I only want stop and notification audio" | `audio-hooks hooks enable-only stop notification permission_request` |
 | "enable the v5.0 permission_denied hook" | `audio-hooks hooks enable permission_denied` |
 | "watch .env files for changes" | `audio-hooks hooks enable file_changed` and `audio-hooks set file_changed.watch '[".env",".envrc"]'` |
+| "ping me when setup/init finishes" | `audio-hooks hooks enable setup` |
+| "different sound for shell vs MCP calls in Cursor" | `audio-hooks hooks enable shell_before` and `audio-hooks hooks enable mcp_before` (v6.2, Cursor-only granular events) |
 
 **Check project status**
 
@@ -133,7 +135,7 @@ The status line displays real-time audio-hooks state and context window usage at
 
 After installing, the status line updates every 60 seconds and shows two lines:
 ```
-[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | 🔊 echook v6.0.0 | 6/26 Sounds | Webhook: off | Theme: Voice
+[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | 🔊 echook v6.2.0 | 6/39 Sounds | Webhook: off | Theme: Voice
 🌿 main  ████░░░░ API Quota: 60% · resets 2pm  ███████░ Weekly: 82% · resets 9pm  █████░░░ Context: 65% (130K/200K) ⚠️ /compact  💲 $0.42 +156/-23
 ```
 The status line pins the key facts from Claude Code's **startup banner** so they stay visible after the banner scrolls off the top of the terminal: the model + reasoning **effort** (`🧠`), Claude Code's own **version** (`⚡ CC v…`, distinct from echook's `🔊 echook v…`), the **cwd**, the **5-hour API quota** and the headline **weekly (7-day) limit + reset time** (`Weekly: 82% · resets 9pm`), and session **cost + diff** (`💲 $0.42 +156/-23`). The `📁` segment (`cwd`) is abbreviated (home → `~`, long paths shortened to `<root>…<last folder>`) so the user can tell at a glance which project the session is in.
@@ -417,7 +419,7 @@ audio-hooks status                         # full project state snapshot
 audio-hooks version                        # version + install detection
 audio-hooks diagnose                       # system check + warnings + errors
 
-audio-hooks hooks list                     # all 26 hooks
+audio-hooks hooks list                     # all 39 hooks
 audio-hooks hooks enable <name>            # turn one on
 audio-hooks hooks disable <name>           # turn one off
 audio-hooks hooks enable-only <a> <b>      # exclusive enable

@@ -41,7 +41,7 @@ from invoker import detect_invoker, get_invoker as _get_invoker, strip_invoker_a
 
 # Version used for auto-sync: when the installed copy in ~/.claude/hooks/
 # detects a newer version in the project directory, it self-updates.
-HOOK_RUNNER_VERSION = "6.1.0"
+HOOK_RUNNER_VERSION = "6.2.0"
 
 # =============================================================================
 # STRUCTURED LOGGING (NDJSON)
@@ -606,6 +606,22 @@ DEFAULT_AUDIO_FILES = {
     "cwd_changed": "cwd-changed.mp3",
     "file_changed": "file-changed.mp3",
     "task_created": "task-created.mp3",
+    # v6.2 hooks — new editor lifecycle events.
+    # Claude Code (Setup / UserPromptExpansion / PostToolBatch / MessageDisplay):
+    "setup": "setup-ready.mp3",
+    "user_prompt_expansion": "prompt-expanded.mp3",
+    "post_tool_batch": "batch-complete.mp3",
+    "message_display": "message-display.mp3",
+    # Cursor granular per-tool-type events (shell / MCP / file-read split apart):
+    "shell_before": "shell-starting.mp3",
+    "shell_after": "shell-done.mp3",
+    "mcp_before": "mcp-starting.mp3",
+    "mcp_after": "mcp-done.mp3",
+    "file_read": "file-read.mp3",
+    "agent_response": "agent-response.mp3",
+    "agent_thinking": "thinking-done.mp3",
+    "workspace_open": "workspace-open.mp3",
+    "tab_file_edit": "tab-edit.mp3",
 }
 
 # =============================================================================
@@ -720,6 +736,10 @@ SYNTHETIC_EVENT_MAP: Dict[str, Tuple[str, Optional[str]]] = {
     "precompact_auto":   ("precompact", None),
     "postcompact_manual": ("postcompact", None),
     "postcompact_auto":   ("postcompact", None),
+
+    # v6.2 — Setup subtypes (matcher: trigger init|maintenance)
+    "setup_init":        ("setup", None),
+    "setup_maintenance": ("setup", None),
 }
 
 
@@ -765,6 +785,20 @@ CUSTOM_AUDIO_FILES = {
     "cwd_changed": "chime-cwd-changed.mp3",
     "file_changed": "chime-file-changed.mp3",
     "task_created": "chime-task-created.mp3",
+    # v6.2 hooks — new editor lifecycle events (chime variants).
+    "setup": "chime-setup-ready.mp3",
+    "user_prompt_expansion": "chime-prompt-expanded.mp3",
+    "post_tool_batch": "chime-batch-complete.mp3",
+    "message_display": "chime-message-display.mp3",
+    "shell_before": "chime-shell-starting.mp3",
+    "shell_after": "chime-shell-done.mp3",
+    "mcp_before": "chime-mcp-starting.mp3",
+    "mcp_after": "chime-mcp-done.mp3",
+    "file_read": "chime-file-read.mp3",
+    "agent_response": "chime-agent-response.mp3",
+    "agent_thinking": "chime-thinking-done.mp3",
+    "workspace_open": "chime-workspace-open.mp3",
+    "tab_file_edit": "chime-tab-edit.mp3",
 }
 
 
@@ -1507,6 +1541,64 @@ def get_notification_context(hook_type: str, stdin_data: dict, detail_level: str
         if teammate and detail_level != "minimal":
             base += f" → {teammate}"
         return base
+    # ---- v6.2 hooks ----
+    elif hook_type == "setup":
+        # Claude Code Setup hook: trigger is "init" or "maintenance".
+        trigger = stdin_data.get("trigger", "")
+        return "Environment ready" + (f" ({trigger})" if trigger and detail_level != "minimal" else "")
+    elif hook_type == "user_prompt_expansion":
+        cmd = stdin_data.get("original_command", "")
+        return "Command expanded" + (f": {_truncate(str(cmd), 60)}" if cmd else "")
+    elif hook_type == "post_tool_batch":
+        tools = stdin_data.get("tools")
+        n = len(tools) if isinstance(tools, list) else 0
+        return f"Tool batch finished ({n} tools)" if n else "Tool batch finished"
+    elif hook_type == "message_display":
+        return "Message displayed"
+    elif hook_type == "shell_before":
+        cmd = stdin_data.get("command", "")
+        if detail_level == "minimal" or not cmd:
+            return "Shell command starting"
+        return f"Shell: {_truncate(str(cmd), max_len)}"
+    elif hook_type == "shell_after":
+        cmd = stdin_data.get("command", "")
+        if detail_level == "minimal" or not cmd:
+            return "Shell command finished"
+        return f"Shell done: {_truncate(str(cmd), max_len)}"
+    elif hook_type == "mcp_before":
+        tool = stdin_data.get("tool_name", "")
+        return "MCP tool starting" + (f": {tool}" if tool else "")
+    elif hook_type == "mcp_after":
+        tool = stdin_data.get("tool_name", "")
+        return "MCP tool finished" + (f": {tool}" if tool else "")
+    elif hook_type == "file_read":
+        fp = stdin_data.get("file_path", "")
+        if not fp:
+            return "Reading file"
+        return f"Reading {Path(str(fp)).name}"
+    elif hook_type == "agent_response":
+        text = stdin_data.get("text", "")
+        if text and detail_level != "minimal":
+            return f"Response ready: {_clean_for_output(str(text), max(max_len * 2, 80))}"
+        return "Response ready"
+    elif hook_type == "agent_thinking":
+        dur = stdin_data.get("duration_ms", "")
+        if dur and detail_level != "minimal":
+            try:
+                return f"Finished thinking ({int(dur) / 1000:.1f}s)"
+            except (TypeError, ValueError):
+                pass
+        return "Finished thinking"
+    elif hook_type == "workspace_open":
+        roots = stdin_data.get("workspace_roots")
+        if isinstance(roots, list) and roots:
+            return f"Workspace opened: {Path(str(roots[0])).name}"
+        return "Workspace opened"
+    elif hook_type == "tab_file_edit":
+        fp = stdin_data.get("file_path", "")
+        if not fp:
+            return "Inline edit applied"
+        return f"Inline edit: {Path(str(fp)).name}"
     return hook_type.replace("_", " ").title()
 
 # =============================================================================
@@ -1953,7 +2045,16 @@ def run_hook(hook_type: str, stdin_data: dict = None) -> int:
     # under the auto-bridge, but a hand-edited ``~/.cursor/hooks.json`` could,
     # and a future Cursor release might add equivalents. Skip cleanly so the
     # behaviour is locked-down and observable in logs.
-    if _get_invoker() == "cursor" and hook_type in ("notification", "permission_request"):
+    # ``notification`` / ``permission_request`` have no Cursor equivalent. The
+    # v6.2 Claude-Code-only events (Setup / UserPromptExpansion / PostToolBatch /
+    # MessageDisplay) likewise never originate from Cursor — Cursor's granular
+    # events (shell_before, mcp_before, file_read, agent_thinking, …) cover its
+    # own surface instead.
+    _CURSOR_UNSUPPORTED = {
+        "notification", "permission_request",
+        "setup", "user_prompt_expansion", "post_tool_batch", "message_display",
+    }
+    if _get_invoker() == "cursor" and hook_type in _CURSOR_UNSUPPORTED:
         log_event("debug", "skipped_no_cursor_equivalent", hook=hook_type)
         return 0
 
@@ -1970,6 +2071,10 @@ def run_hook(hook_type: str, stdin_data: dict = None) -> int:
         "elicitation", "elicitation_result", "cwd_changed", "file_changed",
         "task_created", "task_completed", "teammate_idle", "config_change",
         "instructions_loaded", "permission_denied",
+        # v6.2 — Codex has none of the new Claude Code / Cursor lifecycle events.
+        "setup", "user_prompt_expansion", "post_tool_batch", "message_display",
+        "shell_before", "shell_after", "mcp_before", "mcp_after", "file_read",
+        "agent_response", "agent_thinking", "workspace_open", "tab_file_edit",
     }
     if _get_invoker() == "codex" and hook_type in _CODEX_UNSUPPORTED:
         log_event("debug", "skipped_no_codex_equivalent", hook=hook_type)

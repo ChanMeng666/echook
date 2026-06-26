@@ -443,23 +443,39 @@ def _run_cli(*args: str, home: Path, extra_env: Optional[Dict[str, str]] = None)
     return proc.returncode, proc.stdout or "", proc.stderr or ""
 
 
-# Cursor's third-party-hooks doc says exactly 8 Claude Code events bridge to
-# Cursor (cursor.com/docs/reference/third-party-hooks). The remaining 3 events
-# in our cursor-hooks/hooks.json (subagentStart, postToolUseFailure,
-# afterFileEdit) are Cursor-native — they have no Claude Code equivalent so
-# they cannot be auto-bridged from a Claude Code plugin install, but they CAN
-# be registered via ``audio-hooks install --cursor``. The 8 bridge-mapped
-# names are the contract; the 3 native-only names are nice-to-have extras.
-CURSOR_BRIDGEABLE_EVENTS = (
+# v6.2: the native ``audio-hooks install --cursor`` template (for Cursor users
+# WITHOUT Claude Code — the DUPLICATE_BRIDGE guard blocks native install when the
+# plugin is present) maps Cursor's full Agent-hook surface. Tool execution is
+# split into Cursor's GRANULAR per-type events (beforeShellExecution /
+# beforeMCPExecution / beforeReadFile + *after* counterparts) so shell, MCP and
+# file-read each get a distinct sound. The coarse preToolUse/postToolUse umbrella
+# is intentionally NOT registered to avoid double-firing with the granular events
+# (Write/Edit are surfaced via afterFileEdit, Task tools via subagentStart).
+CURSOR_REQUIRED_EVENTS = (
     "sessionStart",
     "sessionEnd",
     "stop",
+    "subagentStart",
     "subagentStop",
-    "preToolUse",
-    "postToolUse",
-    "beforeSubmitPrompt",
+    "beforeShellExecution",
+    "afterShellExecution",
+    "beforeMCPExecution",
+    "afterMCPExecution",
+    "beforeReadFile",
+    "beforeTabFileRead",
+    "afterFileEdit",
+    "afterTabFileEdit",
+    "postToolUseFailure",
+    "afterAgentResponse",
+    "afterAgentThought",
+    "workspaceOpen",
     "preCompact",
+    "beforeSubmitPrompt",
 )
+
+# Deliberately absent (registering them would double-fire with the granular
+# per-type events above).
+CURSOR_INTENTIONALLY_ABSENT = ("preToolUse", "postToolUse")
 
 
 class TestCursorTemplateValidity(unittest.TestCase):
@@ -476,10 +492,17 @@ class TestCursorTemplateValidity(unittest.TestCase):
         self.assertIn("hooks", self.template)
         self.assertIsInstance(self.template["hooks"], dict)
 
-    def test_all_8_bridgeable_events_registered(self):
-        for evt in CURSOR_BRIDGEABLE_EVENTS:
+    def test_all_required_events_registered(self):
+        for evt in CURSOR_REQUIRED_EVENTS:
             self.assertIn(evt, self.template["hooks"],
-                          f"Cursor bridge-mapped event {evt!r} missing from cursor-hooks/hooks.json")
+                          f"Cursor event {evt!r} missing from cursor-hooks/hooks.json")
+
+    def test_coarse_umbrella_events_intentionally_absent(self):
+        # v6.2: granular per-type events replace the umbrella to avoid double-fire.
+        for evt in CURSOR_INTENTIONALLY_ABSENT:
+            self.assertNotIn(evt, self.template["hooks"],
+                             f"{evt!r} must not be registered natively — it double-fires "
+                             f"with the granular beforeShellExecution/beforeMCPExecution events")
 
     def test_every_event_command_arg_is_canonical_handler(self):
         # The command string format is: ``{{PYTHON}} "{{HOOK_RUNNER}}" <arg>``.
@@ -497,8 +520,8 @@ class TestCursorTemplateValidity(unittest.TestCase):
                 parts = cmd.strip().split()
                 if parts:
                     canonical_args[evt] = parts[-1]
-        # Required: every bridgeable event maps to something
-        for evt in CURSOR_BRIDGEABLE_EVENTS:
+        # Required: every required event maps to something
+        for evt in CURSOR_REQUIRED_EVENTS:
             self.assertIn(evt, canonical_args, f"event {evt} has no command")
             self.assertNotIn("{{", canonical_args[evt],
                              f"event {evt} command was not substituted: {canonical_args[evt]!r}")
