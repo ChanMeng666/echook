@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.3.1] - 2026-06-30
+
+### Fixed
+
+- **Status line truncation on emoji-dense rows** (`Theme: Chim…`). A packed row landing exactly on the width budget could still be clipped by Claude Code because emoji render a hair wider than `_vwidth()` estimates and the terminal reserves the edge. `WIDTH_SAFETY_MARGIN` raised from 4 to 8 so a boundary row wraps to the next physical row instead of being truncated. Users on an unusually narrow terminal can still pin the exact width via `statusline_settings.max_width`.
+
 ## [6.3.0] - 2026-06-29
 
 Status-line release: the Claude Code status line grows from 14 to **29 segments** (every useful field Claude Code pipes to a status line script), and echook gains the ability to **curate the Codex status line** so it stops truncating with an ellipsis.

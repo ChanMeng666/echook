@@ -87,12 +87,15 @@ CACHE_TTL_SEC = 5
 
 # Columns held back from the detected terminal width when packing lines.
 # `COLUMNS` reports the *full* terminal width, but the *usable* width is
-# smaller: the status line's `padding` setting indents it and most terminals
-# reserve the rightmost cell. Without this slack the packer overfills the last
-# row and Claude Code truncates it with an ellipsis. 4 covers padding ≤ 1 plus
-# the edge with room to spare; users on a narrower-than-reported terminal can
-# pin it exactly via `statusline_settings.max_width`.
-WIDTH_SAFETY_MARGIN = 4
+# smaller: the status line's `padding` setting indents it, most terminals
+# reserve the rightmost cell, and emoji-dense rows render a hair wider than
+# `_vwidth()` estimates (terminals/Claude Code measure some emoji as wider than
+# the 2 cells we assume). Without this slack a row that lands exactly on the
+# budget overflows and Claude Code truncates it with an ellipsis (the
+# `Theme: Chim…` bug). 8 covers padding + the reserved edge + a couple of cells
+# of emoji rounding; users on a narrower-than-reported terminal can still pin it
+# exactly via `statusline_settings.max_width`.
+WIDTH_SAFETY_MARGIN = 8
 
 # Line 1 — identity / configuration (mostly static within a session).
 LINE1_SEGMENTS = ["model", "session_name", "agent", "effort", "thinking", "vim",

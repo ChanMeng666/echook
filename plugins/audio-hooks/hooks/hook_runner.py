@@ -41,7 +41,7 @@ from invoker import detect_invoker, get_invoker as _get_invoker, strip_invoker_a
 
 # Version used for auto-sync: when the installed copy in ~/.claude/hooks/
 # detects a newer version in the project directory, it self-updates.
-HOOK_RUNNER_VERSION = "6.3.0"
+HOOK_RUNNER_VERSION = "6.3.1"
 
 # =============================================================================
 # STRUCTURED LOGGING (NDJSON)
