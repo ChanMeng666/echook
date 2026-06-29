@@ -26,7 +26,7 @@ If you are an AI agent operating this project, do this first:
 - [Architecture](docs/ARCHITECTURE.md): runner flow, hook surfaces per editor, error-code model, script inventory.
 - [Status Line](docs/STATUS_LINE.md): complete reference for track 2 — Claude Code renders 29 segments (whitelist/blacklist config); Codex curates a fixed item list (`statusline codex`), it cannot render custom text. Live truth: `audio-hooks statusline segments`.
 - [README](README.md): human-readable overview and platform picker.
-- [Changelog](CHANGELOG.md): version history (v6.3.2 = rate-limit reset clocks show the date when not today (`resets Jul 4 5am`); v6.3.1 = fix status-line truncation on emoji-dense rows; v6.3.0 = Claude Code status line grows to 29 segments + `hidden_segments` + `statusline segments`, and `statusline codex {show,preview,apply}` curates Codex's fixed `[tui].status_line`/`terminal_title`; v6.2.0 = complete 39-event hook surface; v6.1.0 = status line pins the Claude Code startup banner and auto-reflows to avoid truncation).
+- [Changelog](CHANGELOG.md): version history (v6.3.3 = docs: status-line examples show the weekly reset date; v6.3.2 = rate-limit reset clocks show the date when not today (`resets Jul 4 5am`); v6.3.1 = fix status-line truncation on emoji-dense rows; v6.3.0 = Claude Code status line grows to 29 segments + `hidden_segments` + `statusline segments`, and `statusline codex {show,preview,apply}` curates Codex's fixed `[tui].status_line`/`terminal_title`; v6.2.0 = complete 39-event hook surface; v6.1.0 = status line pins the Claude Code startup banner and auto-reflows to avoid truncation).
 
 ## Scope (what echook does NOT do)
 

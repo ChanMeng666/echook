@@ -211,7 +211,7 @@ Two-line bottom bar registered in `~/.claude/settings.json` via `audio-hooks sta
 
 ```text
 [Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | 🔊 echook v6.2.0 | 6/39 Sounds | Theme: Voice
-[MUTED 23m]  🌿 feat/audio-v5  ████░░░░ API Quota: 78% · resets 2pm  ███████░ Weekly: 82% · resets 9pm  █████░░░ Context: 65% (130K/200K) ⚠️ /compact  💲 $0.42 +156/-23
+[MUTED 23m]  🌿 feat/audio-v5  ████░░░░ API Quota: 78% · resets 2pm  ███████░ Weekly: 82% · resets Jul 4 9pm  █████░░░ Context: 65% (130K/200K) ⚠️ /compact  💲 $0.42 +156/-23
 ```
 
 The API Quota bar uses thresholds GREEN <70%, YELLOW 70-89%, RED ≥90%. The Context bar uses agent-safety thresholds: GREEN <50% (safe), YELLOW 50-80% (should `/compact`), RED >80% (agent "dumb zone"). Actionable hints (`⚠️ /compact` or `🛑 /compact`) appear in yellow/red zones.

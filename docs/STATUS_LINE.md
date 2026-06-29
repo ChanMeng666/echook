@@ -3,7 +3,7 @@
 > Authoritative orientation for echook's **second track**, the status line. The
 > *live* source of truth is always the CLI: `audio-hooks statusline segments`
 > (Claude Code catalog) and `audio-hooks statusline codex show` (Codex state).
-> This page explains the model behind those commands. Current as of **v6.3.2**.
+> This page explains the model behind those commands. Current as of **v6.3.3**.
 
 ## The one thing to understand first
 

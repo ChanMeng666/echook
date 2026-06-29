@@ -136,9 +136,9 @@ The status line displays real-time audio-hooks state and context window usage at
 After installing, the status line updates every 60 seconds and shows two lines:
 ```
 [Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | 🔊 echook v6.2.0 | 6/39 Sounds | Webhook: off | Theme: Voice
-🌿 main  ████░░░░ API Quota: 60% · resets 2pm  ███████░ Weekly: 82% · resets 9pm  █████░░░ Context: 65% (130K/200K) ⚠️ /compact  💲 $0.42 +156/-23
+🌿 main  ████░░░░ API Quota: 60% · resets 2pm  ███████░ Weekly: 82% · resets Jul 4 9pm  █████░░░ Context: 65% (130K/200K) ⚠️ /compact  💲 $0.42 +156/-23
 ```
-The status line pins the key facts from Claude Code's **startup banner** so they stay visible after the banner scrolls off the top of the terminal: the model + reasoning **effort** (`🧠`), Claude Code's own **version** (`⚡ CC v…`, distinct from echook's `🔊 echook v…`), the **cwd**, the **5-hour API quota** and the headline **weekly (7-day) limit + reset time** (`Weekly: 82% · resets 9pm`), and session **cost + diff** (`💲 $0.42 +156/-23`). The `📁` segment (`cwd`) is abbreviated (home → `~`, long paths shortened to `<root>…<last folder>`) so the user can tell at a glance which project the session is in.
+The status line pins the key facts from Claude Code's **startup banner** so they stay visible after the banner scrolls off the top of the terminal: the model + reasoning **effort** (`🧠`), Claude Code's own **version** (`⚡ CC v…`, distinct from echook's `🔊 echook v…`), the **cwd**, the **5-hour API quota** and the headline **weekly (7-day) limit + reset date & time** (`Weekly: 82% · resets Jul 4 9pm` — the weekly reset is days out, so it shows the date; the always-soon 5-hour reset stays a bare time), and session **cost + diff** (`💲 $0.42 +156/-23`). The `📁` segment (`cwd`) is abbreviated (home → `~`, long paths shortened to `<root>…<last folder>`) so the user can tell at a glance which project the session is in.
 
 > The subscription **plan name** ("Claude Max"/"Pro") shown in the banner is *not* piped to status line scripts by Claude Code, so echook intentionally does not show it. The presence of the weekly/API-quota bars already implies a Claude.ai subscription.
 

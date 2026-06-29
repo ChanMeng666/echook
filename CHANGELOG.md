@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.3.3] - 2026-06-30
+
+### Docs
+
+- Synced the rendered status-line examples in `README.md`, `docs/ARCHITECTURE.md`, and the plugin `SKILL.md` to the v6.3.2 behaviour — the `weekly_quota` segment now shows the reset **date + time** (`Weekly: 82% · resets Jul 4 9pm`) rather than a bare time, matching what the renderer actually emits. No code change.
+
 ## [6.3.2] - 2026-06-30
 
 ### Changed
