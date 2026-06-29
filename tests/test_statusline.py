@@ -413,6 +413,32 @@ class TestResetClock(unittest.TestCase):
         out = self.mod._fmt_reset_clock(str(int(epoch)))
         self.assertRegex(out, r"^\d{1,2}(am|pm)$")
 
+    def test_with_date_same_day_is_time_only(self):
+        import time as _t
+        now = _t.mktime(_t.struct_time((2026, 6, 30, 12, 0, 0, 0, 0, -1)))
+        reset = _t.mktime(_t.struct_time((2026, 6, 30, 17, 0, 0, 0, 0, -1)))
+        # Reset later today → no date prefix even with_date=True.
+        self.assertEqual(self.mod._fmt_reset_clock(reset, with_date=True, now=now), "5pm")
+
+    def test_with_date_different_day_prepends_date(self):
+        import time as _t
+        now = _t.mktime(_t.struct_time((2026, 6, 30, 12, 0, 0, 0, 0, -1)))
+        reset = _t.mktime(_t.struct_time((2026, 7, 5, 5, 0, 0, 0, 0, -1)))
+        # Weekly reset days away → "Jul 5 5am".
+        self.assertEqual(self.mod._fmt_reset_clock(reset, with_date=True, now=now), "Jul 5 5am")
+
+    def test_with_date_keeps_minutes(self):
+        import time as _t
+        now = _t.mktime(_t.struct_time((2026, 6, 30, 12, 0, 0, 0, 0, -1)))
+        reset = _t.mktime(_t.struct_time((2026, 7, 1, 3, 30, 0, 0, 0, -1)))
+        self.assertEqual(self.mod._fmt_reset_clock(reset, with_date=True, now=now), "Jul 1 3:30am")
+
+    def test_default_never_shows_date(self):
+        # Back-compat: without with_date, a far-future reset is still time-only.
+        import time as _t
+        reset = _t.mktime(_t.struct_time((2026, 7, 5, 5, 0, 0, 0, 0, -1)))
+        self.assertEqual(self.mod._fmt_reset_clock(reset), "5am")
+
 
 class TestWeeklyQuotaSegment(_StatuslineRenderBase):
     """The ``weekly_quota`` segment mirrors the banner's "82% of your weekly

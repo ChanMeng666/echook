@@ -3,7 +3,7 @@
 > Authoritative orientation for echook's **second track**, the status line. The
 > *live* source of truth is always the CLI: `audio-hooks statusline segments`
 > (Claude Code catalog) and `audio-hooks statusline codex show` (Codex state).
-> This page explains the model behind those commands. Current as of **v6.3.1**.
+> This page explains the model behind those commands. Current as of **v6.3.2**.
 
 ## The one thing to understand first
 
@@ -68,8 +68,8 @@ while a rich one shows the full picture.
 | `worktree` | data-gated | `worktree.name` | Managed worktree name |
 | `pr` | data-gated | `pr.number` | Pull request number + review state |
 | `added_dirs` | data-gated | `workspace.added_dirs` | Count of `/add-dir` directories |
-| `api_quota` | data-gated | `rate_limits.five_hour` | 5-hour rate-limit usage + reset clock |
-| `weekly_quota` | data-gated | `rate_limits.seven_day` | 7-day rate-limit usage + reset clock |
+| `api_quota` | data-gated | `rate_limits.five_hour` | 5-hour rate-limit usage + reset clock (date shown if not today) |
+| `weekly_quota` | data-gated | `rate_limits.seven_day` | 7-day rate-limit usage + reset clock — date + time, e.g. `resets Jul 4 5am` |
 | `context` | data-gated | `context_window` | Context-window usage % + token counts |
 | `tokens` | data-gated | `context_window.current_usage` | Cache-hit ratio (cache reads ÷ input) |
 | `exceeds_200k` | data-gated | `exceeds_200k_tokens` | Warning flag when tokens exceed 200K |
@@ -82,6 +82,11 @@ while a rich one shows the full picture.
 > from the stdin JSON or echook's own `status`. The subscription **plan name**
 > ("Max"/"Pro") is not piped to status-line scripts, so it is intentionally not
 > shown.
+>
+> **Reset clocks show a date when it isn't today.** The 7-day weekly window can
+> reset days away, so a bare time ("resets 5am") is ambiguous — `weekly_quota`
+> renders `resets Jul 4 5am`. The 5-hour window is always soon, so `api_quota`
+> stays a bare time unless its reset crosses midnight onto another day. (v6.3.2)
 
 ### Choosing which segments appear
 

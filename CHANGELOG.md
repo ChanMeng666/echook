@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.3.2] - 2026-06-30
+
+### Changed
+
+- **Rate-limit reset clocks now show the date when the reset isn't today.** A bare time was ambiguous for the 7-day *weekly* window (it can reset days out), so `weekly_quota` now renders e.g. `resets Jul 4 5am`. The always-soon 5-hour `api_quota` stays a bare time unless its reset crosses midnight onto another day. `_fmt_reset_clock()` gained a `with_date` flag (and an injectable `now` for tests); the date prefix appears only when the reset falls on a different local calendar day.
+
 ## [6.3.1] - 2026-06-30
 
 ### Fixed

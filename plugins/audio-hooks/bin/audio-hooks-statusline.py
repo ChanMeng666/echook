@@ -265,13 +265,24 @@ def _git_dirty(cwd: Optional[str]) -> Optional[int]:
     return None if count < 0 else count
 
 
-def _fmt_reset_clock(epoch: Any) -> str:
+_MONTH_ABBR = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _fmt_reset_clock(epoch: Any, with_date: bool = False, now: Optional[float] = None) -> str:
     """Render a rate-limit reset moment as a local clock time, banner-style.
 
     Claude Code pipes ``rate_limits.*.resets_at`` as Unix epoch seconds. The
     startup banner shows the reset as a wall-clock time ("resets 9pm"); we
     mirror that — local 12-hour time, lowercase am/pm, a bare ``:00`` stripped
     so ``21:00`` reads as ``9pm`` but ``21:30`` reads as ``9:30pm``.
+
+    When ``with_date`` is set, a ``Mon D`` calendar-date prefix is added **only
+    when the reset falls on a different local day than ``now``** (real time by
+    default; injectable for tests). This disambiguates the 7-day *weekly* window
+    — "resets 5am" could be tomorrow or six days out, so it becomes
+    "resets Jul 5 5am" — while leaving the always-soon 5-hour window as a bare
+    time unless it crosses midnight. ``now`` lets tests pin the comparison day.
 
     Returns "" on absent/invalid input. Must never raise — the status line
     degrades silently on a surprising value.
@@ -283,10 +294,15 @@ def _fmt_reset_clock(epoch: Any) -> str:
         lt = time.localtime(ts)
         hour12 = lt.tm_hour % 12 or 12
         ampm = "am" if lt.tm_hour < 12 else "pm"
-        if lt.tm_min:
-            return f"{hour12}:{lt.tm_min:02d}{ampm}"
-        return f"{hour12}{ampm}"
-    except (TypeError, ValueError, OverflowError, OSError):
+        clock = f"{hour12}:{lt.tm_min:02d}{ampm}" if lt.tm_min else f"{hour12}{ampm}"
+        if with_date:
+            now_ts = time.time() if now is None else float(now)
+            now_lt = time.localtime(int(now_ts))
+            if (lt.tm_year, lt.tm_mon, lt.tm_mday) != \
+                    (now_lt.tm_year, now_lt.tm_mon, now_lt.tm_mday):
+                return f"{_MONTH_ABBR[lt.tm_mon - 1]} {lt.tm_mday} {clock}"
+        return clock
+    except (TypeError, ValueError, OverflowError, OSError, IndexError):
         return ""
 
 
@@ -666,7 +682,7 @@ def main() -> int:
         if used is not None:
             try:
                 pct = float(used)
-                resets = _fmt_reset_clock(five_hour.get("resets_at"))
+                resets = _fmt_reset_clock(five_hour.get("resets_at"), with_date=True)
                 reset_str = f" · resets {resets}" if resets else ""
                 parts.append(f"{_bar(pct)} API Quota: {int(pct)}%{reset_str}")
             except (TypeError, ValueError):
@@ -681,7 +697,7 @@ def main() -> int:
         if used is not None:
             try:
                 pct = float(used)
-                resets = _fmt_reset_clock(seven_day.get("resets_at"))
+                resets = _fmt_reset_clock(seven_day.get("resets_at"), with_date=True)
                 reset_str = f" · resets {resets}" if resets else ""
                 parts.append(f"{_bar(pct)} Weekly: {int(pct)}%{reset_str}")
             except (TypeError, ValueError):

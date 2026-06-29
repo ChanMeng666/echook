@@ -156,7 +156,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "6.3.1"
+PROJECT_VERSION = "6.3.2"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -1919,8 +1919,8 @@ STATUSLINE_SEGMENTS: List[Dict[str, Any]] = [
     {"name": "worktree", "line": 2, "source": "worktree.name", "conditional": True, "description": "Managed worktree name"},
     {"name": "pr", "line": 2, "source": "pr.number", "conditional": True, "description": "Pull request number + review state"},
     {"name": "added_dirs", "line": 2, "source": "workspace.added_dirs", "conditional": True, "description": "Count of /add-dir directories"},
-    {"name": "api_quota", "line": 2, "source": "rate_limits.five_hour", "conditional": True, "description": "5-hour rate-limit usage + reset clock"},
-    {"name": "weekly_quota", "line": 2, "source": "rate_limits.seven_day", "conditional": True, "description": "7-day rate-limit usage + reset clock"},
+    {"name": "api_quota", "line": 2, "source": "rate_limits.five_hour", "conditional": True, "description": "5-hour rate-limit usage + reset clock (date shown if not today)"},
+    {"name": "weekly_quota", "line": 2, "source": "rate_limits.seven_day", "conditional": True, "description": "7-day rate-limit usage + reset clock (date + time, e.g. 'Jul 4 5am')"},
     {"name": "context", "line": 2, "source": "context_window", "conditional": True, "description": "Context-window usage % + token counts"},
     {"name": "tokens", "line": 2, "source": "context_window.current_usage", "conditional": True, "description": "Cache-hit ratio (cache reads ÷ input)"},
     {"name": "exceeds_200k", "line": 2, "source": "exceeds_200k_tokens", "conditional": True, "description": "Warning flag when tokens exceed 200K"},
