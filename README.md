@@ -96,11 +96,6 @@ Pins your Claude Code startup banner at the bottom (so it never scrolls away) an
 <img src="docs/images/statusline-context-monitor.png" alt="Status Line — context window monitor" width="720">
 </p>
 
-```text
-[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | echook v6.2.0 | 6/39 Sounds | Theme: Voice
-[MUTED 23m]  feat/audio-v5  API Quota: 78% · resets 2pm  Weekly: 82% · resets Jul 4 9pm  Context: 65% (130K/200K)  /compact  💲 $0.42 +156/-23
-```
-
 | Color | Context used | Meaning | Action |
 |---|---|---|---|
 | 🟢 Green | < 50% | Safe — agent performs well | Keep working |
