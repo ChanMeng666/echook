@@ -30,7 +30,7 @@ Hear when your agent finishes, needs permission, or hits a rate limit — and pi
 
 ### Promotional Video
 
-https://github.com/user-attachments/assets/f57249be-a524-4e6f-8225-6b9500f1aea4
+https://github.com/user-attachments/assets/804dff1e-56d8-49b2-b0c0-6706f3eeccd4
 
 <sup>Built with Remotion, Claude Code, ElevenLabs & Suno. Source: <a href="https://github.com/ChanMeng666/echook-promo-video">echook-promo-video</a></sup>
 
