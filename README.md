@@ -162,7 +162,6 @@ Most richer segments self-omit when Claude Code doesn't supply their data, so a 
 | `stop_failure` | | stop-failure.mp3 | `rate_limit` / `authentication_failed` / `billing_error` / `server_error` / `unknown` |
 | `teammate_idle` | | teammate-idle.mp3 | |
 | `config_change` · `instructions_loaded` | | config-change.mp3 · instructions-loaded.mp3 | |
-| `worktree_create` / `worktree_remove` | | worktree-create.mp3 / worktree-remove.mp3 | |
 | `elicitation` / `elicitation_result` | | elicitation.mp3 / elicitation-result.mp3 | |
 | `cwd_changed` · `file_changed` | | cwd-changed.mp3 · file-changed.mp3 | literal filenames |
 | `setup` (v6.2, Claude Code) | | setup-ready.mp3 | `init` / `maintenance` |

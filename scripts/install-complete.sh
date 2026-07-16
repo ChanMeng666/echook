@@ -454,8 +454,6 @@ try:
         'PostCompact': 'postcompact',
         'ConfigChange': 'config_change',
         'InstructionsLoaded': 'instructions_loaded',
-        'WorktreeCreate': 'worktree_create',
-        'WorktreeRemove': 'worktree_remove',
         'Elicitation': 'elicitation',
         'ElicitationResult': 'elicitation_result'
     }

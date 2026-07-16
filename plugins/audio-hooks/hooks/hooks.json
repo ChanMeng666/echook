@@ -111,14 +111,6 @@
       { "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" instructions_loaded", "async": true, "timeout": 10 }] }
     ],
 
-    "WorktreeCreate": [
-      { "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" worktree_create", "async": true, "timeout": 10 }] }
-    ],
-
-    "WorktreeRemove": [
-      { "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" worktree_remove", "async": true, "timeout": 10 }] }
-    ],
-
     "Elicitation": [
       { "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" elicitation", "async": true, "timeout": 10 }] }
     ],

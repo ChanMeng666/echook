@@ -63,12 +63,6 @@
     "_comment_instructions_loaded": "✅ ENABLED - Plays when CLAUDE.md or rules files are loaded",
     "instructions_loaded": true,
 
-    "_comment_worktree_create": "✅ ENABLED - Plays when a worktree is created for isolated tasks",
-    "worktree_create": true,
-
-    "_comment_worktree_remove": "✅ ENABLED - Plays when a worktree is removed/cleaned up",
-    "worktree_remove": true,
-
     "_comment_elicitation": "✅ ENABLED - Plays when an MCP server requests user input",
     "elicitation": true,
 
