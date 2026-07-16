@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.3.4] - 2026-07-16
+
+### Fixed
+
+- **Worktree isolation no longer breaks when audio-hooks is installed.** The plugin registered command hooks on Claude Code's `WorktreeCreate` / `WorktreeRemove` events purely to play a notification sound — but `WorktreeCreate` is a *provider* hook: when any command hook is registered on it, Claude Code delegates worktree creation to that hook and requires it to echo the new worktree path (`hookSpecificOutput.worktreePath`). The audio hook returned exit 0 with no path, so every worktree-isolated subagent (`Agent` with `isolation: "worktree"`, `EnterWorktree`) failed with *"WorktreeCreate hook failed: hook succeeded but returned no worktree path."* Native installs (`scripts/install-complete.sh`) wrote the same hook into `~/.claude/settings.json` and hit the identical failure. Both registrations are removed, so Claude Code creates worktrees natively again.
+
+### Removed
+
+- **The `worktree_create` / `worktree_remove` sound events.** Neither could ever fire on any supported harness — Claude Code treats `WorktreeCreate`/`WorktreeRemove` as provider hooks (see Fixed) and Codex has no equivalent event — so they were dead toggles. Removed from the event registry, the sound/chime filename maps, the notification-text handler, default/baseline/sample preferences, the README event table, the Codex unsupported-event lists, and their four bundled audio files (`worktree-create.mp3`, `worktree-remove.mp3`, and the two `chime-` variants). If you had explicitly enabled either in your preferences, the now-unknown key is ignored and can be deleted.
+
 ## [6.3.3] - 2026-06-30
 
 ### Docs

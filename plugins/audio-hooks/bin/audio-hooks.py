@@ -156,7 +156,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "6.3.3"
+PROJECT_VERSION = "6.3.4"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -178,8 +178,6 @@ HOOK_CATALOG: List[Dict[str, Any]] = [
     {"name": "stop_failure",         "default": False, "audio": "stop-failure.mp3",          "description": "API error (matchers: rate_limit|authentication_failed|...)"},
     {"name": "config_change",        "default": False, "audio": "config-change.mp3",         "description": "Configuration file changed"},
     {"name": "instructions_loaded",  "default": False, "audio": "instructions-loaded.mp3",   "description": "CLAUDE.md or rules loaded"},
-    {"name": "worktree_create",      "default": False, "audio": "worktree-create.mp3",       "description": "Worktree created"},
-    {"name": "worktree_remove",      "default": False, "audio": "worktree-remove.mp3",       "description": "Worktree removed"},
     {"name": "elicitation",          "default": False, "audio": "elicitation.mp3",           "description": "MCP server requested user input"},
     {"name": "elicitation_result",   "default": False, "audio": "elicitation-result.mp3",    "description": "User responded to MCP elicitation"},
     # New in v5.0 (dedicated audio shipped in v5.0.1, generated via ElevenLabs).
@@ -2854,8 +2852,6 @@ def _build_manifest() -> Dict[str, Any]:
                 "unsupported_events": [
                     "notification",
                     "session_end",
-                    "worktree_create",
-                    "worktree_remove",
                     "elicitation",
                     "elicitation_result",
                     "cwd_changed",

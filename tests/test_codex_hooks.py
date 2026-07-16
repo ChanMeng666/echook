@@ -414,7 +414,6 @@ class TestUnsupportedHooksSkipUnderCodex(unittest.TestCase):
 
     UNSUPPORTED = (
         "notification", "session_end",
-        "worktree_create", "worktree_remove",
         "elicitation", "elicitation_result", "cwd_changed", "file_changed",
         "task_created", "task_completed", "teammate_idle", "config_change",
         "instructions_loaded", "permission_denied",

@@ -11,8 +11,8 @@ Hook types: notification, stop, pretooluse, posttooluse, posttoolusefailure,
             userpromptsubmit, subagent_stop, subagent_start, precompact,
             session_start, session_end, permission_request,
             teammate_idle, task_completed, stop_failure, postcompact,
-            config_change, instructions_loaded, worktree_create,
-            worktree_remove, elicitation, elicitation_result
+            config_change, instructions_loaded, elicitation,
+            elicitation_result
 
 Environment Variables:
     CLAUDE_HOOKS_DEBUG=1    Enable debug logging
@@ -41,7 +41,7 @@ from invoker import detect_invoker, get_invoker as _get_invoker, strip_invoker_a
 
 # Version used for auto-sync: when the installed copy in ~/.claude/hooks/
 # detects a newer version in the project directory, it self-updates.
-HOOK_RUNNER_VERSION = "6.3.3"
+HOOK_RUNNER_VERSION = "6.3.4"
 
 # =============================================================================
 # STRUCTURED LOGGING (NDJSON)
@@ -597,8 +597,6 @@ DEFAULT_AUDIO_FILES = {
     "postcompact": "post-compact.mp3",
     "config_change": "config-change.mp3",
     "instructions_loaded": "instructions-loaded.mp3",
-    "worktree_create": "worktree-create.mp3",
-    "worktree_remove": "worktree-remove.mp3",
     "elicitation": "elicitation.mp3",
     "elicitation_result": "elicitation-result.mp3",
     # v5.0 hooks (dedicated audio shipped in v5.0.1, generated via ElevenLabs)
@@ -776,8 +774,6 @@ CUSTOM_AUDIO_FILES = {
     "postcompact": "chime-post-compact.mp3",
     "config_change": "chime-config-change.mp3",
     "instructions_loaded": "chime-instructions-loaded.mp3",
-    "worktree_create": "chime-worktree-create.mp3",
-    "worktree_remove": "chime-worktree-remove.mp3",
     "elicitation": "chime-elicitation.mp3",
     "elicitation_result": "chime-elicitation-result.mp3",
     # v5.0 hooks (dedicated chimes shipped in v5.0.1, generated via ElevenLabs)
@@ -1499,13 +1495,6 @@ def get_notification_context(hook_type: str, stdin_data: dict, detail_level: str
         reason = stdin_data.get("load_reason", "")
         name = Path(file_path).name if file_path else "unknown"
         return f"Instructions loaded: {name}" + (f" ({reason})" if reason else "")
-    elif hook_type == "worktree_create":
-        name = stdin_data.get("name", "")
-        return "Worktree created" + (f": {name}" if name else "")
-    elif hook_type == "worktree_remove":
-        wt_path = stdin_data.get("worktree_path", "")
-        name = Path(wt_path).name if wt_path else ""
-        return "Worktree removed" + (f": {name}" if name else "")
     elif hook_type == "elicitation":
         server = stdin_data.get("mcp_server_name", "unknown")
         msg = stdin_data.get("message", "")
@@ -2067,7 +2056,7 @@ def run_hook(hook_type: str, stdin_data: dict = None) -> int:
     # add equivalents — skip cleanly so the behaviour is locked-down and
     # observable in the NDJSON log.
     _CODEX_UNSUPPORTED = {
-        "notification", "session_end", "worktree_create", "worktree_remove",
+        "notification", "session_end",
         "elicitation", "elicitation_result", "cwd_changed", "file_changed",
         "task_created", "task_completed", "teammate_idle", "config_change",
         "instructions_loaded", "permission_denied",
