@@ -55,7 +55,7 @@ Duration syntax: `30m`, `1h`, `90s`, `2d`, or a bare integer (interpreted as min
 
 **Enable / disable individual hooks**
 
-Run `audio-hooks hooks list` to see all 39 hooks with their current state. Then:
+Run `audio-hooks hooks list` to see all 37 hooks with their current state (add `--variants` for the 30 matcher variants). Then:
 
 | User says | Run |
 |---|---|
@@ -66,6 +66,33 @@ Run `audio-hooks hooks list` to see all 39 hooks with their current state. Then:
 | "watch .env files for changes" | `audio-hooks hooks enable file_changed` and `audio-hooks set file_changed.watch '[".env",".envrc"]'` |
 | "ping me when setup/init finishes" | `audio-hooks hooks enable setup` |
 | "different sound for shell vs MCP calls in Cursor" | `audio-hooks hooks enable shell_before` and `audio-hooks hooks enable mcp_before` (v6.2, Cursor-only granular events) |
+
+**Too much audio — the single most common complaint (read this before changing anything)**
+
+Almost every "it's too noisy" report is the `stop` hook, and the user's mental model of it is wrong in a specific way. `stop` fires at the **end of every turn**, not at task completion, and Claude Code exposes **no field** distinguishing a final turn from an intermediate one — so there is no setting that makes `stop` mean "the task is done". Say this plainly rather than tuning debounce and hoping.
+
+Three real fixes, in the order you should offer them:
+
+| User says | Run | Why |
+|---|---|---|
+| "only tell me when you need me" | `audio-hooks hooks enable-only notification permission_request` | Fires only when the user must act. `notification`/`idle_prompt` is the genuine "Claude is waiting for you" signal |
+| "stop chiming while background work is running" | `audio-hooks set filters.stop.skip_if_background_tasks_running true` | v6.4. Reads the `background_tasks` array on the `Stop` payload and stays silent until nothing is still running. Keeps `stop` but kills the chime storm from teammates/subagents |
+| "I have several sessions open and they all chime" | `audio-hooks set playback_settings.debounce_ms 60000` | Blunt instrument — use only after the two above |
+
+**Per-variant control (v6.4)**
+
+Matcher-scoped events have independently switchable **variants**: `notification` has 8 (`notification_permission_prompt`, `notification_idle_prompt`, `notification_agent_completed`, …), `stop_failure` has 8, `session_start` and `session_end` have 4 each, `precompact`/`postcompact`/`setup` have 2 each — 30 in total. Before v6.4 they all shared their parent's single switch.
+
+| User says | Run |
+|---|---|
+| "chime for permission prompts but not idle ones" | `audio-hooks hooks disable notification_idle_prompt` |
+| "only alert me on rate limits, not other API errors" | `audio-hooks hooks enable-only stop_failure_rate_limit` |
+| "what variants exist?" | `audio-hooks hooks list --variants` |
+| "sound when I log out but not when I clear" | `audio-hooks hooks enable session_end_logout` and `audio-hooks hooks disable session_end_clear` |
+
+Precedence when both a variant and its parent are set: an explicit variant key wins outright; otherwise a parent set to `false` is a hard kill switch for all its variants. So to keep exactly one variant of a muted category, set that variant key explicitly — do not rely on the parent.
+
+`notification_agent_needs_input` and `notification_agent_completed` need Claude Code v2.1.198+ and ship **off**. They could not be observed firing during v6.4's pre-release capture (5 subagent completions produced none), and appear to belong to the push-notification path for background agents rather than local `Task` subagents. Do not present them to a user as a working "task finished" cue — recommend `notification`/`idle_prompt` or the `background_tasks` filter instead.
 
 **Check project status**
 
@@ -444,7 +471,8 @@ audio-hooks status                         # full project state snapshot
 audio-hooks version                        # version + install detection
 audio-hooks diagnose                       # system check + warnings + errors
 
-audio-hooks hooks list                     # all 39 hooks
+audio-hooks hooks list                     # all 37 hooks
+audio-hooks hooks list --variants          # + 30 matcher variants
 audio-hooks hooks enable <name>            # turn one on
 audio-hooks hooks disable <name>           # turn one off
 audio-hooks hooks enable-only <a> <b>      # exclusive enable

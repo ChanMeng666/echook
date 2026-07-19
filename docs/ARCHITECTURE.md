@@ -1,6 +1,6 @@
 # System Architecture
 
-> **Version:** 6.0.0 | **Last Updated:** 2026-06-23
+> **Version:** 6.4.0 | **Last Updated:** 2026-07-20
 
 This document explains the technical architecture of echook. It is the developer-facing deep dive — for operating the project, see [CLAUDE.md](../CLAUDE.md) (the canonical AI doc) or [README.md](../README.md). For the live machine description of every subcommand and config key, run `audio-hooks manifest`.
 
@@ -35,7 +35,7 @@ flowchart LR
     HR -->|reads| CFG[user_preferences.json]
     HR -->|reads| MARK[snooze markers]
 
-    HR -->|fires| AUDIO[Audio playback<br/>26 MP3s, 2 themes]
+    HR -->|fires| AUDIO[Audio playback<br/>74 MP3s, 2 themes]
     HR -->|fires| NOTIF[Desktop notification]
     HR -->|fires| TTS[TTS announcement]
     HR -->|fires| WH[Webhook subprocess<br/>fire-and-forget]
@@ -61,6 +61,39 @@ The Python hook runner is the **single source of truth** for hook event handling
 | Script install | `python ~/.claude/hooks/hook_runner.py <event>` from `~/.claude/settings.json` | no |
 
 The runner accepts both **canonical hook names** (`stop`, `notification`, `session_start`) and **synthetic matcher variants** (`session_start_resume`, `stop_failure_rate_limit`, `notification_idle_prompt`). Synthetic names are mapped to a canonical hook plus a per-variant audio override via `SYNTHETIC_EVENT_MAP`.
+
+### The registration chain, and why it needs tests
+
+Matcher routing happens in the registration template rather than in Python branching, which keeps the runner simple but spreads one logical fact across three files linked only by naming convention:
+
+```
+hooks.json  "matcher": "idle_prompt"
+  → command arg               notification_idle_prompt
+  → SYNTHETIC_EVENT_MAP[…]    ("notification", "notification-info.mp3")
+  → audio/{default,custom}/   notification-info.mp3 / chime-notification-info.mp3
+```
+
+Nothing validates the chain at runtime. `_resolve_synthetic_event` returns an unknown arg unchanged, `run_hook` receives a hook type nothing recognises, and the event becomes a permanent no-op — no crash, no user-visible log. Two real defects of exactly this shape survived undetected until v6.4: four `session_end_*` variants that were defined but never registered, and four `Notification` matchers that were never registered at all, so those notification types produced no sound whatsoever.
+
+`tests/test_plugin_hooks_contract.py` pins the chain in both directions — every registered arg resolves, every map key is reachable or explicitly allowlisted, every audio override exists in both themes, every notification subtype has its own wording, and `HOOK_CATALOG` agrees with the preferences template. It is the reason a future break is loud. **`plugins/audio-hooks/hooks/hooks.json` is hand-edited and has no repo-root counterpart; `build-plugin.sh` does not sync it.**
+
+### Variant gating (v6.4)
+
+`is_hook_enabled(hook_type, variant)` resolves a five-tier precedence, highest first:
+
+| # | Rule | Rationale |
+|--:|---|---|
+| 1 | explicit `enabled_hooks[<variant>]` | the user spoke about this exact event |
+| 2 | `enabled_hooks[<parent>] is False` | `hooks disable notification` must actually produce silence |
+| 3 | `SYNTHETIC_VARIANT_DEFAULTS[<variant>]` | lets a variant ship opt-in under an on-by-default parent |
+| 4 | explicit `enabled_hooks[<parent>] is True` | |
+| 5 | built-in default set | |
+
+Rule 3 is what stops a newly registered variant of `notification` (on by default) from making noise on every existing install the day it ships — new variants are opt-in, exactly as new events are. Rule 1 outranking rule 2 is the documented escape hatch for keeping one variant of a muted category.
+
+Variant keys are plain booleans in the same flat `enabled_hooks` map as canonical hooks, so `config/user_preferences.schema.json` (`additionalProperties: boolean`) and the migration deep-merge needed no changes, and **no config `_version` bump or user migration was required** to ship the feature.
+
+The variant reaches the gate as an explicit `run_hook(..., variant=…)` parameter rather than via the `_current_synthetic_variant` module global. `bin/audio-hooks.py`'s `_run_one_test` drives `run_hook` directly in a loop, where stale global state from a previous iteration could otherwise decide the next hook's fate.
 
 **Per-invocation flow:**
 
@@ -482,15 +515,17 @@ flowchart LR
 ## Adding a new hook event (when Claude Code adds one)
 
 1. Add the canonical name + audio filename to `DEFAULT_AUDIO_FILES` and `CUSTOM_AUDIO_FILES` in `hook_runner.py`.
-2. Add a branch in `get_notification_context(hook_type, ...)` for the notification text.
+2. Add a branch in `get_notification_context(hook_type, ...)` for the notification text. For a `Notification` subtype, add an entry to `NOTIFICATION_TYPE_LABELS` instead — that branch is data now.
 3. Add the entry to `HOOK_CATALOG` in `bin/audio-hooks.py`.
 4. Add an entry to `enabled_hooks` in `config/default_preferences.json` (with default on/off).
-5. Add the event handler to `plugins/audio-hooks/hooks/hooks.json` (with matchers if applicable).
-6. If matcher-scoped, add synthetic event entries to `SYNTHETIC_EVENT_MAP` in `hook_runner.py`.
-7. Add audio entries to `config/audio_manifest.json` and run `python scripts/generate-audio.py`.
+5. Add the event handler to `plugins/audio-hooks/hooks/hooks.json` (with matchers if applicable). **Hand-edited — `build-plugin.sh` does not sync this file and there is no repo-root copy.**
+6. If matcher-scoped, add synthetic event entries to `SYNTHETIC_EVENT_MAP` in `hook_runner.py`. A variant of an **on-by-default** parent also needs `SYNTHETIC_VARIANT_DEFAULTS[<variant>] = False`, or it starts firing on every existing install the moment it ships.
+7. Add audio entries to `config/audio_manifest.json` and run `python scripts/generate-audio.py`. **Matcher subtypes normally skip this** — reuse an existing filename via the `SYNTHETIC_EVENT_MAP` audio override, as every `notification_*` variant does.
 8. Run `bash scripts/build-plugin.sh`.
-9. Test: `python bin/audio-hooks.py test <new_hook>`.
+9. Test: `python bin/audio-hooks.py test <new_hook>`, then `python -m unittest tests.test_plugin_hooks_contract` — the contract tests fail loudly if the registration, the synthetic map, the audio files and the catalogue have drifted apart.
 10. Update `CLAUDE.md` and `README.md` hook tables. Bump version, update CHANGELOG.
+
+**Verify the event's real semantics before relying on its name.** v6.3.4 was an emergency rollback because `WorktreeCreate` turned out to be a *provider* hook that hijacked worktree creation. Register a capture shim against the event, exercise it for real, and record what you observed in the CHANGELOG — v6.4.0's `### Note` is the worked example, including how a catch-all matcher distinguishes "this type never fires" from "this matcher string is unrecognised".
 
 ## Adding a new audio file
 
@@ -535,4 +570,5 @@ The `tests/` directory is wired into `.github/workflows/smoke.yml` and runs on e
 - [CLAUDE.md](../CLAUDE.md) — canonical AI-facing operating guide
 - [README.md](../README.md) — public-facing project introduction
 - [CHANGELOG.md](../CHANGELOG.md) — version history including the v5.0/v5.0.1 detail
+- [EVENT_BEHAVIOR_NOTES.md](EVENT_BEHAVIOR_NOTES.md) — observed vs documented behaviour of Claude Code's hook events
 - `audio-hooks manifest` — live machine description of every subcommand and config key

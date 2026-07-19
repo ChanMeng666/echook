@@ -1,6 +1,6 @@
 # Installation Guide
 
-> **Version:** 6.0.0 | **Last Updated:** 2026-06-23
+> **Version:** 6.4.0 | **Last Updated:** 2026-07-20
 
 **echook is AI-agent-first.** A human doesn't follow these steps — your AI agent (Claude Code, Cursor, or Codex) does. Point it at this repo and ask it to install/configure/uninstall; it runs every command below and reports back. This page documents the full pull → install → configure → verify → uninstall flow so the agent (and a curious human) can see exactly what happens. There are no interactive prompts and no human-only steps — the one exception is Claude Code's `/reload-plugins`, which has no CLI equivalent.
 
@@ -22,7 +22,7 @@ Then verify and smoke-test:
 > run audio-hooks test all
 ```
 
-That's it. All 39 hook events register, every audio file is bundled, and `${CLAUDE_PLUGIN_DATA}/user_preferences.json` is auto-initialised on first read. The `/audio-hooks` SKILL ships with the plugin so you can configure everything via natural language afterwards.
+That's it. All 37 hook events register, every audio file is bundled, and `${CLAUDE_PLUGIN_DATA}/user_preferences.json` is auto-initialised on first read. The `/audio-hooks` SKILL ships with the plugin so you can configure everything via natural language afterwards.
 
 ## Alternative: script install (cloned repo, no plugin system)
 

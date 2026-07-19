@@ -41,7 +41,7 @@ from invoker import detect_invoker, get_invoker as _get_invoker, strip_invoker_a
 
 # Version used for auto-sync: when the installed copy in ~/.claude/hooks/
 # detects a newer version in the project directory, it self-updates.
-HOOK_RUNNER_VERSION = "6.3.4"
+HOOK_RUNNER_VERSION = "6.4.0"
 
 # =============================================================================
 # STRUCTURED LOGGING (NDJSON)
@@ -647,8 +647,29 @@ def load_config() -> Dict[str, Any]:
     return _config_cache
 
 
-def is_hook_enabled(hook_type: str) -> bool:
-    """Check if a hook is enabled in configuration."""
+def is_hook_enabled(hook_type: str, variant: Optional[str] = None) -> bool:
+    """Check if a hook is enabled, honouring per-variant overrides (v6.4).
+
+    ``variant`` is a synthetic event name such as ``notification_idle_prompt``;
+    ``hook_type`` is its canonical parent (``notification``). Before v6.4 only
+    the parent was consulted, so a user could not say "chime on permission
+    prompts but not idle ones". Variant keys are ordinary flat booleans in
+    ``enabled_hooks``, so the JSON schema and the migration deep-merge need no
+    changes to accommodate them.
+
+    Precedence, highest first:
+
+      1. An explicit ``enabled_hooks[variant]`` — the user spoke about this
+         exact event, so nothing outranks it.
+      2. An explicit ``enabled_hooks[parent] is False`` — a disabled parent is a
+         hard kill switch, because ``hooks disable notification`` has to
+         actually produce silence. To keep one variant of a muted parent, set
+         the variant key explicitly (rule 1) instead of relying on the parent.
+      3. ``SYNTHETIC_VARIANT_DEFAULTS[variant]`` — lets a variant ship opt-in
+         under an on-by-default parent.
+      4. An explicit ``enabled_hooks[parent] is True``.
+      5. The built-in default set.
+    """
     config = load_config()
 
     # Default enabled hooks (v5.0 adds permission_denied + task_created)
@@ -656,12 +677,30 @@ def is_hook_enabled(hook_type: str) -> bool:
 
     enabled_hooks = config.get("enabled_hooks", {})
 
-    # Check if explicitly set, otherwise use default
+    # 1. Explicit per-variant override wins outright.
+    if variant and variant in enabled_hooks:
+        result = enabled_hooks[variant] is True
+        log_debug(f"Hook {hook_type} variant {variant} explicitly set to {result}")
+        return result
+
+    # 2. A parent switched off silences every variant under it.
+    if enabled_hooks.get(hook_type) is False:
+        log_debug(f"Hook {hook_type} explicitly disabled (variant={variant})")
+        return False
+
+    # 3. Variant-specific default, for opt-in variants of an on-by-default parent.
+    if variant and variant in SYNTHETIC_VARIANT_DEFAULTS:
+        result = SYNTHETIC_VARIANT_DEFAULTS[variant]
+        log_debug(f"Hook {hook_type} variant {variant} using variant default: {result}")
+        return result
+
+    # 4. Explicit parent value (the True case; False was handled by rule 2).
     if hook_type in enabled_hooks:
         result = enabled_hooks[hook_type] is True
         log_debug(f"Hook {hook_type} explicitly set to {result}")
         return result
 
+    # 5. Built-in default.
     result = hook_type in default_enabled
     log_debug(f"Hook {hook_type} using default: {result}")
     return result
@@ -728,6 +767,13 @@ SYNTHETIC_EVENT_MAP: Dict[str, Tuple[str, Optional[str]]] = {
     "notification_idle_prompt":        ("notification", "notification-info.mp3"),
     "notification_auth_success":       ("notification", "session-start.mp3"),
     "notification_elicitation_dialog": ("notification", "elicitation.mp3"),
+    # v6.4 — the remaining four notification_type matchers Claude Code
+    # documents. agent_needs_input / agent_completed require Claude Code
+    # v2.1.198+; see SYNTHETIC_VARIANT_DEFAULTS for why all four ship off.
+    "notification_agent_needs_input":    ("notification", "permission-request.mp3"),
+    "notification_agent_completed":      ("notification", "subagent-complete.mp3"),
+    "notification_elicitation_complete": ("notification", "elicitation-result.mp3"),
+    "notification_elicitation_response": ("notification", "elicitation-result.mp3"),
 
     # precompact / postcompact subtypes (matcher: trigger)
     "precompact_manual": ("precompact", None),
@@ -738,6 +784,49 @@ SYNTHETIC_EVENT_MAP: Dict[str, Tuple[str, Optional[str]]] = {
     # v6.2 — Setup subtypes (matcher: trigger init|maintenance)
     "setup_init":        ("setup", None),
     "setup_maintenance": ("setup", None),
+}
+
+
+# Wording for each Notification subtype, keyed by the ``notification_type``
+# field Claude Code puts on stdin. Data rather than an if/elif chain so
+# tests/test_plugin_hooks_contract.py can assert every registered subtype has
+# copy of its own — the old catch-all worded anything unrecognised as
+# "Authorization needed", which was wrong and silent about being wrong.
+NOTIFICATION_TYPE_LABELS: Dict[str, str] = {
+    "permission_prompt":    "Authorization needed",
+    "idle_prompt":          "Idle prompt",
+    "auth_success":         "Authentication succeeded",
+    "elicitation_dialog":   "Elicitation dialog",
+    # v6.4 additions.
+    "elicitation_complete": "Elicitation complete",
+    "elicitation_response": "Elicitation answered",
+    "agent_needs_input":    "Background agent needs input",
+    "agent_completed":      "Background agent finished",
+}
+
+
+# v6.4: per-variant default states. Only variants whose default differs from
+# their parent hook's belong here — everything absent inherits the parent, which
+# is what keeps the ~24 pre-6.4 variants behaving byte-identically.
+#
+# Newly registered variants of an on-by-default parent (``notification`` is on)
+# must be listed as False, otherwise adding a matcher would start making noise
+# on every existing install. New events ship opt-in; new variants do too.
+SYNTHETIC_VARIANT_DEFAULTS: Dict[str, bool] = {
+    # The four notification subtypes added in v6.4. Their parent
+    # (``notification``) is on by default, so without an entry here they would
+    # start firing on every existing install the moment 6.4 lands.
+    #
+    # agent_needs_input / agent_completed additionally could not be observed
+    # firing at all during a ~1h capture on Claude Code 2.1.215 that did record
+    # 5 SubagentStop, 10 Stop and 5 idle_prompt events — so they do not fire for
+    # local Task-tool subagents, and appear to belong to the push-notification
+    # path for background agents. Registering them is a completeness and
+    # forward-compatibility move, not a feature we can demonstrate.
+    "notification_agent_needs_input": False,
+    "notification_agent_completed": False,
+    "notification_elicitation_complete": False,
+    "notification_elicitation_response": False,
 }
 
 
@@ -911,6 +1000,24 @@ def should_filter(hook_type: str, stdin_data: dict, config: Dict[str, Any]) -> b
     filters = config.get("filters", {}).get(hook_type, {})
     if not filters:
         return False
+
+    # v6.4: reserved non-regex filter. Claude Code's Stop payload carries an
+    # undocumented ``background_tasks`` array describing teammates, subagents
+    # and background shells still in flight. Because ``Stop`` fires at the end
+    # of every turn, a session running ten teammates chimes constantly; this
+    # lets a user hear the turn-end sound only once nothing is still working.
+    # Expressing it as a regex over the stringified array would depend on
+    # Python's repr of a Claude Code payload, which is far too brittle to ask
+    # of a user's config file.
+    if filters.get("skip_if_background_tasks_running") is True:
+        tasks = stdin_data.get("background_tasks")
+        if isinstance(tasks, list) and any(
+            isinstance(t, dict) and t.get("status") == "running" for t in tasks
+        ):
+            running = sum(1 for t in tasks
+                          if isinstance(t, dict) and t.get("status") == "running")
+            log_debug(f"Filter: {hook_type} skipped — {running} background task(s) still running")
+            return True
 
     for field, pattern in filters.items():
         if not isinstance(pattern, str) or not pattern:
@@ -1404,14 +1511,12 @@ def get_notification_context(hook_type: str, stdin_data: dict, detail_level: str
         nt = stdin_data.get("notification_type", "")
         # The notification_type matcher (v5.0) lets us word the alert correctly
         # without re-parsing the free-text message.
-        if nt == "idle_prompt":
-            base = "Idle prompt"
-        elif nt == "auth_success":
-            base = "Authentication succeeded"
-        elif nt == "elicitation_dialog":
-            base = "Elicitation dialog"
-        else:
-            base = "Authorization needed"
+        base = NOTIFICATION_TYPE_LABELS.get(nt)
+        if base is None:
+            # An unknown subtype used to be worded "Authorization needed",
+            # which is a confident lie about an event we do not recognise.
+            # Degrade to the type itself instead.
+            base = nt.replace("_", " ").capitalize() if nt else "Authorization needed"
         return base + (f": {_truncate(msg, 80)}" if msg else "")
     elif hook_type == "pretooluse":
         tool = stdin_data.get("tool_name", "unknown")
@@ -2009,9 +2114,16 @@ def check_rate_limits(stdin_data: Dict[str, Any], config: Dict[str, Any]) -> Non
 # MAIN HOOK EXECUTION
 # =============================================================================
 
-def run_hook(hook_type: str, stdin_data: dict = None) -> int:
+def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = None) -> int:
     """
     Main hook execution function.
+
+    ``variant`` is the synthetic event name this invocation arrived under (e.g.
+    ``notification_idle_prompt``), or None for a bare canonical invocation. It
+    is passed explicitly rather than read from ``_current_synthetic_variant`` so
+    that callers driving run_hook directly — notably ``audio-hooks test`` — get
+    a clean gating decision instead of inheriting stale module state from a
+    previous iteration.
 
     Returns:
         0 on success (hook executed or disabled)
@@ -2091,8 +2203,8 @@ def run_hook(hook_type: str, stdin_data: dict = None) -> int:
         return 0
 
     # Check if hook is enabled
-    if not is_hook_enabled(hook_type):
-        log_trigger(hook_type, "DISABLED")
+    if not is_hook_enabled(hook_type, variant):
+        log_trigger(hook_type, "DISABLED", variant or "")
         return 0
 
     # Check if snoozed
@@ -2273,7 +2385,7 @@ def main() -> int:
     # Parse stdin JSON from Claude Code (provides context about the hook event)
     stdin_data = parse_stdin()
 
-    return run_hook(canonical_hook, stdin_data)
+    return run_hook(canonical_hook, stdin_data, variant_label)
 
 
 if __name__ == "__main__":

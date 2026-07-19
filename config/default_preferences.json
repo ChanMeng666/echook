@@ -13,7 +13,7 @@
     "_comment_notification": "Plays when Claude needs authorization or plan confirmation - HIGHLY RECOMMENDED",
     "notification": true,
 
-    "_comment_stop": "Plays when Claude finishes responding - RECOMMENDED",
+    "_comment_stop": "Plays at the END OF EVERY TURN, not at task completion - Claude Code exposes no field distinguishing a final turn from an intermediate one. If this feels too frequent, disable it and rely on notification (idle_prompt) instead, which fires only when Claude is actually waiting on you - RECOMMENDED",
     "stop": true,
 
     "_comment_pretooluse": "Plays before Claude executes a tool (can be noisy) - OPTIONAL",

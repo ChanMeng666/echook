@@ -134,18 +134,18 @@ Most richer segments self-omit when Claude Code doesn't supply their data, so a 
 
 | Feature | What it does |
 |---|---|
-| **39 hook events** | Full lifecycle coverage across Claude Code, Cursor & Codex — session start, tool use, permission requests, rate-limit warnings, and Cursor's granular shell/MCP/file events. 6 on by default; toggle any in plain English. |
+| **37 hook events · 30 matcher variants** | Full lifecycle coverage across Claude Code, Cursor & Codex — session start, tool use, permission requests, rate-limit warnings, and Cursor's granular shell/MCP/file events. 6 on by default; toggle any in plain English. |
 | **2 audio themes** | `default` = ElevenLabs **Jessica** voice (*"Task completed"*) · `custom` = modern UI chimes. Say *"switch to chimes"*. |
 | **Rate-limit alerts** | One-shot warning at 80% / 95% of your 5-hour or 7-day quota — warned once per threshold, never spammed. |
 | **Webhooks** | Versioned `audio-hooks.webhook.v1` payload, fire-and-forget, never blocks a hook. |
 
 <details>
-<summary><kbd>Full hook events table (39 events)</kbd></summary>
+<summary><kbd>Full hook events table (37 events, 30 matcher variants)</kbd></summary>
 <br>
 
 | Hook | Default | Audio file | Native matchers |
 |---|:-:|---|---|
-| `notification` | on | notification-urgent.mp3 | `permission_prompt` / `idle_prompt` / `auth_success` / `elicitation_dialog` |
+| `notification` | on | notification-urgent.mp3 | `permission_prompt` / `idle_prompt` / `auth_success` / `elicitation_dialog` / `elicitation_complete` / `elicitation_response` / `agent_needs_input` / `agent_completed` (last four v6.4, off by default) |
 | `stop` | on | task-complete.mp3 | |
 | `subagent_stop` | on | subagent-complete.mp3 | agent type |
 | `permission_request` | on | permission-request.mp3 | tool name |
@@ -196,7 +196,7 @@ flowchart TB
     CXP --> CLI
     CXN --> CLI
 
-    CLI --> OUT["39 hook events · 2 themes · webhooks<br/>TTS · rate-limit alerts · status line"]
+    CLI --> OUT["37 hook events · 30 variants · 2 themes · webhooks<br/>TTS · rate-limit alerts · status line"]
 
     style REPO fill:#4A90E2,color:#fff
     style CLI fill:#7ED321,color:#000
@@ -330,6 +330,7 @@ Python 3.6+ is the only runtime requirement.
 | [**docs/NATURAL_LANGUAGE_CONTROL.md**](docs/NATURAL_LANGUAGE_CONTROL.md) | Every natural-language prompt, with diagrams |
 | [**docs/CLI_REFERENCE.md**](docs/CLI_REFERENCE.md) | CLI subcommands, config keys, env vars, error codes, logging |
 | [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) | System architecture and design decisions |
+| [**docs/EVENT_BEHAVIOR_NOTES.md**](docs/EVENT_BEHAVIOR_NOTES.md) | What Claude Code's hook events *actually* do, measured — including payload fields the upstream docs omit |
 | [**docs/TROUBLESHOOTING.md**](docs/TROUBLESHOOTING.md) | Diagnostic recipes for common issues |
 | [**CHANGELOG.md**](CHANGELOG.md) | Detailed version history |
 | `audio-hooks manifest` | Live source of truth — subcommands, hooks, config keys, error codes, env vars, editor targets. Always current. |

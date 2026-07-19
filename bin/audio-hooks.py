@@ -156,12 +156,12 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "6.3.4"
+PROJECT_VERSION = "6.4.0"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
     {"name": "notification",         "default": True,  "audio": "notification-urgent.mp3",   "description": "Authorization or plan confirmation requested"},
-    {"name": "stop",                 "default": True,  "audio": "task-complete.mp3",         "description": "Claude finished responding"},
+    {"name": "stop",                 "default": True,  "audio": "task-complete.mp3",         "description": "End of EVERY turn, not task completion — Claude Code exposes no field distinguishing a final turn. For 'the work is done', use notification (idle_prompt)"},
     {"name": "subagent_stop",        "default": False, "audio": "subagent-complete.mp3",     "description": "Background subagent task done"},
     {"name": "permission_request",   "default": True,  "audio": "permission-request.mp3",    "description": "Permission dialog appeared"},
     {"name": "session_start",        "default": False, "audio": "session-start.mp3",         "description": "Session began (matchers: startup|resume|clear|compact)"},
@@ -710,6 +710,10 @@ def cmd_status(_args: List[str]) -> int:
         "enabled_hooks": enabled,
         "enabled_hook_count": len(enabled),
         "total_hook_count": len(HOOK_CATALOG),
+        # v6.4: a variant override is invisible in enabled_hooks above (which
+        # lists canonical hooks only), so surface it here — otherwise "why is
+        # notification on but silent for idle prompts?" has no answer in status.
+        "variants": _variant_status_summary(cfg),
         "snooze": _snooze_status(),
         "webhook": {
             "enabled": bool(webhook.get("enabled")),
@@ -774,7 +778,30 @@ def cmd_set(args: List[str]) -> int:
 # Subcommand: hooks list / enable / disable / enable-only
 # ---------------------------------------------------------------------------
 
-def _hooks_state() -> List[Dict[str, Any]]:
+def _variant_catalog() -> List[Dict[str, Any]]:
+    """Matcher-scoped variants, derived from hook_runner rather than restated.
+
+    A hand-written third list would be a fourth place to forget to update; the
+    contract tests in tests/test_plugin_hooks_contract.py exist precisely to
+    stop these surfaces drifting, so this one reads the map directly.
+    """
+    by_name = {h["name"]: h for h in HOOK_CATALOG}
+    out = []
+    for variant, entry in sorted(getattr(HR, "SYNTHETIC_EVENT_MAP", {}).items()):
+        parent, audio_override = entry
+        parent_meta = by_name.get(parent, {})
+        out.append({
+            "name": variant,
+            "variant_of": parent,
+            "audio_file": audio_override or parent_meta.get("audio"),
+            # Absent from the defaults table means "inherit the parent".
+            "default": getattr(HR, "SYNTHETIC_VARIANT_DEFAULTS", {}).get(
+                variant, parent_meta.get("default", False)),
+        })
+    return out
+
+
+def _hooks_state(include_variants: bool = False) -> List[Dict[str, Any]]:
     cfg = _load_config_raw()
     enabled_cfg = cfg.get("enabled_hooks", {}) if isinstance(cfg.get("enabled_hooks"), dict) else {}
     out = []
@@ -787,8 +814,53 @@ def _hooks_state() -> List[Dict[str, Any]]:
             "default": h["default"],
             "audio_file": h["audio"],
             "description": h["description"],
+            "is_variant": False,
+        })
+    if not include_variants:
+        return out
+    for var in _variant_catalog():
+        v = enabled_cfg.get(var["name"])
+        if isinstance(v, bool):
+            enabled = v                       # explicit variant key (rule 1)
+        elif enabled_cfg.get(var["variant_of"]) is False:
+            enabled = False                   # parent kill switch (rule 2)
+        else:
+            enabled = var["default"]          # variant default, else parent's
+        out.append({
+            "name": var["name"],
+            "enabled": enabled,
+            "default": var["default"],
+            "audio_file": var["audio_file"],
+            "description": f"Matcher variant of {var['variant_of']}",
+            "is_variant": True,
+            "variant_of": var["variant_of"],
         })
     return out
+
+
+def _variant_names() -> set:
+    return {v["name"] for v in _variant_catalog()}
+
+
+def _variant_status_summary(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Which matcher variants the user has explicitly overridden.
+
+    ``status.enabled_hooks`` lists canonical hooks only, so a variant override
+    is otherwise invisible: an agent asked "notification is on, why is there no
+    idle-prompt sound?" would have nothing to go on.
+    """
+    enabled_cfg = cfg.get("enabled_hooks", {})
+    if not isinstance(enabled_cfg, dict):
+        enabled_cfg = {}
+    catalog = _variant_catalog()
+    overridden = {v["name"]: enabled_cfg[v["name"]]
+                  for v in catalog if isinstance(enabled_cfg.get(v["name"]), bool)}
+    return {
+        "total": len(catalog),
+        "overridden_count": len(overridden),
+        "overridden": overridden,
+        "hint": "audio-hooks hooks list --variants",
+    }
 
 
 def cmd_hooks(args: List[str]) -> int:
@@ -799,15 +871,25 @@ def cmd_hooks(args: List[str]) -> int:
     sub = args[0]
     rest = args[1:]
     if sub == "list":
-        emit({"ok": True, "hooks": _hooks_state()})
+        # Variants are opt-in: `hooks list` is read by AI agents, and tripling
+        # the row count by default would cost every caller context it does not
+        # need. They surface under their own key so callers that index "hooks"
+        # see no shape change.
+        if "--variants" in rest:
+            rows = _hooks_state(include_variants=True)
+            emit({"ok": True,
+                  "hooks": [r for r in rows if not r["is_variant"]],
+                  "variants": [r for r in rows if r["is_variant"]]})
+        else:
+            emit({"ok": True, "hooks": _hooks_state()})
         return 0
     if sub in ("enable", "disable"):
         if not rest:
             return emit_error("INVALID_USAGE", f"Usage: audio-hooks hooks {sub} <name>")
         name = rest[0]
-        valid = {h["name"] for h in HOOK_CATALOG}
+        valid = {h["name"] for h in HOOK_CATALOG} | _variant_names()
         if name not in valid:
-            return emit_error("UNKNOWN_HOOK_TYPE", f"Unknown hook: {name}", hint="Run `audio-hooks hooks list` to see all hooks.", suggested_command="audio-hooks hooks list")
+            return emit_error("UNKNOWN_HOOK_TYPE", f"Unknown hook: {name}", hint="Run `audio-hooks hooks list --variants` to see all hooks and matcher variants.", suggested_command="audio-hooks hooks list --variants")
         cfg = _load_config_raw()
         cfg.setdefault("enabled_hooks", {})[name] = (sub == "enable")
         ok, err = _save_config_raw(cfg)
@@ -818,18 +900,43 @@ def cmd_hooks(args: List[str]) -> int:
     if sub == "enable-only":
         if not rest:
             return emit_error("INVALID_USAGE", "Usage: audio-hooks hooks enable-only <name1> [name2 ...]")
-        valid = {h["name"] for h in HOOK_CATALOG}
+        variants = {v["name"]: v["variant_of"] for v in _variant_catalog()}
+        valid = {h["name"] for h in HOOK_CATALOG} | set(variants)
         for n in rest:
             if n not in valid:
-                return emit_error("UNKNOWN_HOOK_TYPE", f"Unknown hook: {n}", suggested_command="audio-hooks hooks list")
+                return emit_error("UNKNOWN_HOOK_TYPE", f"Unknown hook: {n}", suggested_command="audio-hooks hooks list --variants")
+
+        wanted_variants = [n for n in rest if n in variants]
+        wanted_hooks = [n for n in rest if n not in variants]
+        # A named variant needs its parent left on: a disabled parent is a hard
+        # kill switch (is_hook_enabled rule 2) and would silence the very thing
+        # the user just asked for.
+        parents_of_variants = {variants[n] for n in wanted_variants}
+
         cfg = _load_config_raw()
         eh = cfg.setdefault("enabled_hooks", {})
         for h in HOOK_CATALOG:
-            eh[h["name"]] = h["name"] in rest
+            eh[h["name"]] = h["name"] in wanted_hooks or h["name"] in parents_of_variants
+        # Only touch variant keys under a parent the user named a variant of;
+        # writing all ~26 would bury the user's file in noise.
+        disabled_variants = []
+        for name, parent in variants.items():
+            if parent not in parents_of_variants:
+                continue
+            eh[name] = name in wanted_variants
+            if name not in wanted_variants:
+                disabled_variants.append(name)
+
         ok, err = _save_config_raw(cfg)
         if not ok:
             return emit_error("CONFIG_READ_ERROR", err)
-        emit({"ok": True, "enabled": list(rest), "disabled": [h["name"] for h in HOOK_CATALOG if h["name"] not in rest]})
+        emit({"ok": True,
+              "enabled": list(rest),
+              "disabled": [h["name"] for h in HOOK_CATALOG
+                           if h["name"] not in wanted_hooks
+                           and h["name"] not in parents_of_variants],
+              "disabled_variants": sorted(disabled_variants),
+              "parents_kept_enabled": sorted(parents_of_variants)})
         return 0
     return emit_error("INVALID_USAGE", f"Unknown hooks subcommand: {sub}")
 
@@ -2774,14 +2881,39 @@ def _build_manifest() -> Dict[str, Any]:
             {"name": "backup prune", "args": [], "description": "Trim external backup dir to EXTERNAL_BACKUP_KEEP=20"},
         ],
         "hooks": HOOK_CATALOG,
+        # v6.4: matcher-scoped variants of the events above. Each is
+        # independently switchable via enabled_hooks.<variant_name>; see
+        # variant_gating for how a variant and its parent interact.
+        "variants": _variant_catalog(),
+        "variant_gating": {
+            "description": (
+                "Precedence used by hook_runner.is_hook_enabled(hook, variant), "
+                "highest first. Variant keys are ordinary booleans in "
+                "enabled_hooks alongside canonical hook names."
+            ),
+            "precedence": [
+                "explicit enabled_hooks[<variant>]",
+                "enabled_hooks[<parent>] is false (hard kill switch for all its variants)",
+                "built-in per-variant default (see variants[].default)",
+                "explicit enabled_hooks[<parent>] is true",
+                "built-in default set: notification, stop, permission_request",
+            ],
+            "note": (
+                "To keep exactly one variant of a disabled parent, set that "
+                "variant key explicitly — rule 1 outranks the parent kill switch."
+            ),
+        },
         "config_keys": [
             "audio_theme",
             "enabled_hooks.<hook_name>",
+            "enabled_hooks.<variant_name>",
             "playback_settings.debounce_ms",
             "notification_settings.mode",
             "notification_settings.detail_level",
             "notification_settings.per_hook.<hook_name>",
             "filters.<hook_name>.<field_name>",
+            "filters.<hook_name>.<field_name>_exclude",
+            "filters.stop.skip_if_background_tasks_running",
             "webhook_settings.enabled",
             "webhook_settings.url",
             "webhook_settings.format",

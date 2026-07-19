@@ -1,6 +1,6 @@
 # Troubleshooting
 
-> **Version:** 6.0.0 | **Last Updated:** 2026-06-23
+> **Version:** 6.4.0 | **Last Updated:** 2026-07-20
 
 The troubleshooting story is one command:
 
@@ -31,6 +31,41 @@ It returns a JSON document listing the platform, audio player binary, the state 
 | `INTERNAL_ERROR` | Unexpected internal error | `audio-hooks logs tail --level error --n 50` and report it as a GitHub issue |
 
 ## Symptoms
+
+### A chime after every single message ("too frequent", "it never shuts up")
+
+This is the `stop` hook, and it is working as designed — the design is just not what most people assume. `stop` maps to Claude Code's `Stop` event, which fires at the **end of every turn**, not when a task completes. Claude Code's payload carries **no field** distinguishing a final turn from an intermediate one, so no amount of configuration can make `stop` mean "the work is done". If you have several sessions open, each one chimes per turn independently and the effect compounds.
+
+Pick the fix that matches what you actually want:
+
+**"Only make noise when you need something from me."** Drop `stop` entirely and keep the events that fire when you must act:
+
+```bash
+audio-hooks hooks enable-only notification permission_request
+```
+
+`notification`'s `idle_prompt` subtype is the genuine "Claude is waiting for your input" signal — it fires when the session is actually parked on you, not on every turn boundary.
+
+**"Keep the completion sound, but not while there's still work running."** v6.4 reads the `background_tasks` array Claude Code puts on the `Stop` payload and stays quiet until nothing is in flight:
+
+```bash
+audio-hooks set filters.stop.skip_if_background_tasks_running true
+```
+
+On a session driving ten teammates this is the difference between a chime per turn and a chime when the batch finishes.
+
+**"I just want fewer of them."** Blunt but effective, and worth trying only after the two above:
+
+```bash
+audio-hooks set playback_settings.debounce_ms 60000
+```
+
+Finer control is available per subtype — e.g. keep permission prompts but drop idle ones:
+
+```bash
+audio-hooks hooks list --variants
+audio-hooks hooks disable notification_idle_prompt
+```
 
 ### Two sounds overlapping (voice + chime)
 
@@ -66,7 +101,7 @@ Look for any error in the output. The most common causes:
 claude plugin validate plugins/audio-hooks
 ```
 
-This catches manifest schema errors. v5.1.5 has been verified clean on Claude Code v2.1.101+.
+This catches manifest schema errors. v6.4.0 has been verified clean on Claude Code v2.1.215.
 
 ### My config got wiped after upgrading the plugin
 

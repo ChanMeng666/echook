@@ -16,9 +16,10 @@ Single Python binary on PATH. JSON output, no prompts, no spinners.
 | `audio-hooks version` | Version + install mode detection |
 | `audio-hooks get <dotted.key>` | Read any config key |
 | `audio-hooks set <dotted.key> <value>` | Write any config key (auto-coerces) |
-| `audio-hooks hooks list` | All 39 hooks with current state |
-| `audio-hooks hooks enable/disable <name>` | Toggle a hook |
-| `audio-hooks hooks enable-only <a> <b>` | Exclusive enable |
+| `audio-hooks hooks list` | All 37 hooks with current state (`--variants` adds the 30 matcher variants) |
+| `audio-hooks hooks list --variants` | Adds a `variants` key listing the 30 matcher variants; `hooks` stays at 37 rows |
+| `audio-hooks hooks enable/disable <name>` | Toggle a hook **or a matcher variant** (`notification_idle_prompt`, `stop_failure_rate_limit`, …) |
+| `audio-hooks hooks enable-only <a> <b>` | Exclusive enable. Accepts variants; a named variant keeps its parent enabled, since a disabled parent silences all its variants |
 | `audio-hooks theme list/set <name>` | Audio theme |
 | `audio-hooks snooze [duration]/off/status` | Mute hooks (default 30m) |
 | `audio-hooks webhook/set/clear/test` | Webhook config + test |
@@ -38,7 +39,11 @@ Single Python binary on PATH. JSON output, no prompts, no spinners.
 |---|---|---|---|
 | `audio_theme` | `default` \| `custom` | `default` | Voice recordings vs chimes |
 | `enabled_hooks.<hook>` | bool | varies | Per-hook toggle |
+| `enabled_hooks.<variant>` | bool | inherits parent | Per-variant toggle (v6.4). Same flat namespace as hooks. See *Variant gating* below |
 | `playback_settings.debounce_ms` | int | 500 | Min ms between same hook firing |
+| `filters.<hook>.<field>` | string (regex) | — | Skip unless the stdin field matches |
+| `filters.<hook>.<field>_exclude` | string (regex) | — | Skip when the stdin field matches |
+| `filters.stop.skip_if_background_tasks_running` | bool | `false` | v6.4. Stay silent while any `background_tasks` entry on the `Stop` payload has `status: running` — teammates, subagents, background shells. The practical fix for "a chime after every message" |
 | `notification_settings.mode` | enum | `audio_and_notification` | `audio_only` / `notification_only` / `audio_and_notification` / `disabled` |
 | `notification_settings.detail_level` | enum | `standard` | `minimal` / `standard` / `verbose` |
 | `webhook_settings.enabled` | bool | `false` | Webhook fan-out |
@@ -54,6 +59,24 @@ Single Python binary on PATH. JSON output, no prompts, no spinners.
 | `statusline_settings.visible_segments` | string[] | `[]` (all) | Whitelist: when non-empty, only these segments show. Run `audio-hooks statusline segments` for the full list of 29 names |
 | `statusline_settings.hidden_segments` | string[] | `[]` | Blacklist applied when `visible_segments` is empty: show all segments except these |
 | `statusline_settings.max_width` | int | `0` (auto) | Pin the reflow width in columns; `0` auto-detects via the `COLUMNS` env var Claude Code provides |
+
+## Variant gating
+
+Matcher variants live in the same flat `enabled_hooks` namespace as canonical hooks. `is_hook_enabled(hook, variant)` resolves them in this order, highest first:
+
+1. explicit `enabled_hooks.<variant>`
+2. `enabled_hooks.<parent>` is `false` — a hard kill switch for every variant under it
+3. built-in per-variant default (`manifest.variants[].default`)
+4. explicit `enabled_hooks.<parent>` is `true`
+5. built-in default set: `notification`, `stop`, `permission_request`
+
+Rule 1 outranks rule 2, so keeping one variant of an otherwise-muted category means setting that variant key explicitly. Live description: `audio-hooks manifest` → `variant_gating`.
+
+```bash
+audio-hooks hooks disable notification_idle_prompt   # keep permission prompts, drop idle ones
+audio-hooks hooks enable-only stop_failure_rate_limit  # alert on rate limits, no other API errors
+audio-hooks status                                    # .variants.overridden shows what you changed
+```
 
 ## Environment Variables
 

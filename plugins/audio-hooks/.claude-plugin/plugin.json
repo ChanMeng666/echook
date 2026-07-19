@@ -1,6 +1,6 @@
 {
   "name": "audio-hooks",
-  "version": "6.3.4",
+  "version": "6.4.0",
   "description": "Audio notifications + AI-controlled config for Claude Code, Cursor IDE, and Codex CLI events. 26 hooks, native matcher routing, TTS, webhooks, status line, rate-limit alerts. Auto-bridges to Cursor IDE 3.2.16+; native install via 'audio-hooks install --cursor' or 'audio-hooks install --codex'.",
   "author": {
     "name": "Chan Meng",

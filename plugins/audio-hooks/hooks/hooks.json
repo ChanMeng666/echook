@@ -10,7 +10,15 @@
       { "matcher": "auth_success",
         "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" notification_auth_success", "async": true, "timeout": 10 }] },
       { "matcher": "elicitation_dialog",
-        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" notification_elicitation_dialog", "async": true, "timeout": 10 }] }
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" notification_elicitation_dialog", "async": true, "timeout": 10 }] },
+      { "matcher": "elicitation_complete",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" notification_elicitation_complete", "async": true, "timeout": 10 }] },
+      { "matcher": "elicitation_response",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" notification_elicitation_response", "async": true, "timeout": 10 }] },
+      { "matcher": "agent_needs_input",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" notification_agent_needs_input", "async": true, "timeout": 10 }] },
+      { "matcher": "agent_completed",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" notification_agent_completed", "async": true, "timeout": 10 }] }
     ],
 
     "Stop": [
@@ -38,7 +46,16 @@
     ],
 
     "SessionEnd": [
-      { "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" session_end", "async": true, "timeout": 10 }] }
+      { "matcher": "clear",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" session_end_clear", "async": true, "timeout": 10 }] },
+      { "matcher": "resume",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" session_end_resume", "async": true, "timeout": 10 }] },
+      { "matcher": "logout",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" session_end_logout", "async": true, "timeout": 10 }] },
+      { "matcher": "prompt_input_exit",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" session_end_prompt_input_exit", "async": true, "timeout": 10 }] },
+      { "matcher": "bypass_permissions_disabled|other",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" session_end", "async": true, "timeout": 10 }] }
     ],
 
     "SubagentStop": [
