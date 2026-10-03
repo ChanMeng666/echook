@@ -395,7 +395,7 @@ class TestResetClock(unittest.TestCase):
         cls.mod = _load_module()
 
     def test_absent_and_zero_blank(self):
-        for v in (None, 0, -1, "", "abc", {}):
+        for v in (None, 0, -1, "", "abc", {}, True, False):
             with self.subTest(value=v):
                 self.assertEqual(self.mod._fmt_reset_clock(v), "")
 
@@ -1463,6 +1463,51 @@ class TestV67SegmentRendering(_StatuslineRenderBase):
                     "rate_limits": {"spend_limit": v},
                 })
                 self.assertIn("[Opus]", out)  # the line still rendered
+
+    def test_junk_entries_in_a_segment_list_are_ignored_not_fatal(self):
+        """An unhashable entry used to raise out of _normalise_segments and blank the line."""
+        junk = [["prompt_cache"], {"a": 1}, None, 5, True, 1.5, ["model"]]
+        base = {"model": {"display_name": "Opus"}, "prompt_cache": self._cache()}
+        for key in ("extra_segments", "hidden_segments", "visible_segments"):
+            for entries in ([junk[0]], [junk[1]], junk, junk + ["model"]):
+                with self.subTest(key=key, entries=entries):
+                    self._status(**{key: entries})
+                    out = self._render(base)
+                    self.assertTrue(out.strip(), "the line went blank")
+                    if "model" not in entries:
+                        self.assertIn("[Opus]", out)
+        # a junk-only whitelist is "unset" (default segments), not "show nothing"
+        self._status(visible_segments=[["model"], {"a": 1}])
+        self.assertIn("[Opus]", self._render(base))
+        # string entries beside junk still apply
+        self._status(extra_segments=[["x"], "prompt_cache"])
+        self.assertIn("cache warm", self._render(base))
+        self._status(hidden_segments=[{"a": 1}, "model"])
+        self.assertNotIn("[Opus]", self._render(base))
+        # a non-list value is ignored too
+        for bad in ("model", 5, {"model": True}):
+            self._status(hidden_segments=bad, visible_segments=bad)
+            self.assertIn("[Opus]", self._render(base))
+
+    def test_absurd_percentages_are_clamped_for_display(self):
+        out = self._render({"model": {"display_name": "Opus"},
+                            "context_window": {"used_percentage": 1e308},
+                            "rate_limits": {"five_hour": {"used_percentage": 1e308},
+                                            "seven_day": {"used_percentage": -1e308},
+                                            "spend_limit": {"used_percentage": 1e308}}})
+        self.assertIn("[Opus]", out)
+        self.assertIn("Context: 9999%", out)
+        self.assertIn("API Quota: 9999%", out)
+        self.assertIn("Spend: 9999%", out)
+        self.assertNotRegex(out, r"\d{6,}")
+
+    def test_a_boolean_resets_at_is_not_a_date(self):
+        out = self._render({"model": {"display_name": "Opus"},
+                            "rate_limits": {"five_hour": {"used_percentage": 20, "resets_at": True},
+                                            "seven_day": {"used_percentage": 30, "resets_at": False}}})
+        self.assertIn("API Quota: 20%", out)
+        self.assertNotIn("1970", out)
+        self.assertNotIn("resets", out)
 
     def test_non_dict_rate_limits_is_safe(self):
         for rl in (None, [], "x", 5):

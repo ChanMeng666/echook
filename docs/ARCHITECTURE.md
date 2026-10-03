@@ -1,6 +1,6 @@
 # System Architecture
 
-> **Version:** 6.6.0 | **Last Updated:** 2026-10-03
+> **Version:** 6.7.0 | **Last Updated:** 2026-10-03
 
 This document explains the technical architecture of echook. It is the developer-facing deep dive — for operating the project, see [AGENTS.md](../AGENTS.md) (the canonical AI doc; `CLAUDE.md` only imports it) or [README.md](../README.md). For the live machine description of every subcommand and config key, run `audio-hooks manifest`.
 
@@ -35,7 +35,7 @@ flowchart LR
     HR -->|reads| CFG[user_preferences.json]
     HR -->|reads| MARK[snooze markers]
 
-    HR -->|fires| AUDIO[Audio playback<br/>74 MP3s, 2 themes]
+    HR -->|fires| AUDIO[Audio playback<br/>87 MP3s per theme, 2 themes]
     HR -->|fires| NOTIF[Desktop notification]
     HR -->|fires| TTS[TTS announcement]
     HR -->|fires| WH[Webhook subprocess<br/>fire-and-forget]
@@ -51,7 +51,7 @@ flowchart LR
 
 ## Components
 
-### 1. `hooks/hook_runner.py` (canonical, ~1700 lines)
+### 1. `hooks/hook_runner.py` (canonical, ~3,000 lines)
 
 The Python hook runner is the **single source of truth** for hook event handling. It is invoked in two ways:
 
@@ -106,11 +106,11 @@ flowchart TD
     SNOOZE -->|yes| EXIT
     SNOOZE -->|no| LOAD[load_config + plugin_option overlay]
     LOAD --> RLCHK[check_rate_limits<br/>marker debounced]
-    RLCHK --> DEB{should_debounce?}
-    DEB -->|yes| EXIT
-    DEB -->|no| FILTER{should_filter?<br/>user regex on stdin fields}
+    RLCHK --> FILTER{should_filter?<br/>user regex on stdin fields}
     FILTER -->|yes, exclude| EXIT
-    FILTER -->|no| AUDIT[check_and_self_update]
+    FILTER -->|no| DEB{should_debounce?<br/>stamps the window}
+    DEB -->|yes| EXIT
+    DEB -->|no| AUDIT[check_and_self_update]
     AUDIT --> CTX[get_notification_context<br/>+ _clean_for_output sanitizer]
     CTX --> AUDIO{mode=audio*?}
     AUDIO -->|yes| PLAY[play_audio]
@@ -144,7 +144,7 @@ flowchart TD
 | `_apply_plugin_option_overlay(config)` | Overlays `CLAUDE_PLUGIN_OPTION_*` env vars onto loaded config |
 | `is_hook_enabled(hook_type)` | Reads `enabled_hooks.<name>` with v5.0 default-on for `permission_denied` and `task_created` |
 | `is_snoozed()` | Reads marker file at `${QUEUE_DIR}/snooze_until` |
-| `should_debounce(hook_type)` | Per-hook debounce marker |
+| `should_debounce(hook_type)` | Per-hook debounce marker. Runs **after** `should_filter` (v6.7): it stamps the window whenever it lets an event through, so a filtered event must never reach it |
 | `should_filter(hook_type, stdin, config)` | User-defined regex filters on stdin fields |
 | `check_rate_limits(stdin, config)` | v5.0: inspects `rate_limits` field, fires one-shot warning per `(window, threshold, resets_at)` |
 | `get_notification_context(hook, stdin, level)` | Builds the notification text with v5.0 enrichment (last_assistant_message, worktree, agent, etc.) |
@@ -162,13 +162,15 @@ Three files:
 
 | File | Role |
 |---|---|
-| `bin/audio-hooks.py` | Python entry point (~4,800 lines), 20 top-level subcommands (`manifest` lists every form) |
+| `bin/audio-hooks.py` | Python entry point (~4,900 lines), 21 top-level subcommands (`manifest` lists every form) |
 | `bin/audio-hooks` | Bash wrapper that probes `python3` / `python` / `py` and exec's the .py file. Skips Microsoft Store python3 stub on Windows. |
 | `bin/audio-hooks.cmd` | Windows shim that runs `python audio-hooks.py %*` |
 
 The bash wrapper exists because Git Bash on Windows doesn't reliably handle Python shebangs and the Microsoft Store python3 stub at `WindowsApps\python3.exe` exits 49 silently when invoked. The wrapper probes each candidate with a `-c "import sys"` test and skips broken stubs.
 
 **Read-only invocations (v6.7).** A command that only reports must leave the home and data directories byte-identical. `main()` classifies each invocation with `_is_read_only_invocation()` (backed by the `_READ_ONLY_FORMS` table: `manifest`, `version`, `status`, `diagnose`, `get`, `update`, `hooks list`, `theme [list]`, `snooze status`, bare `webhook` / `tts` / `rate-limits`, `statusline show|segments|subagent show|codex show|codex preview`, `logs tail`, `backup list|show`, and every `--help` path) and sets `_READ_ONLY` for the duration. In that mode `_load_config_raw()` calls `UserPreferences.load(read_only=True)`: template defaults merged under whatever is on disk and the plugin-option overlay applied, all in memory -- no auto-created `user_preferences.json`, no migration save (which also writes a `.bak` and a lock file), no `logs/` or `queue/` directory -- and `_save_config_raw()` refuses. The hook runner and every state-changing command keep the old behaviour: they initialise and migrate on first load. `tests/test_read_only_commands.py` walks every read-only form against a fresh home and a home whose preferences carry an older `_version`, and fails for any manifest subcommand that has not been classified either way.
+
+**`audio-hooks migrate` (v6.7)** is the explicit form of that first-load migration (`UserPreferences.migrate()`): state-changing, no flags, idempotent, and it never creates the preferences file or its directory. It is the remedy `PREFS_SCHEMA_STALE` suggests. Migration also runs `_seed_new_variants`: for a config that enumerated a parent's variants (parent explicitly `true`, every older sibling an explicit boolean — what `hooks enable-only <variant>` writes), a variant introduced after the stored `_version` is written explicitly `false` so it cannot become audible unasked; a config that only enables the parent inherits as before. The release that introduced each variant is `UserPreferences.VARIANT_INTRODUCED`, which `tests/test_variant_migration.py` keeps equal to `SYNTHETIC_EVENT_MAP`.
 
 **Subcommand dispatch table** lives at the bottom of `audio-hooks.py` (the `DISPATCH` dict). Adding a new subcommand: write `cmd_<name>(args) -> int`, add to `DISPATCH`, add an entry to `_build_manifest()`'s `subcommands` list.
 
@@ -257,7 +259,7 @@ The API Quota bar uses thresholds GREEN <70%, YELLOW 70-89%, RED ≥90%. The Con
 
 **Diagnostic dump (v5.1.3+).** Setting `CLAUDE_HOOKS_DEBUG=1` (or `true`/`yes`, case-insensitive — matches `hook_runner.DEBUG`) causes the script to atomically write the most recent stdin JSON to `${state_dir}/statusline.last_input.json` via per-PID tempfile + `os.replace`. Used to diagnose what Claude Code is actually piping (e.g. confirming whether `context_window_size` updated after a `/model` change). Privacy note: the dump may include workspace paths, transcript path, and the last assistant message — disable when not actively diagnosing.
 
-Users can customise which segments appear via `statusline_settings.visible_segments` (whitelist) or `statusline_settings.hidden_segments` (blacklist, applied when the whitelist is empty). **29 segments available** (v6.3.0) — Line 1: `model`, `session_name`, `agent`, `effort`, `thinking`, `vim`, `output_style`, `cc_version`, `cwd`, `repo`, `version`, `sounds`, `webhook`, `theme`; Line 2: `snooze`, `branch`, `git_dirty`, `worktree`, `pr`, `added_dirs`, `api_quota`, `weekly_quota`, `context`, `tokens`, `exceeds_200k`, `cost`, `duration`, `api_time`, `burn_rate`. The full catalog (each segment's source field + conditional flag) lives in `STATUSLINE_SEGMENTS` (`bin/audio-hooks.py`), exposed via `audio-hooks statusline segments`. `effort`, `cc_version`, `weekly_quota`, and `cost` mirror the Claude Code startup banner so that information stays visible after the banner scrolls off; most richer segments self-omit when Claude Code doesn't supply the underlying field (e.g. `weekly_quota`/`api_quota` only for Claude.ai subscribers, `pr` only inside a PR, `vim` only in vim mode, `output_style` only when not `default`). `git_dirty` is the one segment that shells out — `git status --porcelain`, cached per-cwd for `CACHE_TTL_SEC` via `_git_dirty()` (non-repos cache `-1` so they don't re-shell); everything else comes from the stdin JSON. The subscription **plan name** is *not* exposed to status line scripts, so it is intentionally not rendered. The `cwd` segment renders the current working directory as an abbreviated path (home → `~`, long paths shortened to `<root>…<last folder>` via `_abbrev_path()`). Empty `visible_segments` (default) shows all; `hidden_segments` lets a user drop a few. Example: `audio-hooks set statusline_settings.visible_segments '["context","api_quota"]'` shows only the two progress bars.
+Users can customise which segments appear via `statusline_settings.visible_segments` (whitelist) or `statusline_settings.hidden_segments` (blacklist, applied when the whitelist is empty). **33 segments available** (29 in v6.3.0, 33 since v6.7.0) — Line 1: `model`, `session_name`, `agent`, `remote`, `effort`, `fast_mode`, `thinking`, `vim`, `output_style`, `cc_version`, `cwd`, `repo`, `version`, `sounds`, `webhook`, `theme`; Line 2: `snooze`, `branch`, `git_dirty`, `worktree`, `pr`, `added_dirs`, `api_quota`, `weekly_quota`, `spend_limit`, `context`, `tokens`, `prompt_cache`, `exceeds_200k`, `cost`, `duration`, `api_time`, `burn_rate`. Two of them — `remote` and `prompt_cache` — are **opt-in** (their catalog entry carries `"default": false`): they appear only when named in `statusline_settings.extra_segments` (or in a non-empty `visible_segments` whitelist), so upgrading changes no existing status line; `hidden_segments` still wins. `spend_limit` and `fast_mode` are in the default set but, like the rest, draw only when Claude Code sends the field. [STATUS_LINE.md](STATUS_LINE.md) has the renderings and minimum Claude Code versions. The full catalog (each segment's source field + conditional flag) lives in `STATUSLINE_SEGMENTS` (`bin/audio-hooks.py`), exposed via `audio-hooks statusline segments`. `effort`, `cc_version`, `weekly_quota`, and `cost` mirror the Claude Code startup banner so that information stays visible after the banner scrolls off; most richer segments self-omit when Claude Code doesn't supply the underlying field (e.g. `weekly_quota`/`api_quota` only for Claude.ai subscribers, `pr` only inside a PR, `vim` only in vim mode, `output_style` only when not `default`). `git_dirty` is the one segment that shells out — `git status --porcelain`, cached per-cwd for `CACHE_TTL_SEC` via `_git_dirty()` (non-repos cache `-1` so they don't re-shell); everything else comes from the stdin JSON. The subscription **plan name** is *not* exposed to status line scripts, so it is intentionally not rendered. The `cwd` segment renders the current working directory as an abbreviated path (home → `~`, long paths shortened to `<root>…<last folder>` via `_abbrev_path()`). Empty `visible_segments` (default) shows every default-set segment; `hidden_segments` lets a user drop a few. Example: `audio-hooks set statusline_settings.visible_segments '["context","api_quota"]'` shows only the two progress bars.
 
 **Codex status line curation (v6.3.0).** Codex's status line is *not* command-backed — it renders only fixed lists of built-in item IDs under `[tui].status_line` and `[tui].terminal_title` in `config.toml` (command rendering is open feature request openai/codex#17827). echook cannot render a custom Codex status line, only **curate** those fixed lists so they stop truncating with an ellipsis. `audio-hooks statusline codex {show,preview,apply}` (presets `minimal`/`balanced`/`full`, `--items`, `--target status_line|terminal_title|both`) does a **surgical** text edit via `_codex_apply_tui_array(text, key, items)`: it locates the `[tui]` table and replaces only the targeted array (matching the exact key so `status_line` is not confused with `status_line_use_colors`; handling multi-line arrays by bracket balance; inserting the key or a `[tui]` header when absent), preserving every other table, comment, and the file's formatting. `apply` backs up `config.toml` first (`_backup_file()`) and, when `tomllib` is available (3.11+), validates the result parses and round-trips before writing. Regression-guarded by `tests/test_codex_statusline.py`.
 
@@ -389,19 +391,24 @@ sequenceDiagram
                 HR->>AUDIO: play warning audio
                 HR->>LOG: log "rate_limit_alert"
             end
-            HR->>HR: should_debounce?
-            alt debounced
-                HR->>LOG: log "hook_status DEBOUNCED"
+            HR->>HR: should_filter? (user regex, skip_if_* options)
+            alt filtered
+                HR->>LOG: log "hook_status FILTERED"
                 HR-->>CC: exit 0
-            else not debounced
-                HR->>HR: should_filter? (user regex)
-                HR->>HR: build context + suffix
-                HR->>AUDIO: play_audio
-                HR->>HR: send_desktop_notification
-                HR->>HR: play_tts (with optional speak_assistant_message)
-                HR->>HR: send_webhook (subprocess fire-and-forget)
-                HR->>LOG: log "hook_status PLAYED"
-                HR-->>CC: exit 0
+            else not filtered
+                HR->>HR: should_debounce? (stamps the window when it lets the event through)
+                alt debounced
+                    HR->>LOG: log "hook_status DEBOUNCED"
+                    HR-->>CC: exit 0
+                else delivered
+                    HR->>HR: build context + suffix
+                    HR->>AUDIO: play_audio
+                    HR->>HR: send_desktop_notification
+                    HR->>HR: play_tts (with optional speak_assistant_message)
+                    HR->>HR: send_webhook (subprocess fire-and-forget)
+                    HR->>LOG: log "hook_status PLAYED"
+                    HR-->>CC: exit 0
+                end
             end
         end
     end
@@ -478,7 +485,10 @@ class ErrorCode:
     SELF_UPDATE_FAILED = "SELF_UPDATE_FAILED"
     UNKNOWN_HOOK_TYPE = "UNKNOWN_HOOK_TYPE"
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    DUPLICATE_BRIDGE_RUNTIME_SKIP = "DUPLICATE_BRIDGE_RUNTIME_SKIP"
 ```
+
+(15 codes here; the 22 CLI-only ones below bring `manifest.error_codes` to 37.)
 
 The CLI emits more codes than that: `INVALID_USAGE`, `DUAL_INSTALL_DETECTED`, `DUPLICATE_BRIDGE`, `UNINSTALL_INCOMPLETE`, the `UPGRADE_*` family and the `diagnose` findings (`NO_COMPLETION_SIGNAL`, `WINDOWS_NO_GIT_BASH`, ...) exist only in `bin/audio-hooks.py`. Since v6.7 they are catalogued in its `CLI_ERROR_CODES` table (code, one-line meaning, suggested remedy, and whether it appears in a command error or in `diagnose`), and `_build_manifest()` merges that table with `ErrorCode`, so `audio-hooks manifest` → `error_codes` lists every code either side can emit. `tests/test_cli_error_codes.py` parses the CLI source and fails when an `emit_error("CODE", ...)` call or a `{"code": "CODE"}` literal names a code in neither table, or when the table lists one that is never emitted.
 

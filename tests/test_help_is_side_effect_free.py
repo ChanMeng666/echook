@@ -196,6 +196,11 @@ class TestHelpIsSideEffectFree(unittest.TestCase):
         (["webhook", "set", "--bogus", "x"], ""),
         (["webhook", "set", "--url"], "flag with no value"),
         (["logs", "clear", "--dry-run"], ""),
+        (["logs", "clear", "extra"], "created logs/ before validating"),
+        (["logs", "clear", "extra", "--dry-run"], "created logs/ before validating"),
+        (["logs", "rotate"], "unknown logs subcommand created logs/"),
+        (["logs", "TAIL"], "unknown logs subcommand created logs/"),
+        (["migrate", "--dry-run"], ""),
         (["backup", "restore", "latest", "--dry-run"], ""),
         (["backup", "prune", "--dry-run"], ""),
         (["hooks", "enable", "stop", "--dry-run"], ""),
@@ -217,14 +222,17 @@ class TestHelpIsSideEffectFree(unittest.TestCase):
     def test_unknown_flags_are_rejected_without_side_effects(self) -> None:
         self._invoke(["get", "audio_theme"])  # first load may create the prefs file
         before_home, before_data = _snapshot(self.home), _snapshot(self.data)
+        tree_home, tree_data = _tree(self.home), _tree(self.data)  # names incl. empty directories
         for tokens, why in self.REJECTED:
             with self.subTest(command=" ".join(tokens), why=why):
                 rc, doc = self._invoke(tokens)
                 self.assertEqual(rc, 1)
                 self.assertFalse(doc["ok"])
                 self.assertEqual(doc["error"]["code"], "INVALID_USAGE")
+                self.assertEqual(_tree(self.data), tree_data, "a rejected call created a directory")
         self.assertEqual(_snapshot(self.home), before_home)
         self.assertEqual(_snapshot(self.data), before_data)
+        self.assertEqual(_tree(self.home), tree_home)
         self.save.assert_not_called()
         self.run.assert_not_called()
         self.popen.assert_not_called()

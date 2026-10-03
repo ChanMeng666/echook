@@ -8,7 +8,7 @@
 You configure it by talking to your agent — every setting is one sentence, not a JSON edit.<br/>
 Hear when your agent finishes, needs permission, or hits a rate limit — plus an optional context-usage status line.
 
-<sub>**v6.6.0** — 39 hook events and 44 matcher variants across all three editors · 2 audio themes · webhooks · TTS · desktop toasts · rate-limit alerts · status line. Renamed `claude-code-audio-hooks` → **echook** (Echo + Hook) in 5.2.1; existing installs keep working. Full history in the [CHANGELOG](./CHANGELOG.md).</sub>
+<sub>**v6.7.0** — 39 hook events and 47 matcher variants across all three editors · 2 audio themes · webhooks · TTS · desktop toasts · rate-limit alerts · status line. Renamed `claude-code-audio-hooks` → **echook** (Echo + Hook) in 5.2.1; existing installs keep working. Full history in the [CHANGELOG](./CHANGELOG.md).</sub>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Latest Release](https://img.shields.io/github/v/release/ChanMeng666/echook?label=release&color=blue&sort=semver)](https://github.com/ChanMeng666/echook/releases/latest)
@@ -65,7 +65,9 @@ https://github.com/user-attachments/assets/804dff1e-56d8-49b2-b0c0-6706f3eeccd4
 
 ## What's New
 
-**Latest: v6.6.0 — the CLI no longer acts on arguments it does not understand, and `audio-hooks uninstall` finally removes a script install on Windows.** On 2026-10-03 an AI agent ran `audio-hooks install --help` on a machine that already had the plugin; the command ignored the flag, ran the legacy script installer, reported success, and registered every hook twice. `install` now needs an explicit mode (`--plugin`, `--scripts`, `--cursor` or `--codex`) and returns `INVALID_USAGE` otherwise; `--scripts` is refused with `DUAL_INSTALL_DETECTED` while the plugin is present; `--help` is side-effect-free on every subcommand (`upgrade --help` used to run a real upgrade); and every state-changing subcommand rejects unknown flags instead of skipping them. `audio-hooks uninstall` — the remedy for double registration — used to do nothing on native Windows; it now removes the script install natively everywhere, with a backup first, and judges your files by content so a `stop_hook.sh` of your own survives. Also fixed: `rate-limits set --five-hour-thresholds 90` stored a bare integer that made the hook runner raise on every event, and the test suite no longer touches your real plugin data or plays real sounds. On the notification side, `skip_if_background_tasks_running` now counts pending tasks and ignores Claude Code's own maintenance tasks, a new opt-in `skip_if_session_crons_scheduled` quiets `/loop` sessions, and a `SubagentStop` from one of Claude Code's internal agents no longer announces a subagent you never started. Synced to Claude Code 2.1.288 (no new hook events; four new matcher values are known and not yet covered — see the [CHANGELOG](./CHANGELOG.md)).
+**Latest: v6.7.0 — three silent failure types now have a sound, the status line reads four more fields Claude Code sends, and looking at the state no longer changes it.** Claude Code sends two `StopFailure` types (`cloud_credential_error`, `verification_required`) and one `Notification` type (`auth_storage_failure`, "login needs attention") that echook had registered no matcher for, so each was a permanent no-op; they are now three more independently switchable variants (47 in all) with their own sounds in both themes. The two error ones follow `stop_failure`: if you enabled the whole parent (`hooks enable stop_failure`) you will now hear two error types that were silent before, while a config that enumerated variants with `hooks enable-only` is migrated so the new ones stay off; `notification_auth_storage_failure` is **off by default** and a login-storage failure stays silent until you run `audio-hooks hooks enable notification_auth_storage_failure`. A filter no longer starts the debounce window: a `stop` skipped by `skip_if_background_tasks_running` used to open it anyway, so the next genuine event could be swallowed although nothing had played. The status line grows from 29 to 33 segments — `spend_limit` (Claude apps gateway) and `fast_mode` render only when Claude Code sends the data, while `prompt_cache` and `remote` are opt-in through the new `statusline_settings.extra_segments`, so upgrading changes no existing status line. Reporting commands — `status`, `diagnose`, `get`, `hooks list`, `manifest`, `logs tail`, `backup list`, every `--help` — now leave your home and data directories untouched (`status` used to create the preferences file and a logs directory in a fresh home); a stale preferences file is migrated by the next hook event, any state-changing command, or the new `audio-hooks migrate`. `audio-hooks manifest` lists all 37 error codes the CLI can emit, up from 15, and `audio-hooks test` rejects unknown arguments. The plugin gains a README that states what it runs, sends and writes, a `sensitive` webhook URL, and a seven-case skill eval suite. `AGENTS.md` is now the single agent guide and `CLAUDE.md` imports it. The 6.6.0 CI matrix (Ubuntu / Windows / macOS × Python 3.9 / 3.12 / 3.13) passed with the full suite, and the 686 tests of this release isolate every hook-runner subprocess's data directory.
+
+**v6.6.0 — the CLI no longer acts on arguments it does not understand, and `audio-hooks uninstall` finally removes a script install on Windows.** On 2026-10-03 an AI agent ran `audio-hooks install --help` on a machine that already had the plugin; the command ignored the flag, ran the legacy script installer, reported success, and registered every hook twice. `install` now needs an explicit mode (`--plugin`, `--scripts`, `--cursor` or `--codex`) and returns `INVALID_USAGE` otherwise; `--scripts` is refused with `DUAL_INSTALL_DETECTED` while the plugin is present; `--help` is side-effect-free on every subcommand (`upgrade --help` used to run a real upgrade); and every state-changing subcommand rejects unknown flags instead of skipping them. `audio-hooks uninstall` — the remedy for double registration — used to do nothing on native Windows; it now removes the script install natively everywhere, with a backup first, and judges your files by content so a `stop_hook.sh` of your own survives. Also fixed: `rate-limits set --five-hour-thresholds 90` stored a bare integer that made the hook runner raise on every event, and the test suite no longer touches your real plugin data or plays real sounds. On the notification side, `skip_if_background_tasks_running` now counts pending tasks and ignores Claude Code's own maintenance tasks, a new opt-in `skip_if_session_crons_scheduled` quiets `/loop` sessions, and a `SubagentStop` from one of Claude Code's internal agents no longer announces a subagent you never started. Synced to Claude Code 2.1.288 (no new hook events; four new matcher values were known and not yet covered — v6.7.0 covers three of them, see the [CHANGELOG](./CHANGELOG.md)).
 
 **v6.5.1 — the Windows desktop toast works again, and a silent failure can no longer look healthy.** Any notification whose text contained a `"` produced no toast at all on Windows: the message was escaped for a POSIX shell and then dropped into a PowerShell string, where `\` is not an escape character, so the generated script failed to parse. Nothing reported it — the dispatch was fire-and-forget into `/dev/null` and returned success regardless. Windows now sends a real WinRT toast, the outcome is logged with the backend that produced it, and `diagnose` gained five codes for conditions it used to call healthy — including `NO_COMPLETION_SIGNAL`, for the very common case of `stop` having been muted months ago and the silence since being read as a bug. Also: config migration had not run on any install since 5.1.5, because the template's version stamp was never bumped past it.
 
@@ -73,7 +75,7 @@ https://github.com/user-attachments/assets/804dff1e-56d8-49b2-b0c0-6706f3eeccd4
 
 **v6.4.1 — an upstream-drift release.** Forked sessions had gone completely silent (Claude Code 2.1.213 changed `SessionStart` to report `fork` where it used to report `resume`), five `stop_failure` toggles turned out to do nothing, `manifest` overstated Claude Code's supported events, and `uninstall.sh` left 19 orphaned registrations behind. All four were silent — nothing failed, nothing logged.
 
-Earlier highlights: **v6.3.4** removed `worktree_create` / `worktree_remove` — they hijacked Claude Code's own provider hook and broke worktree isolation — taking the event count from 39 to 37. (v6.5.0 restored `worktree_remove`: only `WorktreeCreate` is a provider hook, so that rollback cut twice as much as it needed to.) · **v6.3.0** grew the status line to 29 segments · **v6.2.0** added 13 lifecycle events, including Cursor's **granular per-tool-type events** so shell commands, MCP calls, and file reads each get a *distinct* sound.
+Earlier highlights: **v6.3.4** removed `worktree_create` / `worktree_remove` — they hijacked Claude Code's own provider hook and broke worktree isolation — taking the event count from 39 to 37. (v6.5.0 restored `worktree_remove`: only `WorktreeCreate` is a provider hook, so that rollback cut twice as much as it needed to.) · **v6.3.0** grew the status line to 29 segments (33 since v6.7.0) · **v6.2.0** added 13 lifecycle events, including Cursor's **granular per-tool-type events** so shell commands, MCP calls, and file reads each get a *distinct* sound.
 
 📜 **Full version history → [CHANGELOG.md](./CHANGELOG.md)** · [GitHub Releases](https://github.com/ChanMeng666/echook/releases)
 
@@ -111,7 +113,7 @@ Pins your Claude Code startup banner at the bottom (so it never scrolls away) an
 | 🔴 Red | > 80% | Danger — frequent errors | `/compact` immediately |
 
 <details>
-<summary><kbd>29 customisable status-line segments</kbd></summary>
+<summary><kbd>33 customisable status-line segments</kbd></summary>
 <br>
 
 A few of the highlights (run `audio-hooks statusline segments` for the full live catalog):
@@ -119,18 +121,19 @@ A few of the highlights (run `audio-hooks statusline segments` for the full live
 | Segment | Shows |
 |---|---|
 | `model` | Model name (e.g. `[Opus 4.8 (1M context)]`) |
-| `effort` / `thinking` | Reasoning effort (`🧠 high`) / extended-thinking flag |
+| `effort` / `thinking` / `fast_mode` | Reasoning effort (`🧠 high`) / extended-thinking flag / `🚀 fast` while fast mode is on |
 | `cc_version` | Claude Code's own version (`⚡ CC v2.1.193`) |
 | `cwd` / `repo` | Working directory / git remote `owner/name` |
 | `session_name` / `agent` / `output_style` / `vim` | Session label / `--agent` name / output style / vim mode |
 | `branch` / `git_dirty` / `worktree` | Git branch / uncommitted-change count / managed worktree |
 | `pr` / `added_dirs` | Pull-request number + review state / `/add-dir` count |
-| `api_quota` / `weekly_quota` | 5-hour & 7-day rate-limit bars + reset times |
+| `api_quota` / `weekly_quota` / `spend_limit` | 5-hour & 7-day rate-limit bars + reset times / Claude apps gateway spend limit |
 | `context` / `tokens` / `exceeds_200k` | Context bar (+ tokens, `/compact` hint) / cache-hit ratio / >200K flag |
+| `prompt_cache` / `remote` | **Opt-in** (`statusline_settings.extra_segments`): prompt-cache warm/cold + time to expiry, and the cause of a recent miss / remote-session marker |
 | `cost` / `duration` / `api_time` / `burn_rate` | Cost + lines diff / wall-clock time / API-wait share / $/hour |
 | `version` · `sounds` · `webhook` · `theme` · `snooze` | echook version · sound count · webhook · audio theme · mute countdown |
 
-Most richer segments self-omit when Claude Code doesn't supply their data, so a plain session stays clean. Pick segments with `visible_segments` (whitelist) or drop a few with `hidden_segments` (blacklist). Each logical line auto-reflows into as many rows as your terminal width needs — segments are never split, so nothing is cut off. Pin the width with `statusline_settings.max_width`.
+Most richer segments self-omit when Claude Code doesn't supply their data, so a plain session stays clean. Pick segments with `visible_segments` (whitelist), drop a few with `hidden_segments` (blacklist), or switch on the opt-in ones with `extra_segments`. Each logical line auto-reflows into as many rows as your terminal width needs — segments are never split, so nothing is cut off. Pin the width with `statusline_settings.max_width`.
 
 > **Codex note:** Codex's status line is *not* command-backed — it only accepts a fixed list of built-in item IDs. echook can't render custom Codex segments, but it can **curate** the list so it stops truncating: `audio-hooks statusline codex apply --preset balanced`.
 
@@ -142,18 +145,18 @@ Most richer segments self-omit when Claude Code doesn't supply their data, so a 
 
 | Feature | What it does |
 |---|---|
-| **39 hook events · 44 matcher variants** | Across Claude Code, Cursor & Codex — session start, tool use, permission requests, rate-limit warnings, and Cursor's granular shell/MCP/file events. The three editors document 63 events between them; echook maps 39, each to its own sound. 3 on by default; toggle any in plain English. |
+| **39 hook events · 47 matcher variants** | Across Claude Code, Cursor & Codex — session start, tool use, permission requests, rate-limit warnings, and Cursor's granular shell/MCP/file events. The three editors document 63 events between them; echook maps 39, each to its own sound. 3 on by default; toggle any in plain English. |
 | **2 audio themes** | `default` = ElevenLabs **Jessica** voice (*"Task completed"*) · `custom` = modern UI chimes. Say *"switch to chimes"*. |
 | **Rate-limit alerts** | One-shot warning at 80% / 95% of your 5-hour or 7-day quota — warned once per threshold, never spammed. |
 | **Webhooks** | Versioned `audio-hooks.webhook.v1` payload, fire-and-forget, never blocks a hook. |
 
 <details>
-<summary><kbd>Full hook events table (39 events, 44 matcher variants)</kbd></summary>
+<summary><kbd>Full hook events table (39 events, 47 matcher variants)</kbd></summary>
 <br>
 
 | Hook | Default | Audio file | Native matchers |
 |---|:-:|---|---|
-| `notification` | on | notification-urgent.mp3 | all 16 `notification_type` values — `permission_prompt` / `idle_prompt` / `auth_success` / `elicitation_dialog` / `elicitation_complete` / `elicitation_response` / `agent_needs_input` / `agent_completed` / `elicitation_url_dialog` / `worker_permission_prompt` / `push_notification` / `computer_use_enter` / `computer_use_exit` / `quota_auto_resume_fired` / `quota_auto_resume_stale` / `quota_auto_resume_disabled` (everything after `elicitation_dialog` is off by default) |
+| `notification` | on | notification-urgent.mp3 | all 17 `notification_type` values — `permission_prompt` / `idle_prompt` / `auth_success` / `elicitation_dialog` / `elicitation_complete` / `elicitation_response` / `agent_needs_input` / `agent_completed` / `elicitation_url_dialog` / `worker_permission_prompt` / `push_notification` / `computer_use_enter` / `computer_use_exit` / `quota_auto_resume_fired` / `quota_auto_resume_stale` / `quota_auto_resume_disabled` / `auth_storage_failure` (everything after `elicitation_dialog` is off by default) |
 | `stop` | on | task-complete.mp3 | |
 | `subagent_stop` | | subagent-complete.mp3 | agent type |
 | `permission_request` | on | permission-request.mp3 | tool name |
@@ -167,7 +170,7 @@ Most richer segments self-omit when Claude Code doesn't supply their data, so a 
 | `userpromptsubmit` | | prompt-received.mp3 | |
 | `subagent_start` | | subagent-start.mp3 | agent type |
 | `precompact` / `postcompact` | | pre-compact.mp3 / post-compact.mp3 | `manual` / `auto` — each variant has its own sound |
-| `stop_failure` | | stop-failure.mp3 | all 11 upstream error types — `rate_limit` / `authentication_failed` / `oauth_org_not_allowed` / `account_on_hold` / `billing_error` / `overloaded` / `invalid_request` / `model_not_found` / `server_error` / `max_output_tokens` / `unknown` |
+| `stop_failure` | | stop-failure.mp3 | all 13 upstream error types — `rate_limit` / `authentication_failed` / `oauth_org_not_allowed` / `account_on_hold` / `billing_error` / `overloaded` / `invalid_request` / `model_not_found` / `server_error` / `max_output_tokens` / `cloud_credential_error` / `verification_required` / `unknown` |
 | `teammate_idle` | | teammate-idle.mp3 | |
 | `config_change` · `instructions_loaded` | | config-change.mp3 · instructions-loaded.mp3 | |
 | `elicitation` / `elicitation_result` | | elicitation.mp3 / elicitation-result.mp3 | |
@@ -206,7 +209,7 @@ flowchart TB
     CXP --> CLI
     CXN --> CLI
 
-    CLI --> OUT["39 hook events · 44 variants · 2 themes · webhooks<br/>TTS · rate-limit alerts · status line"]
+    CLI --> OUT["39 hook events · 47 variants · 2 themes · webhooks<br/>TTS · rate-limit alerts · status line"]
 
     style REPO fill:#4A90E2,color:#fff
     style CLI fill:#7ED321,color:#000
@@ -326,7 +329,7 @@ Python 3.6+ is the only runtime requirement.
 
 ## Help, Uninstall & Documentation
 
-> **Agents start here:** read [`AGENTS.md`](AGENTS.md) (mirrored as [`CLAUDE.md`](CLAUDE.md)) or [`llms.txt`](llms.txt), then run `audio-hooks manifest` — the complete, live, truthful state of the project. Everything below is for curious humans.
+> **Agents start here:** read [`AGENTS.md`](AGENTS.md) (which [`CLAUDE.md`](CLAUDE.md) imports) or [`llms.txt`](llms.txt), then run `audio-hooks manifest` — the complete, live, truthful state of the project. Everything below is for curious humans.
 
 - **Something wrong?** Just say *"audio-hooks isn't working, diagnose and fix it"* — or see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 - **Uninstall?** Say *"uninstall audio-hooks completely."* Details in the [Installation Guide](docs/INSTALLATION_GUIDE.md).
@@ -334,7 +337,7 @@ Python 3.6+ is the only runtime requirement.
 
 | Document | Purpose |
 |---|---|
-| [**AGENTS.md**](AGENTS.md) / [**CLAUDE.md**](CLAUDE.md) | Agent-facing operating guide — critical rules (CLI-only, manifest-first, two-track scope) |
+| [**AGENTS.md**](AGENTS.md) | Agent-facing operating guide — critical rules (CLI-only, manifest-first, two-track scope). [`CLAUDE.md`](CLAUDE.md) only imports it (`@AGENTS.md`) |
 | [**llms.txt**](llms.txt) | AI-agent entrypoint |
 | [**docs/INSTALLATION_GUIDE.md**](docs/INSTALLATION_GUIDE.md) | Full install / upgrade / uninstall for Claude Code, Cursor & Codex |
 | [**docs/NATURAL_LANGUAGE_CONTROL.md**](docs/NATURAL_LANGUAGE_CONTROL.md) | Every natural-language prompt, with diagrams |

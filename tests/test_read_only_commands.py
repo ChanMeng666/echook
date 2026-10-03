@@ -96,6 +96,7 @@ STATE_CHANGING = [
     ["rate-limits", "set", "--five-hour-thresholds", "90"],
     ["test"],
     ["logs", "clear"],
+    ["migrate"],
     ["install"],
     ["uninstall"],
     ["upgrade"],

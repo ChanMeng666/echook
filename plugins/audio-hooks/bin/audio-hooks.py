@@ -214,7 +214,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "6.6.0"
+PROJECT_VERSION = "6.7.0"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -1832,11 +1832,10 @@ def cmd_diagnose(_args: List[str]) -> int:
                 "5.1.5 for four releases — so equal strings meant no migration "
                 "ever ran. The next hook event migrates it (the hook runner and "
                 "every state-changing command do); read-only commands such as "
-                "status and diagnose deliberately do not. To migrate now, set a "
-                "key to its current value: read it with `audio-hooks get "
-                "audio_theme`, then `audio-hooks set audio_theme <that value>`."
+                "status and diagnose deliberately do not. To do it now, run "
+                "`audio-hooks migrate`."
             ),
-            "suggested_command": "audio-hooks get audio_theme",
+            "suggested_command": "audio-hooks migrate",
             "retired_keys": prefs_schema.get("retired_keys", []),
         })
 
@@ -1916,11 +1915,19 @@ def cmd_logs(args: List[str]) -> int:
     if not args:
         return emit_error("INVALID_USAGE", "Usage: audio-hooks logs <tail|clear>")
     sub = args[0]
-    log_file = _log_dir() / "events.ndjson"
+    if sub not in ("tail", "clear"):
+        return emit_error("INVALID_USAGE", f"Unknown logs subcommand: {sub}")
     if sub == "clear":
+        # Validate before touching anything: a rejected call says "Nothing was
+        # changed" and must not have created the data or log directory.
         rc = _check_args("logs clear", args[1:], max_positionals=0)
         if rc is not None:
             return rc
+    # Neither subcommand needs the log directory to exist (tail of a missing log
+    # is empty, clear of a missing log is a no-op), so take the path without
+    # the mkdir that HR.get_log_dir() performs.
+    log_file = (_prefs().log_dir if PROJECT_ROOT is not None else _log_dir()) / "events.ndjson"
+    if sub == "clear":
         try:
             if log_file.exists():
                 log_file.unlink()
@@ -3968,6 +3975,30 @@ def cmd_statusline(args: List[str]) -> int:
     return emit_error("INVALID_USAGE", f"Unknown statusline subcommand: {sub}")
 
 
+def cmd_migrate(args: List[str]) -> int:
+    """Bring the stored user_preferences.json up to the current template.
+
+    State-changing, idempotent, and never creates the file: the explicit form of
+    what the hook runner and every write already do on first load. It is the
+    remedy for PREFS_SCHEMA_STALE, which the read-only commands deliberately do
+    not apply.
+    """
+    if require_project_root() != 0:
+        return 1
+    rc = _check_args("migrate", args, max_positionals=0)
+    if rc is not None:
+        return rc
+    try:
+        report = _prefs().migrate()
+    except ValueError as e:
+        return emit_error("CONFIG_READ_ERROR", f"{_prefs().config_path} is {e}. Nothing was changed.",
+                          suggested_command="audio-hooks backup list")
+    except OSError as e:
+        return emit_error("INTERNAL_ERROR", str(e))
+    emit({"ok": True, **report})
+    return 0
+
+
 def cmd_update(args: List[str]) -> int:
     """Stub: report current version. Real update goes through Claude Code's plugin system."""
     if require_project_root() != 0:
@@ -4494,8 +4525,8 @@ CLI_ERROR_CODES: Dict[str, Dict[str, str]] = {
     },
     "PREFS_SCHEMA_STALE": {
         "appears_in": "diagnose",
-        "hint": "user_preferences.json is stamped with an older version or carries keys this version removed. The next hook event or any state-changing command migrates it; read-only commands (status, diagnose, get) do not.",
-        "suggested_command": "audio-hooks get audio_theme",
+        "hint": "user_preferences.json is stamped with an older version or carries keys this version removed. The next hook event or any state-changing command migrates it; read-only commands (status, diagnose, get) do not. `audio-hooks migrate` does it on demand.",
+        "suggested_command": "audio-hooks migrate",
     },
     "STALE_PLUGIN_CACHE": {
         "appears_in": "diagnose",
@@ -4581,6 +4612,7 @@ def _build_manifest() -> Dict[str, Any]:
             {"name": "statusline codex show", "args": [], "description": "Show the current Codex [tui].status_line + terminal_title and whether they likely overflow"},
             {"name": "statusline codex preview", "args": ["[--preset minimal|balanced|full]", "[--items a,b,c]", "[--target status_line|terminal_title|both]"], "description": "Print the curated Codex status_line / terminal_title that would be written (no write)"},
             {"name": "statusline codex apply", "args": ["[--preset minimal|balanced|full]", "[--items a,b,c]", "[--target status_line|terminal_title|both]"], "description": "Curate Codex [tui].status_line and/or terminal_title in config.toml (backs up first) so they stop truncating. Codex accepts only fixed item IDs — echook curates, it cannot render custom text."},
+            {"name": "migrate", "args": [], "description": "Bring the stored user_preferences.json up to this version's template (new keys added, dropped keys removed, a sibling .bak kept). Idempotent; no-op when current or absent. Never creates the file."},
             {"name": "update", "args": ["[--check]"], "description": "Show current version (real updates go through /plugin update)"},
             {"name": "upgrade", "args": ["[--check-only]", "[--force]"], "description": "Refresh the plugin code (and ~/.claude/plugins/cache/) without losing config. Tries `claude plugin update` first; falls back to uninstall --keep-data + install."},
             {"name": "backup list", "args": [], "description": "JSON array of available backups, newest first"},
@@ -4801,6 +4833,7 @@ DISPATCH = {
     "statusline": cmd_statusline,
     "backup": cmd_backup,
     "upgrade": cmd_upgrade,
+    "migrate": cmd_migrate,
 }
 
 

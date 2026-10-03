@@ -5,14 +5,14 @@
     "url": "https://github.com/ChanMeng666"
   },
   "metadata": {
-    "description": "Audio notifications for Claude Code, Cursor IDE & Codex CLI, configured in natural language. 39 hook events + 44 matcher variants, each with its own sound. Desktop toasts, TTS, webhook fan-out, status line + per-subagent rows, rate-limit alerts. Auto-bridges to Cursor 3.2.16+; native install for Cursor-only via 'audio-hooks install --cursor'; native install for Codex via 'audio-hooks install --codex'.",
-    "version": "6.6.0"
+    "description": "Audio notifications for Claude Code, Cursor IDE & Codex CLI, configured in natural language. 39 hook events + 47 matcher variants, each with its own sound. Desktop toasts, TTS, webhook fan-out, status line + per-subagent rows, rate-limit alerts. Auto-bridges to Cursor 3.2.16+; native install for Cursor-only via 'audio-hooks install --cursor'; native install for Codex via 'audio-hooks install --codex'.",
+    "version": "6.7.0"
   },
   "plugins": [
     {
       "name": "audio-hooks",
       "source": "./plugins/audio-hooks",
-      "version": "6.6.0",
+      "version": "6.7.0",
       "description": "Audio notifications + AI-controlled config for Claude Code, Cursor IDE, and Codex CLI events. Auto-bridges to Cursor 3.2.16+; native install for Cursor via 'audio-hooks install --cursor' and for Codex via 'audio-hooks install --codex'.",
       "author": {
         "name": "Chan Meng",

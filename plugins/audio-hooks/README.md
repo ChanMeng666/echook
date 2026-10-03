@@ -6,7 +6,7 @@ This file describes what the plugin runs, what it can send and where, and what i
 
 ## What it runs
 
-- **A Python hook runner on lifecycle events.** `hooks/hooks.json` registers one handler per event (30 Claude Code event types, 44 matcher variants). Each runs `python "${CLAUDE_PLUGIN_ROOT}/runner/run.py" <event>`, asynchronously, and reads the event payload Claude Code passes on stdin. By default only `notification`, `stop` and `permission_request` make a sound; every other event is off until you switch it on with `audio-hooks hooks enable <name>`.
+- **A Python hook runner on lifecycle events.** `hooks/hooks.json` registers one handler per event (30 Claude Code event types, 47 matcher variants). Each runs `python "${CLAUDE_PLUGIN_ROOT}/runner/run.py" <event>`, asynchronously, and reads the event payload Claude Code passes on stdin. By default only `notification`, `stop` and `permission_request` make a sound; every other event is off until you switch it on with `audio-hooks hooks enable <name>`.
 - **The `audio-hooks` CLI** (`bin/`), which reads and writes the plugin's own settings. A bundled skill teaches Claude when to call it (for example "snooze for 30 minutes" or "Claude is too loud").
 - **A status line script, only if you ask for it.** `audio-hooks statusline install` registers it; until then it is never run.
 - **Local helpers for sound and notifications:** PowerShell (Windows media player, toast and speech), `afplay`, `say` and `osascript` (macOS), `mpg123`/`ffplay`/`paplay`/`aplay`, `notify-send` and `espeak`/`spd-say` (Linux). `git` is run by the status line to show the branch.

@@ -41,7 +41,7 @@ from invoker import detect_invoker, get_invoker as _get_invoker, strip_invoker_a
 
 # Version used for auto-sync: when the installed copy in ~/.claude/hooks/
 # detects a newer version in the project directory, it self-updates.
-HOOK_RUNNER_VERSION = "6.6.0"
+HOOK_RUNNER_VERSION = "6.7.0"
 
 # =============================================================================
 # STRUCTURED LOGGING (NDJSON)
@@ -2747,8 +2747,9 @@ def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = N
               synthetic_variant=_current_synthetic_variant)
 
     # v5.1.6: Cursor bridge invariants. Cursor's third-party-hooks bridge maps
-    # 8 of 10 Claude Code events to Cursor events; ``Notification`` and
-    # ``PermissionRequest`` have no Cursor equivalent (per
+    # 8 Claude Code events (PreToolUse, PostToolUse, UserPromptSubmit, Stop,
+    # SubagentStop, SessionStart, SessionEnd, PreCompact) to Cursor events;
+    # ``Notification`` and ``PermissionRequest`` have no Cursor equivalent (per
     # cursor.com/docs/reference/third-party-hooks). Cursor never invokes them
     # under the auto-bridge, but a hand-edited ``~/.cursor/hooks.json`` could,
     # and a future Cursor release might add equivalents. Skip cleanly so the
@@ -2879,7 +2880,8 @@ def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = N
         return 0
 
     # Auto-update from project directory if a newer version exists
-    # (deferred to after enabled/snoozed/debounced/filtered checks for performance)
+    # (deferred until every gate has passed -- enabled, snoozed, filtered, then
+    # debounced, in that order -- so a suppressed event never pays for the check)
     check_and_self_update()
 
     # Determine notification mode with per-hook override support

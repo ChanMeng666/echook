@@ -34,6 +34,9 @@
 # (unless --skip-tests is given) runs the unittest suite as a sanity check.
 #
 # Idempotent: re-running with the same version is a no-op (files_changed is []).
+# Atomic in the sense that matters: every pattern in every target is checked in a
+# dry pass before the first write, so a header or key that does not match exits 1
+# with nothing changed and a JSON error on stderr naming the file and pattern.
 # Outputs a single JSON line on stdout.
 #
 # Exit codes:
@@ -105,26 +108,43 @@ repo = pathlib.Path(".").resolve()
 changes = []
 old_versions = set()
 
+# Every target is validated by a dry pass (DRY = True: read and match, never write)
+# before the first byte is written, so a header or key that does not match fails
+# with nothing changed instead of leaving the tree half-stamped.
+DRY = True
+
+
+def fail(rel, pattern, message):
+    """Stop with a JSON error that names the file and the pattern; nothing was written."""
+    print(json.dumps({"ok": False, "error": message, "file": rel, "pattern": pattern,
+                      "files_changed": [c["file"] for c in changes]}), file=sys.stderr)
+    sys.exit(1)
+
+
+def read_target(rel):
+    try:
+        # Binary I/O so CRLF<->LF stays exactly as-is.
+        return (repo / rel).read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        fail(rel, "(file)", f"cannot read {rel}: {e}")
+
 
 def bump_py_const(rel, var):
     fp = repo / rel
-    # Use binary I/O so we never re-translate CRLF↔LF on Windows.
-    raw = fp.read_bytes()
-    text = raw.decode("utf-8")
+    text = read_target(rel)
     pat = re.compile(rf'^({re.escape(var)}\s*=\s*)"([^"]*)"', re.M)
     m = pat.search(text)
     if not m:
-        print(json.dumps({"ok": False, "error": f"could not find {var} in {rel}"}), file=sys.stderr)
-        sys.exit(1)
+        fail(rel, f"{var} = \"...\"", f"could not find {var} in {rel}")
     old = m.group(2)
     old_versions.add(old)
     if old != new_version:
         new_text, n = pat.subn(rf'\1"{new_version}"', text, count=1)
         if n != 1:
-            print(json.dumps({"ok": False, "error": f"failed to substitute {var} in {rel}"}), file=sys.stderr)
-            sys.exit(1)
-        fp.write_bytes(new_text.encode("utf-8"))
-        changes.append({"file": rel, "old": old, "new": new_version})
+            fail(rel, f"{var} = \"...\"", f"failed to substitute {var} in {rel}")
+        if not DRY:
+            fp.write_bytes(new_text.encode("utf-8"))
+            changes.append({"file": rel, "old": old, "new": new_version})
 
 
 def bump_json_string(rel, key_quoted, expected_count):
@@ -137,22 +157,16 @@ def bump_json_string(rel, key_quoted, expected_count):
     expected_count must match exactly to catch missing/extra occurrences.
     """
     fp = repo / rel
-    # Binary I/O so CRLF↔LF stays exactly as-is.
-    raw = fp.read_bytes()
-    text = raw.decode("utf-8")
+    text = read_target(rel)
     pat = re.compile(rf'({re.escape(key_quoted)}\s*:\s*)"([0-9][^"]*)"')
     matches = pat.findall(text)
     if len(matches) != expected_count:
-        print(json.dumps({
-            "ok": False,
-            "error": f"expected {expected_count} matches of {key_quoted} in {rel}, found {len(matches)}",
-        }), file=sys.stderr)
-        sys.exit(1)
+        fail(rel, key_quoted, f"expected {expected_count} matches of {key_quoted} in {rel}, found {len(matches)}")
     olds = [m[1] for m in matches]
     for o in olds:
         old_versions.add(o)
     new_text = pat.sub(rf'\1"{new_version}"', text)
-    if new_text != text:
+    if new_text != text and not DRY:
         fp.write_bytes(new_text.encode("utf-8"))
         changes.append({"file": rel, "old": "/".join(sorted(set(olds))), "new": new_version})
 
@@ -165,21 +179,17 @@ def bump_embedded_paren_version(rel, key_quoted, expected_count):
     guard never matches.
     """
     fp = repo / rel
-    raw = fp.read_bytes()
-    text = raw.decode("utf-8")
+    text = read_target(rel)
     pat = re.compile(rf'({re.escape(key_quoted)}\s*:\s*"[^"]*\(v)([0-9][^)"]*)(\))')
     matches = pat.findall(text)
     if len(matches) != expected_count:
-        print(json.dumps({
-            "ok": False,
-            "error": f"expected {expected_count} embedded (vX.Y.Z) after {key_quoted} in {rel}, found {len(matches)}",
-        }), file=sys.stderr)
-        sys.exit(1)
+        fail(rel, f"{key_quoted}: \"...(vX.Y.Z)\"",
+             f"expected {expected_count} embedded (vX.Y.Z) after {key_quoted} in {rel}, found {len(matches)}")
     olds = [m[1] for m in matches]
     for o in olds:
         old_versions.add(o)
     new_text = pat.sub(rf'\g<1>{new_version}\g<3>', text)
-    if new_text != text:
+    if new_text != text and not DRY:
         fp.write_bytes(new_text.encode("utf-8"))
         changes.append({"file": rel, "old": "/".join(sorted(set(olds))), "new": new_version})
 
@@ -190,12 +200,10 @@ def bump_header_stamp(rel, pat, with_date):
     re-running with the same version is a no-op (the file is not even rewritten).
     """
     fp = repo / rel
-    raw = fp.read_bytes()
-    text = raw.decode("utf-8")
+    text = read_target(rel)
     m = pat.search(text)
     if not m:
-        print(json.dumps({"ok": False, "error": f"could not find the version header in {rel}"}), file=sys.stderr)
-        sys.exit(1)
+        fail(rel, pat.pattern, f"could not find the version header in {rel}")
     old = m.group("ver")
     if old == new_version:
         return
@@ -204,45 +212,54 @@ def bump_header_stamp(rel, pat, with_date):
     else:
         repl = lambda mm: f'{mm.group("pre")}{new_version}{mm.group("mid")}'
     new_text = pat.sub(repl, text, count=1)
-    fp.write_bytes(new_text.encode("utf-8"))
-    changes.append({"file": rel, "old": old, "new": new_version})
+    if not DRY:
+        fp.write_bytes(new_text.encode("utf-8"))
+        changes.append({"file": rel, "old": old, "new": new_version})
 
-
-# 1 + 2: Python constants
-bump_py_const("bin/audio-hooks.py", "PROJECT_VERSION")
-bump_py_const("hooks/hook_runner.py", "HOOK_RUNNER_VERSION")
-
-# 3: marketplace.json — two `"version"` string fields (metadata.version + plugins[0].version).
-#    The semver guard in bump_json_string skips Cursor-style `"version": 1` integers.
-bump_json_string(".claude-plugin/marketplace.json", '"version"', expected_count=2)
-
-# 4 + 5: plugin manifests (separately canonical — build-plugin.sh does not regenerate them)
-bump_json_string("plugins/audio-hooks/.claude-plugin/plugin.json", '"version"', expected_count=1)
-bump_json_string("plugins/audio-hooks/.codex-plugin/plugin.json", '"version"', expected_count=1)
-
-# 6 + 7 + 8: cursor + codex hook templates use _audio_hooks_version (NOT version,
-# which is Cursor's own schema-version integer).
-bump_json_string("cursor-hooks/hooks.json", '"_audio_hooks_version"', expected_count=1)
-bump_json_string("codex-hooks/hooks.json", '"_audio_hooks_version"', expected_count=1)
-bump_json_string("codex-hooks/plugin-hooks.json", '"_audio_hooks_version"', expected_count=1)
-
-# 9: the preferences template stamps the version three ways. It is canonical
-#    because UserPreferences._migrate_if_needed writes _version into every
-#    user's config; leaving it stale (it sat at 5.1.5 through 6.5.0) makes every
-#    install claim a version it isn't. `"version"` cannot match inside
-#    `"_version"` — the leading quote is part of the literal.
-bump_json_string("config/default_preferences.json", '"_version"', expected_count=1)
-bump_json_string("config/default_preferences.json", '"version"', expected_count=1)
-bump_embedded_paren_version("config/default_preferences.json", '"_comment"', expected_count=1)
 
 # Header stamps. AGENTS.md is the single full agent guide (CLAUDE.md only imports
 # it); the three docs carry `Version | Last Updated`.
 DOC_HEADER = re.compile(
     r"(?P<pre>^> \*\*Version:\*\* )(?P<ver>[0-9][^ |]*)(?P<mid> \| \*\*Last Updated:\*\* )\d{4}-\d{2}-\d{2}", re.M)
 GUIDE_HEADER = re.compile(r"(?P<pre>^> v)(?P<ver>[0-9][^ \u00b7]*)(?P<mid> \u00b7)", re.M)
-bump_header_stamp("AGENTS.md", GUIDE_HEADER, with_date=False)
-for _doc in ("docs/ARCHITECTURE.md", "docs/INSTALLATION_GUIDE.md", "docs/TROUBLESHOOTING.md"):
-    bump_header_stamp(_doc, DOC_HEADER, with_date=True)
+def apply_all():
+    # 1 + 2: Python constants
+    bump_py_const("bin/audio-hooks.py", "PROJECT_VERSION")
+    bump_py_const("hooks/hook_runner.py", "HOOK_RUNNER_VERSION")
+
+    # 3: marketplace.json — two `"version"` string fields (metadata.version + plugins[0].version).
+    #    The semver guard in bump_json_string skips Cursor-style `"version": 1` integers.
+    bump_json_string(".claude-plugin/marketplace.json", '"version"', expected_count=2)
+
+    # 4 + 5: plugin manifests (separately canonical — build-plugin.sh does not regenerate them)
+    bump_json_string("plugins/audio-hooks/.claude-plugin/plugin.json", '"version"', expected_count=1)
+    bump_json_string("plugins/audio-hooks/.codex-plugin/plugin.json", '"version"', expected_count=1)
+
+    # 6 + 7 + 8: cursor + codex hook templates use _audio_hooks_version (NOT version,
+    # which is Cursor's own schema-version integer).
+    bump_json_string("cursor-hooks/hooks.json", '"_audio_hooks_version"', expected_count=1)
+    bump_json_string("codex-hooks/hooks.json", '"_audio_hooks_version"', expected_count=1)
+    bump_json_string("codex-hooks/plugin-hooks.json", '"_audio_hooks_version"', expected_count=1)
+
+    # 9: the preferences template stamps the version three ways. It is canonical
+    #    because UserPreferences._migrate_if_needed writes _version into every
+    #    user's config; leaving it stale (it sat at 5.1.5 through 6.5.0) makes every
+    #    install claim a version it isn't. `"version"` cannot match inside
+    #    `"_version"` — the leading quote is part of the literal.
+    bump_json_string("config/default_preferences.json", '"_version"', expected_count=1)
+    bump_json_string("config/default_preferences.json", '"version"', expected_count=1)
+    bump_embedded_paren_version("config/default_preferences.json", '"_comment"', expected_count=1)
+
+    bump_header_stamp("AGENTS.md", GUIDE_HEADER, with_date=False)
+    for _doc in ("docs/ARCHITECTURE.md", "docs/INSTALLATION_GUIDE.md", "docs/TROUBLESHOOTING.md"):
+        bump_header_stamp(_doc, DOC_HEADER, with_date=True)
+
+
+# Dry pass: validate every pattern in every target first. Only then write.
+DRY = True
+apply_all()
+DRY = False
+apply_all()
 
 # Prose that names the latest release but cannot be stamped (see the header).
 needs_hand_written = []

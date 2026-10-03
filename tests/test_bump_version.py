@@ -90,6 +90,60 @@ class TestBumpVersion(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr[-600:])
         return json.loads(proc.stdout.strip().splitlines()[-1])
 
+    def _bump_fails(self, version: str):
+        env = {k: v for k, v in os.environ.items() if k in
+               ("PATH", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "PATHEXT", "COMSPEC", "HOME", "USERPROFILE")}
+        env["BASH"] = BASH
+        proc = subprocess.run([BASH, "scripts/bump-version.sh", "--skip-tests", version],
+                              cwd=str(self.root), capture_output=True, text=True, env=env, timeout=180)
+        self.assertEqual(proc.returncode, 1, proc.stdout[-400:] + proc.stderr[-400:])
+        return json.loads(proc.stderr.strip().splitlines()[-1])
+
+    def _tree_bytes(self):
+        # Only the files the script owns: git-bash with a trimmed environment can drop
+        # unrelated directories (a literal "%SystemDrive%") into its cwd.
+        return {rel: (self.root / rel).read_bytes() for rel in FILES if (self.root / rel).exists()}
+
+    def test_a_mismatched_header_changes_nothing(self) -> None:
+        """The four Markdown headers used to be checked last, after twelve files were rewritten."""
+        for rel in ["AGENTS.md"] + STAMPED_DOCS:
+            with self.subTest(file=rel):
+                text = self._read(rel)
+                if rel == "AGENTS.md":
+                    broken = re.sub(r"(?m)^> v", "> version ", text, count=1)
+                else:
+                    broken = text.replace("**Version:**", "**Release:**", 1)
+                self.assertNotEqual(broken, text)
+                (self.root / rel).write_bytes(broken.encode("utf-8"))
+                before = self._tree_bytes()
+                err = self._bump_fails("9.8.7")
+                self.assertFalse(err["ok"])
+                self.assertEqual(err["file"], rel)
+                self.assertTrue(err["pattern"])
+                self.assertEqual(err["files_changed"], [])
+                self.assertEqual(self._tree_bytes(), before, "a failed bump must leave every file untouched")
+                (self.root / rel).write_bytes(text.encode("utf-8"))
+
+    def test_a_mismatched_canonical_stamp_changes_nothing(self) -> None:
+        for rel, old, new in (("bin/audio-hooks.py", "PROJECT_VERSION", "PROJECT_VER"),
+                              ("plugins/audio-hooks/.claude-plugin/plugin.json", '"version"', '"vers"'),
+                              ("config/default_preferences.json", '"_comment"', '"_note"')):
+            with self.subTest(file=rel):
+                text = self._read(rel)
+                (self.root / rel).write_bytes(text.replace(old, new).encode("utf-8"))
+                before = self._tree_bytes()
+                err = self._bump_fails("9.8.7")
+                self.assertEqual(err["file"], rel)
+                self.assertEqual(self._tree_bytes(), before)
+                (self.root / rel).write_bytes(text.encode("utf-8"))
+
+    def test_a_missing_target_changes_nothing(self) -> None:
+        (self.root / "docs" / "TROUBLESHOOTING.md").unlink()
+        before = self._tree_bytes()
+        err = self._bump_fails("9.8.7")
+        self.assertEqual(err["file"], "docs/TROUBLESHOOTING.md")
+        self.assertEqual(self._tree_bytes(), before)
+
     def _read(self, rel: str) -> str:
         return (self.root / rel).read_bytes().decode("utf-8")
 

@@ -108,6 +108,12 @@ Three config keys under `statusline_settings` (set via `audio-hooks set`):
   `hidden_segments` still wins over it. A non-empty `visible_segments`
   whitelist can name an opt-in segment directly instead.
 
+The three lists are read defensively, because a status line script that raises
+prints nothing at all: a **non-string entry** (a number, a list, `null`) in any of
+them is ignored rather than blanking the line, and a **non-list value** counts as
+unset. A `visible_segments` whitelist containing only junk is therefore "unset"
+(the default set shows), not "show nothing".
+
 ```bash
 # Show only the two progress bars:
 audio-hooks set statusline_settings.visible_segments '["context","api_quota"]'
@@ -191,8 +197,12 @@ Claude Code, and a status line script that raises prints nothing at all. Each
 formatter (`_fmt_prompt_cache`, `_fmt_spend_limit`, `_fmt_fast_mode`,
 `_fmt_remote` in `bin/audio-hooks-statusline.py`) therefore returns `""` on
 anything it does not recognise; numbers must be real numbers (a `bool` or a numeric
-string is rejected), and a timestamp implausibly far in the future (a millisecond
-epoch) drops the countdown rather than showing `1000h`.
+string is rejected), a boolean `resets_at` is ignored (`True` would otherwise read as
+1970-01-01 00:00:01), and a timestamp implausibly far in the future (a millisecond
+epoch) drops the countdown rather than showing `1000h`. Displayed percentages are
+clamped (to ±9999 for the quota, spend and context numbers; the bars clamp to
+0–100), so a malformed `used_percentage` such as `1e308` cannot print a
+300-digit number or raise.
 
 **Codex is unaffected.** Codex renders only a fixed list of item IDs; it already
 has `fast-mode` and its own rate-limit items, and has nothing equivalent to
@@ -236,6 +246,18 @@ echook's row is deliberately compact — one panel column, not two full lines:
 status icon · model · reasoning effort · context used (with window size) ·
 elapsed. Every field is data-gated, so a task that reports only a token count
 renders only that.
+
+**Why the plugin does not install it for you (v6.7.0).** A plugin-level default
+(`settings.json` shipped inside the plugin) was evaluated and not shipped. Claude
+Code loads such a file and keeps only `subagentStatusLine`, but does not substitute
+`${CLAUDE_PLUGIN_ROOT}` in its command (it arrived empty) and does not put the
+plugin's `bin/` on PATH for it (exit 127), so a marketplace-installed plugin cannot
+name its own script; and `statusline subagent uninstall` removes only the user's own
+setting, so a plugin default would have no CLI-only off switch. Measured on Claude
+Code 2.1.288 on Windows in an interactive session; the row was seen to execute, not
+seen on screen. The details are in
+[EVENT_BEHAVIOR_NOTES.md](EVENT_BEHAVIOR_NOTES.md#a-plugin-level-subagentstatusline-default-evaluated-not-shipped-v670).
+Run `audio-hooks statusline subagent install` yourself.
 
 ---
 

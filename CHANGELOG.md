@@ -7,6 +7,329 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [6.7.0] - 2026-10-03
+
+Three gaps closed, one ordering bug fixed, and one habit corrected. The gaps:
+three matcher values Claude Code sends had no handler (so each was a permanent
+silent event), four status-line fields it pipes to the script were read by no
+segment, and `AGENTS.md` / `CLAUDE.md` were two hand-synced copies of one guide.
+The ordering bug: a filter discarded an event *after* the debounce window had
+already opened. The habit: commands whose only job is to report used to change
+what they reported (`status` created the preferences file and a `logs/`
+directory in a fresh home).
+
+Three things to know before upgrading:
+
+- **If you enabled the whole `stop_failure` parent (`hooks enable stop_failure`),
+  two error types that were silent will now play** (`cloud_credential_error`,
+  `verification_required`). If you instead chose exactly which variants you
+  wanted with `hooks enable-only <variant>`, the migration writes the new ones
+  `false` for you and nothing new becomes audible.
+- **`notification_auth_storage_failure` is off by default.** A "Claude Code login
+  needs attention" notification stays silent until
+  `audio-hooks hooks enable notification_auth_storage_failure`.
+- **A stale `user_preferences.json` is no longer migrated by `status` or
+  `diagnose`.** The next hook event or any state-changing command does it, or run
+  the new `audio-hooks migrate`.
+
+### Added
+
+- **Three matcher variants (44 → 47), each with its own sound in both themes.**
+  `hooks.json` has no catch-all under `Notification` or `StopFailure`, so a
+  matcher value with no entry matched no handler at all.
+  - `stop_failure_cloud_credential_error` ("Cloud credentials error") and
+    `stop_failure_verification_required` ("Verification required"). They follow
+    the `stop_failure` switch like their eleven siblings: silent unless the user
+    enabled `stop_failure`, and audible for a user who enabled the whole parent
+    (see "Preferences migration and new variants" below for users who
+    enumerated variants). `cloud_credential_error` is in the official table
+    (Claude Code 2.1.267+); `verification_required` is in the 2.1.288 binary's
+    error union but not the docs table.
+  - `notification_auth_storage_failure` ("Login needs attention"), emitted with
+    *"Claude Code login needs attention: credentials could not be saved"*.
+    **Off by default**, through an explicit `SYNTHETIC_VARIANT_DEFAULTS` entry,
+    as for every variant added since v6.4 under an on-by-default parent. A
+    login-storage failure is therefore **silent until the user enables it.**
+  - `model_refusal_fallback` is **deliberately not registered**: the 2.1.288
+    binary declares it in the `notification_type` list, but no emitter was found,
+    so a handler would be dead code.
+  - Counts: variants 44 → 47, distinct event/variant sounds 83 → 86 (39 events +
+    47 variants), mp3 files per theme 84 → 87 (86 plus the
+    `notification-info.mp3` fallback no event maps to), manifest audio entries
+    168 → 174. Three new files per theme, generated with
+    `scripts/generate-audio.py` from `_v670`-tagged manifest entries.
+    `TestAudioUniqueness` still passes: no two slots share a file.
+- **Four status-line segments (29 → 33).** All four are Claude Code only.
+  - `spend_limit` (Claude apps gateway spend limit: usage bar,
+    `$used/$limit period` when sent, reset clock) and `fast_mode` (`🚀 fast`,
+    drawn only while fast mode is on) join the default set. Like every segment
+    they render only when Claude Code sends the field, so a plain subscription
+    session shows neither.
+  - `prompt_cache` (`cache warm 4m` / `cache cold · 45K to re-cache`, plus
+    `miss: <cause>` while the last miss is under ten minutes old) and `remote`
+    (`☁ remote`, from an **undocumented** field) are **opt-in** through a new key,
+    `statusline_settings.extra_segments` (empty by default). Claude Code sends
+    `prompt_cache` to every session after its first response, so a default-on
+    segment would have changed every existing status line on upgrade; an upgrade
+    now changes none. `hidden_segments` still wins over `extra_segments`, and a
+    non-empty `visible_segments` whitelist can name an opt-in segment directly.
+  - `audio-hooks statusline segments` reports a `default` flag per segment, and
+    `audio-hooks status` includes `extra_segments`.
+  - Every formatter returns `""` for an absent, `null` or wrong-typed field, since
+    a status-line script that raises prints nothing at all. A warm cache whose
+    `expires_at` has passed renders as cold. Minimum Claude Code versions and the
+    evidence behind each field are in `docs/STATUS_LINE.md`.
+- **`plugins/audio-hooks/README.md`** states what the plugin runs, what it can
+  send and where, what it writes and what it never does. The plugin directory
+  requires it and its review looks for undisclosed data flows. It is
+  hand-edited; `tests/test_plugin_packaging.py` pins the defaults it quotes.
+- **A skill eval suite** at `plugins/audio-hooks/evals/`: seven text-only cases
+  (no `Bash` grant) for `claude plugin eval` — `too-loud`,
+  `away-notification`, `statusline-context-only`, `snooze-30-minutes`,
+  `cursor-install-duplicate-bridge`, `pomodoro-out-of-scope` and
+  `unrelated-request`.
+- **`audio-hooks migrate`**: brings the stored `user_preferences.json` up to the
+  current template — new keys added, dropped keys removed, a sibling `.bak` kept.
+  State-changing, no flags, idempotent, and it **never creates** the preferences
+  file or its directory (an absent file is reported as `exists: false`). It
+  returns `ok`, `config_path`, `exists`, `changed`, `from_version`, `to_version`,
+  `added[]`, `removed[]`, `stale[]` and `backup`. It is the remedy
+  `PREFS_SCHEMA_STALE` now suggests; the read-only commands deliberately do not
+  apply that migration. The manifest lists 21 top-level subcommands (41 forms).
+- **Preferences migration and new variants.** A variant with no key inherits its
+  parent, which is right for a user who enabled the whole parent and wrong for one
+  who used `hooks enable-only <variant>` to say "only these". That command leaves a
+  signature — the parent explicitly `true` and every then-known sibling an
+  explicit boolean — and when a variant newer than the stored file has no key,
+  migration now writes it explicitly `false`, so a new variant cannot become
+  audible for someone who chose exactly which ones they wanted. A config that only
+  enables the parent (`hooks enable stop_failure`), or that has just some siblings
+  set by hand, is unchanged and the new variant inherits the parent. The release
+  that introduced each variant is recorded in
+  `UserPreferences.VARIANT_INTRODUCED` (`hooks/user_preferences.py`); a new
+  variant needs a row there or `tests/test_variant_migration.py` fails. **Stated
+  limit:** an enumeration made before an earlier, unanswered variant addition does
+  not match the rule and keeps inheriting.
+- **`audio-hooks manifest` → `error_codes` lists every code the CLI can emit:
+  37, up from 15.** The 22 CLI-only codes (`INVALID_USAGE`, `DUPLICATE_BRIDGE`,
+  `UNINSTALL_INCOMPLETE`, the `UPGRADE_*` family, the `diagnose` findings…)
+  live in `CLI_ERROR_CODES` in `bin/audio-hooks.py`, each with a meaning, a
+  remedy and whether it appears in a command error or in `diagnose`.
+  `tests/test_cli_error_codes.py` parses the CLI source and fails on an
+  uncatalogued code, a code it cannot scan, or a catalogued code nothing emits.
+- **`manifest.pointers.agents_md`** (`AGENTS.md`).
+- **146 tests (540 → 686; 2 are skipped on Windows — POSIX-only file-mode
+  tests).** New modules: `test_migrate_command.py`, `test_variant_migration.py`, `test_read_only_commands.py`, `test_cli_error_codes.py`,
+  `test_filter_debounce_order.py`, `test_plugin_packaging.py`,
+  `test_bump_version.py`, `test_agent_guides.py`, `test_isolation_guard.py`,
+  `test_help_is_side_effect_free.py`; `test_statusline.py`,
+  `test_plugin_hooks_contract.py`, `test_variant_toggles.py` grew.
+
+### Fixed
+
+- **A filtered event could suppress the next genuine one.** `run_hook` ran
+  `should_debounce` before `should_filter`, and `should_debounce` stamps the
+  debounce file whenever it lets an event through. A `stop` discarded by
+  `skip_if_background_tasks_running` therefore still opened the window, and the
+  next real `stop` was swallowed for up to `debounce_ms` although nothing had
+  played. Filters now run first; the debounce check is the last gate. A filtered
+  event inside an open window is logged `FILTERED`, no longer `DEBOUNCED`.
+- **Commands that only report no longer write.** `status`, `diagnose`, `get`,
+  `hooks list`, `theme` / `theme list`, `snooze status`, flagless `webhook` /
+  `tts` / `rate-limits`, `statusline` (show, `segments`, `subagent show`,
+  `codex show`, `codex preview`), `logs tail`, `backup list|show`, `manifest`,
+  `version`, `update` and every `--help` path leave the home and data
+  directories untouched: no auto-initialised `user_preferences.json`, no
+  migration (its `.bak` and lock file included), no `logs/` or `queue/`.
+  Before, `status` created the preferences file and a logs directory in a fresh
+  home, and running the CLI from a checkout whose template version differed from
+  the installed plugin re-stamped the stored file. The merged result is computed
+  in memory (`UserPreferences.load(read_only=True)`); the hook runner and every
+  state-changing command still initialise and migrate. A new subcommand must be
+  classified in `tests/test_read_only_commands.py` or that test fails.
+- **`audio-hooks test` acted on arguments it did not understand.** `test stop
+  --dry-run` was accepted, the flag was never read, and the sound played. `test`
+  now rejects unknown flags and extra positionals with `INVALID_USAGE`, like the
+  other subcommands.
+- **The `PREFS_SCHEMA_STALE` hint said `status` would migrate the file.** It no
+  longer does; the hint now says the next hook event or any state-changing
+  command does, and its `suggested_command` is the new `audio-hooks migrate`.
+- **A rejected `logs` invocation created the data and log directories.** `logs
+  clear extra` and `logs <unknown>` answered `INVALID_USAGE` ("nothing was
+  changed") after `HR.get_log_dir()` had already run its `mkdir`. The arguments
+  are validated first, and `tail` / `clear` take the log path without creating
+  anything.
+- **A malformed segment list could blank the status line.** A non-string entry
+  (a number, a list, `null`) in `visible_segments`, `hidden_segments` or
+  `extra_segments` raised out of the lookup, and a status-line script that raises
+  prints nothing. Non-string entries are now ignored, a non-list value counts as
+  unset, and a whitelist of nothing but junk is "unset", not "show nothing".
+- **Displayed percentages are clamped and a boolean `resets_at` is ignored.** A
+  `used_percentage` of `1e308` printed a 309-digit number and `inf` raised
+  `OverflowError`; the number is now clamped to ±9999 (the bars still clamp to
+  0–100). `resets_at: true` read as 1970-01-01 00:00:01.
+- **`scripts/bump-version.sh` could leave the tree half-stamped.** A header or key
+  that did not match was found only after earlier files had been written. Every
+  target is now validated in a dry pass first; on a mismatch it exits 1 with a JSON
+  error naming the file and pattern, and nothing is changed.
+- **Test-spawned hook runners fell back to a real data directory on POSIX.** A
+  runner started without `CLAUDE_AUDIO_HOOKS_DATA` falls back to the literal
+  `/tmp/claude_audio_hooks_queue`, a legacy install's real data directory,
+  whatever `HOME` and `TMPDIR` say. Both spawn helpers now always pin an isolated
+  data dir (`_isolation.pin_data_dir`), and `tests/test_isolation_guard.py`
+  fails for a module that builds a runner argv without it. This closes the limit
+  recorded in the 6.6.0 entry.
+- **A comment in `hook_runner.py` said the Cursor bridge covers "8 of 10"
+  hooks.** The bridge exposes 8 events; the comment now names them.
+- **Two `SyntaxWarning: "\." is an invalid escape sequence`** in
+  `tests/test_uninstall_scripts_native.py` on Python 3.12+: the two string
+  literals are raw strings now, with the same value.
+
+### Changed
+
+- **`AGENTS.md` is the single agent guide; `CLAUDE.md` imports it** (`@AGENTS.md`
+  plus a short note). Claude Code ignores `AGENTS.md` whenever a `CLAUDE.md`
+  exists, so the two had to be hand-synced; `CLAUDE.md` is deliberately neither a
+  symlink (unreliable on Windows, the primary platform) nor a copy.
+  `tests/test_agent_guides.py` pins the shape.
+- **`scripts/bump-version.sh` stamps more**: the `AGENTS.md` version line and the
+  `Version | Last Updated` header of `docs/ARCHITECTURE.md`,
+  `docs/INSTALLATION_GUIDE.md` and `docs/TROUBLESHOOTING.md` (the date moves only
+  when the version does). It does not stamp this entry or the `llms.txt`
+  summary — the sentence is the content — and lists them under
+  `needs_hand_written` when they lack the new version.
+- **`userConfig.webhook_url` is `sensitive`.** Claude Code stores a sensitive
+  option's value in its credentials file instead of `settings.json`. The
+  option's description now says that event text, including the start of Claude's
+  last message, is sent to the URL. `options` is still never added to any
+  `userConfig` field.
+- **Packaging metadata**: `plugin.json` gains `displayName` (`echook`); the
+  marketplace entry gains `category` (`productivity`) and `tags`.
+- **Version 6.6.0 → 6.7.0** (all canonical stamps; `scripts/bump-version.sh`).
+
+### Docs
+
+- `docs/EVENT_BEHAVIOR_NOTES.md`: the four matcher values are no longer listed as
+  having no variant (three are registered, one deliberately not); the
+  plugin-level `subagentStatusLine` evaluation and the `sensitive` option
+  measurements below; "has not yet run on a real runner" corrected.
+- `docs/STATUS_LINE.md`: segment catalog 33, opt-in segments, the upstream fields
+  now read, and why the plugin does not ship a `subagentStatusLine` default.
+- Counts brought in line with the CLI wherever a document still stated the old
+  ones (33 segments, 47 variants, 86 sounds, 686 tests, 37 error codes) in
+  `AGENTS.md`, `README.md`, `llms.txt`, `docs/ARCHITECTURE.md` (whose segment
+  list and flowcharts were also stale: the runner flow now shows filter before
+  debounce), `docs/CLI_REFERENCE.md`, `docs/TROUBLESHOOTING.md`,
+  `docs/INSTALLATION_GUIDE.md` and the skill. `README.md` no longer calls
+  `CLAUDE.md` a mirror of `AGENTS.md`.
+- `plugins/audio-hooks/skills/audio-hooks/SKILL.md`: how to enable the three
+  variants, `extra_segments`, and that reporting commands are read-only and what
+  migrates a stale file.
+
+### Note
+
+**Evaluated and not shipped: a plugin-level `settings.json` default for
+`subagentStatusLine`.** **[LIVE, Claude Code 2.1.288, Windows, an interactive
+session driven through a pseudo-terminal]** Claude Code loads a plugin's
+`settings.json` and keeps only `subagentStatusLine`. It does **not** substitute
+`${CLAUDE_PLUGIN_ROOT}` in that command (the variable arrived empty), and the
+plugin's `bin/` is **not on PATH** for it (exit 127), so a marketplace-installed
+plugin cannot name its own script. And there is no CLI-only way to turn a plugin
+default off: `statusline subagent uninstall` removes only the user's own
+setting. The row was seen to **execute**, not seen on screen. Recorded in
+`docs/EVENT_BEHAVIOR_NOTES.md`.
+
+**Facts about 6.6.0 that are now established** (the 6.6.0 entry above is left as
+written): its CI run passed on all ten jobs — the Ubuntu / Windows / macOS ×
+Python 3.9 / 3.12 / 3.13 matrix with the full 540-test suite, and `plugin-validate`
+on a real runner (see Verified).
+
+**Remaining before a submission to the Claude plugin directory** (not done):
+
+- The mp3 assets and the Python runner in a repository subfolder will be held for
+  manual review.
+- There is no privacy policy page to link (`privacyPolicyUrl`).
+- The submission itself has not been made.
+
+**Verified.**
+
+- `python -m unittest discover tests`: **686 tests pass, 2 skipped** (Windows 11,
+  Python 3.14.6, `CLAUDE_PLUGIN_DATA` pointed at a scratch directory).
+  `bash scripts/build-plugin.sh --check`: in sync (188 files checked).
+  `claude plugin validate --strict plugins/audio-hooks`: validation passed.
+- **[CI, GitHub Actions run 37111339257, commit c437309 — the 6.6.0 head, read
+  with `gh run view`]** all eleven jobs succeeded: `plugin-validate`
+  (`claude plugin validate --strict plugins/audio-hooks` and the marketplace),
+  `plugin-in-sync`, and `import-smoke` on Ubuntu / Windows / macOS × Python 3.9 /
+  3.12 / 3.13, each running the full 540-test suite. The two POSIX-only file-mode
+  tests are skipped on Windows (`OK (skipped=2)` on all three) and **ran and
+  passed** on Linux and macOS, which skipped four others instead (`OK
+  (skipped=4)` on all six; on the 3.12 jobs, whose log was read for the names:
+  three PowerShell-parser tests and one MSYS-path test).
+- **[LIVE, Claude Code 2.1.288, in a throwaway config directory — reported by the
+  implementer, not re-run when this entry was written]** a `sensitive` option's
+  value goes to the credentials file rather than `settings.json`, still reaches a
+  shell-form hook as `CLAUDE_PLUGIN_OPTION_WEBHOOK_URL`, and a value stored before
+  the flag was added is still reported configured after the update. Per the docs
+  only `options`, not `sensitive`, carries a minimum-version floor.
+- **[LIVE, headless `claude -p` — reported by the implementer]** a canary sentence
+  in `AGENTS.md` was quoted back, so `CLAUDE.md`'s `@AGENTS.md` import loads.
+- **Skill evals — two single runs on the smallest model, not a measurement of the
+  skill.** `claude plugin eval` with the cheapest model as both subject and judge,
+  one run per arm, run twice, total cost 1.11 USD. Second run: with the plugin,
+  1.00 on six cases and 0.50 on `pomodoro-out-of-scope` (the skill declined
+  correctly, then offered a workaround the rubric rejects; the same case passed in
+  the first run, so this is single-run variance, not a trend); mean delta against
+  the no-plugin arm +0.57. Reported by the implementer; not re-run here.
+- **An independent review of the release branch found no blocker.** It ran 567
+  reporting and error-path invocations across seven scratch homes with no write
+  other than the `logs` case fixed above, fed 381 hostile payloads to the status
+  line with no empty output, and confirmed the status line is byte-identical to
+  6.6.0 for payloads without the new fields. (Reported by the reviewer; not re-run
+  when this entry was written.)
+- The new status-line formatters, the filter-before-debounce order, the
+  read-only guarantee (a test walks every manifest subcommand against the
+  classification table), the error-code catalogue and the packaging defaults are
+  pinned by unit tests.
+
+**Not verified.**
+
+- **The v6.7.0 change itself has not been through CI.** The branch was not pushed
+  when this entry was written; the CI result above is for the 6.6.0 head.
+- **The POSIX fix for test-spawned hook runners was reasoned from the code, not
+  run on POSIX locally.** CI covers Linux and macOS once the branch is pushed.
+- **None of the three new matcher values was provoked in a live Claude Code
+  session.** `cloud_credential_error` rests on the documentation,
+  `verification_required` and `auth_storage_failure` on a read of the 2.1.288
+  binary (**[BIN]**, plus a located emitter for the last); registration and
+  routing are unit-tested. Whether Claude Code 2.1.288 really sends them in
+  practice, and whether it sends `cloud_credential_error` where it used to send
+  `server_error`, was not reproduced.
+- **This entry does not claim the three new sounds were listened to.** That they
+  exist in both themes and differ from every other slot is checked by a test;
+  that they are intelligible and distinguishable by ear is not.
+- **The new status-line segments were tested against synthetic payloads.**
+  `spend_limit` needs a Claude apps gateway, and `remote` depends on an
+  undocumented field whose trigger was not traced; neither was seen in a real
+  session by this release. The fields' upstream minimum versions come from the
+  documentation and changelog (none is stated for `fast_mode`), not from a run
+  on an older Claude Code.
+- **The `subagentStatusLine` evaluation never saw the row on screen**, and ran on
+  one machine and one Claude Code version.
+- **The skill evals are two single runs on the smallest model** (see above): the
+  with-plugin score on any one case moved between runs, and a larger model or more
+  runs could move the picture either way. The suite has no Bash grant, so it tests
+  what the skill says, not what a command did.
+- **`sensitive` was not tested** on a Claude Code older than 2.1.288, on macOS or
+  Linux, or with an unavailable credential store.
+- **Known limits.** `status` shows a corrupt `user_preferences.json` as the
+  defaults and `diagnose` does not flag it (observed in review; not new in this
+  release). The variant-migration rule is a signature heuristic: an enumeration
+  made before an earlier addition it never answered does not match and keeps
+  inheriting. `audio-hooks migrate` was exercised by unit tests, not on a real
+  user's stale file.
+- **Nothing in this release was measured on macOS or Linux.**
+
 ## [6.6.0] - 2026-10-03
 
 A safety release with an upstream sync attached. The safety half repairs a CLI

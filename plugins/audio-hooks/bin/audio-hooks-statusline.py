@@ -325,6 +325,8 @@ def _fmt_reset_clock(epoch: Any, with_date: bool = False, now: Optional[float] =
     degrades silently on a surprising value.
     """
     try:
+        if isinstance(epoch, bool):  # True would otherwise read as 1970-01-01 00:00:01
+            return ""
         ts = int(float(epoch))
         if ts <= 0:
             return ""
@@ -362,6 +364,20 @@ def _num(v: Any) -> Optional[float]:
         return None
     f = float(v)
     return f if f == f and f not in (float("inf"), float("-inf")) else None
+
+
+def _pct_text(pct: float) -> str:
+    """Whole-number percentage for display, clamped to +/-9999.
+
+    A malformed payload (``used_percentage: 1e308``) must not print a 309-digit
+    number, and ``int(inf)`` must not raise out of the renderer. The cap is far
+    above anything real -- spend can legitimately pass 100 -- so no honest value
+    is altered. NaN raises ValueError, which every caller already treats as
+    "omit the segment".
+    """
+    if pct != pct:
+        raise ValueError("NaN percentage")
+    return str(int(max(-9999.0, min(9999.0, pct))))
 
 
 def _clip(text: str, max_len: int) -> str:
@@ -500,7 +516,7 @@ def _fmt_spend_limit(spend: Any, now: Optional[float] = None) -> str:
         pct = _num(spend.get("used_percentage"))
         if pct is None or pct < 0:
             return ""
-        out = f"{_bar(pct)} Spend: {int(pct)}%"
+        out = f"{_bar(pct)} Spend: {_pct_text(pct)}%"
         used = _fmt_usd(spend.get("used_usd"))
         limit = _fmt_usd(spend.get("limit_usd"))
         if used and limit:
@@ -592,7 +608,7 @@ def _maybe_dump_session(session: Dict[str, Any]) -> None:
 
 def _bar(percent: float, width: int = 8) -> str:
     """Render a unicode progress bar with rate-limit color thresholds."""
-    pct = max(0, min(100, int(percent)))
+    pct = max(0, min(100, int(max(-1e9, min(1e9, percent)))))
     filled = pct * width // 100
     empty = width - filled
     if pct >= 90:
@@ -612,7 +628,7 @@ def _ctx_bar(percent: float, width: int = 8) -> str:
       YELLOW 50-80%  — should /compact or /clear
       RED    > 80%   — agent performance degrades significantly
     """
-    pct = max(0, min(100, int(percent)))
+    pct = max(0, min(100, int(max(-1e9, min(1e9, percent)))))
     filled = pct * width // 100
     empty = width - filled
     if pct > 80:
@@ -630,7 +646,13 @@ def _normalise_segments(raw: list) -> set:
     Accepts old names (ctx, hooks, rate_limit) for backwards compatibility.
     """
     out = set()
+    if not isinstance(raw, list):
+        return out
     for s in raw:
+        # A list or dict entry is unhashable and would raise out of the lookup
+        # below; the status line must never fail to empty because of a config value.
+        if not isinstance(s, str):
+            continue
         canonical = _SEGMENT_ALIASES.get(s, s)
         if canonical in ALL_SEGMENTS:
             out.add(canonical)
@@ -792,6 +814,9 @@ def main() -> int:
     # couple of segments without enumerating all the ones they want to keep.
     sl_cfg = (status.get("statusline") or {}) if status else {}
     raw_vis = sl_cfg.get("visible_segments") or []
+    # Only string entries count: a whitelist of nothing but junk is "unset", not
+    # "show nothing".
+    raw_vis = [x for x in raw_vis if isinstance(x, str)] if isinstance(raw_vis, list) else []
     if raw_vis:
         visible = _normalise_segments(raw_vis)
     else:
@@ -907,8 +932,8 @@ def main() -> int:
                 pct = float(used)
                 resets = _fmt_reset_clock(five_hour.get("resets_at"), with_date=True)
                 reset_str = f" · resets {resets}" if resets else ""
-                parts.append(f"{_bar(pct)} API Quota: {int(pct)}%{reset_str}")
-            except (TypeError, ValueError):
+                parts.append(f"{_bar(pct)} API Quota: {_pct_text(pct)}%{reset_str}")
+            except (TypeError, ValueError, OverflowError):
                 pass
 
     if show("weekly_quota"):
@@ -922,8 +947,8 @@ def main() -> int:
                 pct = float(used)
                 resets = _fmt_reset_clock(seven_day.get("resets_at"), with_date=True)
                 reset_str = f" · resets {resets}" if resets else ""
-                parts.append(f"{_bar(pct)} Weekly: {int(pct)}%{reset_str}")
-            except (TypeError, ValueError):
+                parts.append(f"{_bar(pct)} Weekly: {_pct_text(pct)}%{reset_str}")
+            except (TypeError, ValueError, OverflowError):
                 pass
 
     if show("spend_limit"):
@@ -953,8 +978,8 @@ def main() -> int:
                 if isinstance(window_size, (int, float)) and window_size > 0:
                     used_tokens = int(round(ctx_pct * window_size / 100.0))
                     tokens_str = f" ({_fmt_tokens(used_tokens)}/{_fmt_tokens(int(window_size))})"
-                parts.append(f"{_ctx_bar(ctx_pct)} Context: {int(ctx_pct)}%{tokens_str}{hint}")
-            except (TypeError, ValueError):
+                parts.append(f"{_ctx_bar(ctx_pct)} Context: {_pct_text(ctx_pct)}%{tokens_str}{hint}")
+            except (TypeError, ValueError, OverflowError):
                 pass
 
     if show("tokens"):
