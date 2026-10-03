@@ -345,6 +345,10 @@ Python 3.6+ is the only runtime requirement.
 | [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md) | System architecture and design decisions |
 | [**docs/EVENT_BEHAVIOR_NOTES.md**](docs/EVENT_BEHAVIOR_NOTES.md) | What Claude Code's hook events *actually* do, measured — including payload fields the upstream docs omit |
 | [**docs/TROUBLESHOOTING.md**](docs/TROUBLESHOOTING.md) | Diagnostic recipes for common issues |
+| [**docs/PROJECT_STATUS.md**](docs/PROJECT_STATUS.md) | Where the project stands: what shipped, what is waiting on someone, what is claimed but not verified, what was evaluated and not done |
+| [**docs/RELEASING.md**](docs/RELEASING.md) | How a change gets released: verification, version bump, CI, tag, upgrading a live install |
+| [**docs/DIRECTORY_LISTING.md**](docs/DIRECTORY_LISTING.md) | The Anthropic plugin directory submission (in review since 2026-10-04) and the rules it puts on changes |
+| [**PRIVACY.md**](PRIVACY.md) | Privacy policy: what is processed and stored locally, and the one case in which data leaves the machine |
 | [**CHANGELOG.md**](CHANGELOG.md) | Detailed version history |
 | `audio-hooks manifest` | Live source of truth — subcommands, hooks, config keys, error codes, env vars, editor targets. Always current. |
 
