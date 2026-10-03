@@ -86,11 +86,10 @@ def _run_hook(
         "CURSOR_VERSION", "CODEX_HOME", "CLAUDE_HOOKS_DEBUG",
     ):
         env.pop(k, None)
-    if state_dir is not None:
-        env["CLAUDE_AUDIO_HOOKS_DATA"] = str(state_dir)
-        # The runner is real: snooze it so it stops before starting an audio
-        # player or a toast (see _isolation.seed_snooze).
-        _isolation.seed_snooze(state_dir)
+    # Always pinned, even without a state_dir: the unpinned fallback on POSIX is
+    # the real /tmp/claude_audio_hooks_queue. The runner is real, so the dir is
+    # also snoozed to stop it before an audio player or a toast.
+    _isolation.pin_data_dir(env, state_dir)
     if env_extra:
         env.update(env_extra)
     env.setdefault("PYTHONIOENCODING", "utf-8")

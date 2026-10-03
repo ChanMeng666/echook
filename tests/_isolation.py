@@ -148,6 +148,27 @@ def seed_snooze(data_dir) -> None:
         pass
 
 
+def pin_data_dir(env: dict, state_dir=None) -> dict:
+    """Point a spawned process's data dir at an isolated directory. Returns ``env``.
+
+    Spawn helpers used to strip ``CLAUDE_AUDIO_HOOKS_DATA`` and set it again only
+    when the caller passed a ``state_dir``; a caller that passed ``None`` left
+    the runner to the resolution chain's last resort, which on POSIX is the
+    literal ``/tmp/claude_audio_hooks_queue`` -- a legacy script install's real
+    data dir, reached no matter how HOME and TMPDIR are redirected. So the
+    variable is always set: to ``state_dir`` when given, else to the suite's own
+    throwaway data dir (``<root>/data``, already snoozed by :func:`activate`).
+    The runner is real, so the chosen dir is snoozed too (see :func:`seed_snooze`)
+    and it stops before audio or a toast. A caller that needs a different
+    data-dir variable (``CLAUDE_PLUGIN_DATA`` outranks this one) sets it in
+    ``env_extra`` afterwards.
+    """
+    data_dir = Path(state_dir) if state_dir is not None else Path(_BASELINE["CLAUDE_AUDIO_HOOKS_DATA"])
+    env["CLAUDE_AUDIO_HOOKS_DATA"] = str(data_dir)
+    seed_snooze(data_dir)
+    return env
+
+
 def _install_unittest_hooks() -> None:
     import unittest
     import unittest.suite
