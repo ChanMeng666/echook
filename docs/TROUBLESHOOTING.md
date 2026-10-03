@@ -1,6 +1,6 @@
 # Troubleshooting
 
-> **Version:** 6.4.0 | **Last Updated:** 2026-07-20
+> **Version:** 6.6.0 | **Last Updated:** 2026-10-03
 
 The troubleshooting story is one command:
 
@@ -34,7 +34,7 @@ It returns a JSON document listing the platform, audio player binary, the state 
 | `CODEX_MANAGED_HOOKS_ONLY` | *(warning)* A managed Codex config sets `allow_managed_hooks_only`, so `$CODEX_HOME/hooks.json` is silently ignored — `install --codex` reports success and then never fires | Ask the owner of the named `requirements.toml` to permit user hooks, or install via the Codex plugin marketplace instead |
 | `NO_COMPLETION_SIGNAL` | *(warning)* None of `stop`, `subagent_stop` or `notification` is enabled, so nothing can tell you a turn finished. echook is healthy and stays silent for the thing most people install it for | `audio-hooks hooks enable stop && audio-hooks set filters.stop.skip_if_background_tasks_running true` — or enable `notification` and rely on its `idle_prompt` variant |
 | `NOTIFICATION_FAILED` | Every desktop-notification backend for this platform failed. The NDJSON line names which one was tried and why it failed | Windows: check that notifications are on for the machine and not suppressed by Do Not Disturb. Linux: `sudo apt install libnotify-bin` for `notify-send`. The audio track is unaffected |
-| `PREFS_SCHEMA_STALE` | *(warning)* `user_preferences.json` is stamped at an older version than the install, or still carries a key this version removed — so keys added since are absent and silently defaulted | Loading the config once on 6.5.1+ migrates it. Any `audio-hooks` command does that; `audio-hooks status` is the cheapest |
+| `PREFS_SCHEMA_STALE` | *(warning)* `user_preferences.json` is stamped at an older version than the install, or still carries a key this version removed — so keys added since are absent and silently defaulted | The next hook event migrates it, as does any state-changing `audio-hooks` command. Read-only commands (`status`, `diagnose`, `get`, `hooks list`, …) deliberately do not. To migrate now, set a key to its current value: `audio-hooks get audio_theme`, then `audio-hooks set audio_theme <that value>` |
 | `STALE_PLUGIN_CACHE` | *(warning)* `installed_plugins.json` records a version or install path that is not the code now running. Harmless for a `directory`-source marketplace; **not** harmless when the recorded path is gone | Reload plugins or restart Claude Code to re-pin. See [#90135](https://github.com/anthropics/claude-code/issues/90135) — a re-materialised marketplace deletes the path live sessions are pinned to and their plugin hooks stop firing silently |
 | `WINDOWS_NO_GIT_BASH` | *(warning)* Windows with no Git Bash on PATH. Claude Code runs command hooks through bash by default and refuses them outright when it is missing, so every handler fails at once | Install [Git for Windows](https://git-scm.com/downloads/win). Claude Code reports this itself as *"requires bash but Git Bash was not found"* |
 | `TERMINAL_SEQUENCE_INERT` | *(warning)* `notification_settings.terminal_sequence.enabled` is true, but Claude Code only writes a hook's `terminalSequence` from a **synchronous** completion path and every echook handler is registered `async` — so no escape is ever emitted | Use the desktop-notification channel instead: `audio-hooks set notification_settings.mode audio_and_notification`. Background in [EVENT_BEHAVIOR_NOTES.md](EVENT_BEHAVIOR_NOTES.md) |
@@ -295,7 +295,7 @@ Run `audio-hooks status` and look at `editor_targets.cursor.state`:
 
 | State | Meaning | Fix |
 |---|---|---|
-| `bridged-via-claude-code` | Cursor is auto-bridging the Claude Code plugin (8 of 10 hooks). | Working as designed — confirm Cursor Settings → "Third-party skills" is enabled. |
+| `bridged-via-claude-code` | Cursor is auto-bridging the Claude Code plugin (8 coarse events: see `supported_editors.cursor.bridged_events_subset`). | Working as designed — confirm Cursor Settings → "Third-party skills" is enabled. |
 | `native` | You ran `audio-hooks install --cursor`; Cursor reads `~/.cursor/hooks.json`. | Restart Cursor, then `audio-hooks test all`. |
 | `inactive` | No integration. Either Cursor's "Third-party skills" is off, or no hooks file exists. | Either run `audio-hooks install --cursor`, or install the Claude Code plugin and toggle Cursor's setting on. |
 | `double-registered` | Both bridge AND native install present — see "fires twice" below. | `audio-hooks uninstall --cursor`. |
@@ -417,7 +417,7 @@ Issues: https://github.com/ChanMeng666/echook/issues
 
 - [README.md](../README.md) — public introduction (features, value, mermaid diagrams)
 - [docs/CLI_REFERENCE.md](CLI_REFERENCE.md) — the full `audio-hooks` CLI + config + error-code reference
-- [CLAUDE.md](../CLAUDE.md) — canonical AI-facing operating guide
+- [AGENTS.md](../AGENTS.md) — canonical AI-facing operating guide
 - [docs/ARCHITECTURE.md](ARCHITECTURE.md) — developer-facing architecture deep dive
 - `audio-hooks manifest` — live machine description of every subcommand and config key (always up to date)
 

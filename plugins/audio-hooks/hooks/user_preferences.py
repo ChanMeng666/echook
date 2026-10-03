@@ -191,17 +191,25 @@ class UserPreferences:
         except OSError:
             pass
 
-    def load(self) -> Dict[str, Any]:
+    def load(self, *, read_only: bool = False) -> Dict[str, Any]:
         """Read user_preferences.json, auto-init from template if missing,
-        auto-migrate if older _version detected, apply plugin-option env overlay."""
-        self._auto_init()
+        auto-migrate if older _version detected, apply plugin-option env overlay.
+
+        ``read_only=True`` is for commands that only report: the same result is
+        computed in memory (template defaults merged under whatever is on disk,
+        env overlay applied) but nothing is created, migrated or re-stamped on
+        disk -- not the file, not its directory, not the lock or the ``.bak``.
+        The hook runner and every state-changing command keep the default.
+        """
+        if not read_only:
+            self._auto_init()
         try:
             cfg = json.loads(self.config_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             cfg = {}
         template = self._load_template()
         cfg, did_migrate, _notes = self._migrate_if_needed(cfg, template)
-        if did_migrate:
+        if did_migrate and not read_only:
             cfg = self._persist_migration(cfg, template)
         cfg = self._apply_plugin_overlay(cfg)
         return cfg
@@ -669,8 +677,8 @@ class UserPreferences:
     # Convenience accessors
     # ------------------------------------------------------------------
 
-    def get_dotted(self, dotted_key: str) -> Any:
-        cfg = self.load()
+    def get_dotted(self, dotted_key: str, *, read_only: bool = False) -> Any:
+        cfg = self.load(read_only=read_only)
         node: Any = cfg
         for part in dotted_key.split("."):
             if not isinstance(node, dict) or part not in node:
@@ -683,11 +691,11 @@ class UserPreferences:
         self._set_dotted_in(cfg, dotted_key, value)
         self.save(cfg)
 
-    def diff_from_default(self) -> Dict[str, Any]:
+    def diff_from_default(self, *, read_only: bool = False) -> Dict[str, Any]:
         """Return a flat dotted-key dict of values where user differs from
         bundled default_preferences.json. Excludes metadata + comment fields.
         """
-        user = self.load()
+        user = self.load(read_only=read_only)
         template = self._load_template()
         out: Dict[str, Any] = {}
         self._collect_diff(template, user, "", out)

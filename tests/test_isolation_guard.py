@@ -77,6 +77,49 @@ class TestIsolation(unittest.TestCase):
             os.environ.update({k: v for k, v in saved.items() if v is not None})
             _isolation.reset_state()
 
+    def test_spawned_hook_runners_always_get_an_isolated_data_dir(self) -> None:
+        """A runner started without CLAUDE_AUDIO_HOOKS_DATA falls back, on POSIX, to
+        the literal /tmp/claude_audio_hooks_queue (a legacy install's real data dir).
+        Both runner-spawning helpers must pin the variable, with or without a state_dir."""
+        from unittest import mock
+        import subprocess
+        try:
+            import test_codex_hooks as codex_tests
+            import test_cursor_bridge as cursor_tests
+        except ImportError:
+            from tests import test_codex_hooks as codex_tests
+            from tests import test_cursor_bridge as cursor_tests
+        fake = mock.Mock(returncode=0, stdout="", stderr="")
+        for module in (codex_tests, cursor_tests):
+            for state_dir in (None, Path(tempfile.mkdtemp(dir=os.environ["TEMP"]))):
+                with self.subTest(helper=module.__name__, state_dir=state_dir),                         mock.patch.object(subprocess, "run", return_value=fake) as run:
+                    module._run_hook("stop", state_dir=state_dir)
+                    pinned = run.call_args.kwargs["env"].get("CLAUDE_AUDIO_HOOKS_DATA")
+                    self.assertTrue(pinned, "the runner would resolve its own data dir")
+                    self.assertTrue(_inside(Path(pinned), self.root), pinned)
+                    if state_dir is not None:
+                        self.assertEqual(Path(pinned), state_dir)
+                    self.assertTrue((Path(pinned) / "queue" / "snooze_until").exists()
+                                    or Path(pinned).name == "claude_audio_hooks_queue",
+                                    "the real runner would play audio")
+
+    def test_every_runner_spawning_test_module_uses_the_pin(self) -> None:
+        """A new helper that starts hook_runner.py must go through pin_data_dir.
+
+        Heuristic: a module whose argv puts the runner path right after the
+        interpreter (``[sys.executable, str(HOOK_RUNNER), ...]``) is a spawner."""
+        spawner = re.compile(r"sys\.executable,\s*str\(\w*(?:HOOK_)?RUNNER\w*\)")
+        offenders = []
+        for p in sorted(TESTS.glob("test_*.py")):
+            if p.name == Path(__file__).name:
+                continue
+            text = p.read_text(encoding="utf-8")
+            if spawner.search(text) and "pin_data_dir" not in text:
+                offenders.append(p.name)
+        self.assertEqual(offenders, [], "these start the hook runner without pinning its data dir")
+        spawners = [p.name for p in TESTS.glob("test_*.py") if spawner.search(p.read_text(encoding="utf-8"))]
+        self.assertGreaterEqual(len(spawners), 2, "the heuristic no longer finds the known spawners")
+
     def test_every_test_module_imports_the_isolation(self) -> None:
         pattern = re.compile(r"^\s*(import _isolation|from tests import _isolation)", re.M)
         missing = [p.name for p in sorted(TESTS.glob("test_*.py"))

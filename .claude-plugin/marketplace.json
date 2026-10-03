@@ -21,6 +21,8 @@
       "homepage": "https://github.com/ChanMeng666/echook",
       "repository": "https://github.com/ChanMeng666/echook",
       "license": "MIT",
+      "category": "productivity",
+      "tags": ["audio", "notifications", "tts", "webhook", "status-line", "cursor", "codex"],
       "keywords": ["audio", "notifications", "hooks", "tts", "webhook", "ai-operated", "rate-limits", "status-line", "cursor", "cursor-ide", "codex", "codex-cli", "openai-codex"]
     }
   ]

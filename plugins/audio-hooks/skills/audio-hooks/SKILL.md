@@ -13,7 +13,7 @@ This plugin is the AI control surface for the echook project. The user does NOT 
 
 **Install / set up the project**
 
-The plugin install (which you are using right now) is the recommended path for Claude Code users. If a user is not yet on the plugin, run `claude plugin marketplace add ChanMeng666/echook --json` and `claude plugin install audio-hooks@chanmeng-audio-hooks --json` yourself (`audio-hooks install --plugin` prints exactly these commands and changes nothing), then ask the user to type `/reload-plugins` inside Claude Code — it is REPL-only and has no CLI equivalent. **Cursor IDE 3.2.16+ users get audio-hooks for free via Cursor's built-in third-party hooks bridge** — no separate Cursor install needed. For users who run Cursor *without* Claude Code, use `audio-hooks install --cursor` (see "Install for Cursor-only users" below). **Codex users** should use the Codex plugin path when available, or `audio-hooks install --codex` as the native hooks.json fallback — Codex does NOT auto-bridge Claude Code plugins (see "Install for Codex users" below). Once installed, verify with:
+The plugin install (which you are using right now) is the recommended path for Claude Code users. If a user is not yet on the plugin, run `claude plugin marketplace add ChanMeng666/echook --json` and `claude plugin install audio-hooks@chanmeng-audio-hooks --json` yourself (`audio-hooks install --plugin` prints exactly these commands and changes nothing), then ask the user to type `/reload-plugins` inside Claude Code — it is REPL-only and has no CLI equivalent. **Cursor IDE 3.2.16+ users get audio-hooks for free via Cursor's built-in third-party hooks bridge** — no separate Cursor install needed, and `audio-hooks install --cursor` on a machine that has the plugin aborts with `DUPLICATE_BRIDGE`. For users who run Cursor *without* Claude Code, use `audio-hooks install --cursor` (see "Install for Cursor-only users" below). **Codex users** should use the Codex plugin path when available, or `audio-hooks install --codex` as the native hooks.json fallback — Codex does NOT auto-bridge Claude Code plugins (see "Install for Codex users" below). Once installed, verify with:
 
 ```bash
 audio-hooks status
@@ -393,7 +393,7 @@ audio-hooks logs clear
 
 | State | Meaning |
 |---|---|
-| `bridged-via-claude-code` | Cursor is auto-bridging; everything works (8 of 10 hooks). |
+| `bridged-via-claude-code` | Cursor is auto-bridging; 8 coarse events fire (`supported_editors.cursor.bridged_events_subset`); `notification` and `permission_request` have no Cursor equivalent and stay silent. |
 | `native` | User ran `audio-hooks install --cursor`; Cursor reads `~/.cursor/hooks.json`. |
 | `double-registered` | Both bridge AND native install present — fires audio twice. Run `audio-hooks uninstall --cursor` to fix. |
 | `inactive` | Cursor isn't running this project at all. |
