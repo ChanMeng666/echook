@@ -1077,3 +1077,469 @@ class TestSegmentCatalogLockStep(unittest.TestCase):
             self.assertIn(
                 target, self.mod.ALL_SEGMENTS, f"alias {alias!r} -> {target!r} is not a segment"
             )
+
+
+# ---------------------------------------------------------------------------
+# v6.7 segments: prompt_cache, spend_limit, fast_mode, remote
+# ---------------------------------------------------------------------------
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    return _ANSI.sub("", text)
+
+
+class TestPromptCacheFormat(unittest.TestCase):
+    """``_fmt_prompt_cache`` turns the ``prompt_cache`` object into one compact
+    segment. Whatever Claude Code sends it must return a string and never raise
+    -- an exception here makes the whole status line print nothing."""
+
+    NOW = 1_800_000_000
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def fmt(self, cache):
+        return _plain(self.mod._fmt_prompt_cache(cache, now=self.NOW))
+
+    def warm(self, remaining, **extra):
+        cache = {"warm": True, "caching_observed": True, "ttl": "5m",
+                 "expires_at": self.NOW + remaining}
+        cache.update(extra)
+        return cache
+
+    def test_warm_shows_countdown(self):
+        self.assertEqual(self.fmt(self.warm(252)), "cache warm 4m")
+        self.assertEqual(self.fmt(self.warm(3500)), "cache warm 58m")
+
+    def test_expiry_countdown_boundaries(self):
+        # Seconds until expires_at, and what the segment says about it.
+        cases = {
+            3600: "cache warm 1h",
+            61: "cache warm 1m",
+            60: "cache warm 1m",
+            59: "cache warm 59s",
+            1: "cache warm 1s",
+            0: "cache cold",       # expires_at reached: cold, even though warm:true
+            -1: "cache cold",
+            -3600: "cache cold",
+        }
+        for remaining, expected in cases.items():
+            with self.subTest(remaining=remaining):
+                self.assertEqual(self.fmt(self.warm(remaining)), expected)
+
+    def test_colour_turns_warning_at_the_last_minute(self):
+        green = self.mod._fmt_prompt_cache(self.warm(61), now=self.NOW)
+        yellow = self.mod._fmt_prompt_cache(self.warm(60), now=self.NOW)
+        self.assertIn(self.mod.GREEN, green)
+        self.assertNotIn(self.mod.YELLOW, green)
+        self.assertIn(self.mod.YELLOW, yellow)
+        self.assertIn(self.mod.YELLOW, self.mod._fmt_prompt_cache(self.warm(0), now=self.NOW))
+
+    def test_warm_without_expiry_has_no_countdown(self):
+        for expires in (None, "soon", True, [], float("nan"), float("inf"), 0, -5):
+            with self.subTest(expires_at=expires):
+                cache = {"warm": True, "caching_observed": True, "expires_at": expires}
+                self.assertEqual(self.fmt(cache), "cache warm")
+
+    def test_implausible_expiry_is_not_shown_as_a_huge_countdown(self):
+        # A millisecond epoch is ~1000x too far out; "1000h" would be wrong.
+        cache = self.warm(0)
+        cache["expires_at"] = (self.NOW + 300) * 1000
+        self.assertEqual(self.fmt(cache), "cache warm")
+
+    def test_cold(self):
+        cache = {"warm": False, "caching_observed": True, "expires_at": None}
+        self.assertEqual(self.fmt(cache), "cache cold")
+
+    def test_cold_reports_recache_size_when_known(self):
+        base = {"warm": False, "caching_observed": True}
+        self.assertEqual(self.fmt(dict(base, recache_tokens_if_cold=45000)),
+                         "cache cold · 45K to re-cache")
+        for v in (None, 0, 999, "45000", True, float("nan"), -5):
+            with self.subTest(recache=v):
+                self.assertEqual(self.fmt(dict(base, recache_tokens_if_cold=v)), "cache cold")
+
+    def test_warm_state_inferred_from_expiry_when_flag_is_missing_or_malformed(self):
+        for warm in (None, "true", 1, "yes"):
+            with self.subTest(warm=warm):
+                live = {"warm": warm, "expires_at": self.NOW + 120}
+                dead = {"warm": warm, "expires_at": self.NOW - 120}
+                self.assertEqual(self.fmt(live), "cache warm 2m")
+                self.assertEqual(self.fmt(dead), "cache cold")
+
+    def test_caching_not_observed_renders_nothing(self):
+        # Prompt caching is off, or the provider doesn't report it: there is no
+        # cache state to describe, and "cold" would be a false alarm.
+        cache = {"warm": False, "caching_observed": False, "expires_at": None}
+        self.assertEqual(self.fmt(cache), "")
+
+    def test_absent_null_and_wrong_type_render_nothing(self):
+        for v in (None, {}, [], "warm", 5, 1.5, True, False, [{"warm": True}]):
+            with self.subTest(value=v):
+                self.assertEqual(self.fmt(v), "")
+
+    def test_no_usable_signal_renders_nothing(self):
+        for cache in ({"caching_observed": True}, {"warm": "maybe"},
+                      {"warm": None, "expires_at": None}, {"requests": 3, "misses": 1}):
+            with self.subTest(cache=cache):
+                self.assertEqual(self.fmt(cache), "")
+
+    def test_recent_miss_names_the_cause(self):
+        cache = self.warm(200, last_miss_at=self.NOW - 30,
+                          last_miss_cause={"causes": ["tools_changed"], "tools_added": 2, "tools_removed": 0})
+        self.assertEqual(self.fmt(cache), "cache warm 3m · miss: tools changed")
+
+    def test_cold_with_recent_miss_cause(self):
+        cache = {"warm": False, "caching_observed": True, "recache_tokens_if_cold": 45000,
+                 "last_miss_at": self.NOW - 90,
+                 "last_miss_cause": {"causes": ["ttl_expired_5m"]}}
+        self.assertEqual(self.fmt(cache),
+                         "cache cold · 45K to re-cache · miss: idle past 5m TTL")
+
+    def test_miss_without_diagnosed_cause_is_a_bare_miss(self):
+        for cause in (None, {}, {"causes": []}, {"causes": None}, "tools_changed", 7,
+                      {"causes": [1, None, ""]}):
+            with self.subTest(cause=cause):
+                cache = self.warm(200, last_miss_at=self.NOW - 30, last_miss_cause=cause)
+                self.assertEqual(self.fmt(cache), "cache warm 3m · miss")
+
+    def test_old_miss_is_not_shown(self):
+        # Boundary: shown through RECENT_MISS_SEC, gone one second later.
+        limit = self.mod.RECENT_MISS_SEC
+        cause = {"causes": ["tools_changed"]}
+        shown = self.warm(200, last_miss_at=self.NOW - limit, last_miss_cause=cause)
+        gone = self.warm(200, last_miss_at=self.NOW - limit - 1, last_miss_cause=cause)
+        self.assertIn("miss: tools changed", self.fmt(shown))
+        self.assertEqual(self.fmt(gone), "cache warm 3m")
+
+    def test_miss_timestamp_garbage_is_ignored(self):
+        cause = {"causes": ["tools_changed"]}
+        future = self.NOW + 10_000
+        for at in (None, "yesterday", True, 0, -5, float("nan"), future, []):
+            with self.subTest(last_miss_at=at):
+                cache = self.warm(200, last_miss_at=at, last_miss_cause=cause)
+                self.assertEqual(self.fmt(cache), "cache warm 3m")
+
+    def test_small_clock_skew_still_counts_as_recent(self):
+        cache = self.warm(200, last_miss_at=self.NOW + 5, last_miss_cause={"causes": ["tools_changed"]})
+        self.assertIn("miss: tools changed", self.fmt(cache))
+
+    def test_unknown_cause_falls_back_to_its_name(self):
+        cache = self.warm(200, last_miss_at=self.NOW - 1,
+                          last_miss_cause={"causes": ["brand_new_cause"]})
+        self.assertIn("miss: brand new cause", self.fmt(cache))
+
+    def test_every_known_cause_has_a_short_label(self):
+        for name, label in self.mod._CACHE_CAUSE_LABELS.items():
+            with self.subTest(cause=name):
+                self.assertTrue(label)
+                self.assertLessEqual(len(label), 28)
+
+    def test_long_cause_text_is_clipped(self):
+        causes = ["x" * 60, "y" * 60, "z" * 60]
+        cache = self.warm(200, last_miss_at=self.NOW - 1, last_miss_cause={"causes": causes})
+        out = self.fmt(cache)
+        self.assertIn("… +2", out)  # first cause, clipped, plus a count of the rest
+        self.assertLessEqual(len(out), 60)
+        self.assertNotIn("yyyyy", out)
+
+    def test_several_causes_show_the_first_and_a_count(self):
+        cache = self.warm(200, last_miss_at=self.NOW - 1,
+                          last_miss_cause={"causes": ["tools_changed", "model_changed"]})
+        self.assertIn("miss: tools changed +1", self.fmt(cache))
+
+    def test_never_raises_on_hostile_values(self):
+        hostile = [None, True, "x", -1, 10 ** 400, float("nan"), float("inf"), [], {}, {"a": 1}, [[]]]
+        for v in hostile:
+            for key in ("warm", "caching_observed", "expires_at", "last_miss_at",
+                        "last_miss_cause", "recache_tokens_if_cold", "ttl"):
+                with self.subTest(key=key, value=repr(v)[:20]):
+                    out = self.mod._fmt_prompt_cache({"warm": True, key: v}, now=self.NOW)
+                    self.assertIsInstance(out, str)
+
+    def test_uses_wall_clock_when_now_is_omitted(self):
+        import time as _t
+        out = _plain(self.mod._fmt_prompt_cache({"warm": True, "expires_at": _t.time() + 600}))
+        self.assertRegex(out, r"^cache warm (9|10)m$")
+
+
+class TestSpendLimitFormat(unittest.TestCase):
+    """``_fmt_spend_limit``: the gateway spend limit. Only ``used_percentage``
+    is guaranteed; every other field can be absent (upstream says so)."""
+
+    NOW = 1_800_000_000
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def fmt(self, spend):
+        return _plain(self.mod._fmt_spend_limit(spend, now=self.NOW))
+
+    def test_percentage_only_for_older_gateways(self):
+        self.assertEqual(self.fmt({"used_percentage": 62.8}),
+                         "████░░░░ Spend: 62%")
+
+    def test_full_payload(self):
+        out = self.fmt({"used_percentage": 62.8, "used_usd": 314.12, "limit_usd": 500,
+                        "period": "monthly", "resets_at": self.NOW + 5 * 86400})
+        self.assertIn("Spend: 62% · $314.12/$500 monthly · resets ", out)
+
+    def test_whole_dollar_amounts_drop_the_cents(self):
+        out = self.fmt({"used_percentage": 50, "used_usd": 250, "limit_usd": 500.0})
+        self.assertIn("$250/$500", out)
+
+    def test_amounts_need_both_halves(self):
+        for spend in ({"used_percentage": 40, "used_usd": 200},
+                      {"used_percentage": 40, "limit_usd": 500}):
+            with self.subTest(spend=spend):
+                self.assertNotIn("$", self.fmt(spend))
+
+    def test_unknown_period_is_dropped_not_echoed(self):
+        out = self.fmt({"used_percentage": 40, "used_usd": 1, "limit_usd": 2, "period": "fortnightly"})
+        self.assertTrue(out.endswith("$1/$2"), out)
+
+    def test_over_the_limit_keeps_the_real_number(self):
+        self.assertIn("Spend: 112%", self.fmt({"used_percentage": 112.4}))
+        raw = self.mod._fmt_spend_limit({"used_percentage": 112.4}, now=self.NOW)
+        self.assertIn(self.mod.RED, raw)
+
+    def test_colour_thresholds_follow_the_rate_limit_bar(self):
+        for pct, colour in ((10, "GREEN"), (70, "YELLOW"), (90, "RED")):
+            with self.subTest(pct=pct):
+                self.assertIn(getattr(self.mod, colour),
+                              self.mod._fmt_spend_limit({"used_percentage": pct}))
+
+    def test_absent_null_and_wrong_type_render_nothing(self):
+        for v in (None, {}, [], "62", 62, True, {"used_percentage": None},
+                  {"used_percentage": "62"}, {"used_percentage": True},
+                  {"used_percentage": -3}, {"used_percentage": float("nan")},
+                  {"used_usd": 1, "limit_usd": 2}):
+            with self.subTest(value=v):
+                self.assertEqual(self.fmt(v), "")
+
+    def test_malformed_optional_fields_degrade_to_the_percentage(self):
+        out = self.fmt({"used_percentage": 30, "used_usd": "lots", "limit_usd": None,
+                        "period": 7, "resets_at": "soon"})
+        self.assertEqual(out, "██░░░░░░ Spend: 30%")
+        out = self.fmt({"used_percentage": 30, "used_usd": -5, "limit_usd": 100})
+        self.assertNotIn("$", out)
+
+    def test_never_raises_on_hostile_values(self):
+        hostile = [None, True, "x", -1, 10 ** 400, float("nan"), float("inf"), [], {}]
+        for v in hostile:
+            for key in ("used_percentage", "resets_at", "used_usd", "limit_usd", "period"):
+                with self.subTest(key=key, value=repr(v)[:20]):
+                    out = self.mod._fmt_spend_limit({"used_percentage": 50, key: v}, now=self.NOW)
+                    self.assertIsInstance(out, str)
+
+
+class TestFastModeAndRemoteFormat(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def test_fast_mode_only_when_actually_true(self):
+        self.assertEqual(self.mod._fmt_fast_mode(True), "\U0001f680 fast")
+        for v in (False, None, 0, 1, "true", "on", {}, [], {"enabled": True}):
+            with self.subTest(value=v):
+                self.assertEqual(self.mod._fmt_fast_mode(v), "")
+
+    def test_remote_needs_a_session_id(self):
+        self.assertEqual(self.mod._fmt_remote({"session_id": "abc"}), "☁ remote")
+        for v in (None, {}, [], "abc", True, {"session_id": ""}, {"session_id": None},
+                  {"session_id": 5}, {"other": "x"}):
+            with self.subTest(value=v):
+                self.assertEqual(self.mod._fmt_remote(v), "")
+
+
+class TestV67SegmentRendering(_StatuslineRenderBase):
+    """End to end through the real script: default visibility, opt-in, and the
+    guarantee that an upgrade changes nothing unless new data is present."""
+
+    def _status(self, **sl):
+        status = dict(self._MINIMAL_STATUS)
+        status["statusline"] = dict({"visible_segments": []}, **sl)
+        for sid in ("t", "default"):
+            (self.tmp / f"statusline.cache.{sid}").write_text(json.dumps(status), encoding="utf-8")
+
+    def _render(self, payload, columns="200"):
+        payload = dict({"session_id": "t"}, **payload)
+        rc, out, _ = _run(json.dumps(payload), state_dir=self.tmp, env_extra={"COLUMNS": columns})
+        self.assertEqual(rc, 0)
+        return _plain(out)
+
+    def _cache(self, **extra):
+        import time as _t
+        cache = {"warm": True, "caching_observed": True, "ttl": "5m",
+                 "expires_at": int(_t.time()) + 250, "requests": 4, "misses": 0, "hit_ratio": 0.9}
+        cache.update(extra)
+        return cache
+
+    def test_default_set_excludes_the_opt_in_segments(self):
+        out = self._render({"prompt_cache": self._cache(), "remote": {"session_id": "abc"}})
+        self.assertNotIn("cache warm", out)
+        self.assertNotIn("remote", out)
+
+    def test_upgrade_leaves_a_plain_session_byte_identical(self):
+        # What an existing user sees today must not change when none of the new
+        # default-on fields are present -- nor when only the opt-in ones are.
+        plain = {"model": {"display_name": "Opus"}, "cwd": "/srv/proj",
+                 "context_window": {"used_percentage": 30, "context_window_size": 200000},
+                 "fast_mode": False}
+        before = self._render(plain)
+        with_optin_data = self._render(dict(plain, prompt_cache=self._cache(),
+                                            remote={"session_id": "abc"}))
+        self.assertEqual(before, with_optin_data)
+        self.assertNotIn("fast", before)
+        self.assertNotIn("Spend", before)
+
+    def test_extra_segments_opts_in(self):
+        self._status(extra_segments=["prompt_cache", "remote"])
+        out = self._render({"prompt_cache": self._cache(), "remote": {"session_id": "abc"}})
+        self.assertIn("cache warm 4m", out)
+        self.assertIn("☁ remote", out)
+
+    def test_extra_segments_is_per_segment(self):
+        self._status(extra_segments=["prompt_cache"])
+        out = self._render({"prompt_cache": self._cache(), "remote": {"session_id": "abc"}})
+        self.assertIn("cache warm", out)
+        self.assertNotIn("☁ remote", out)
+
+    def test_hidden_segments_beats_extra_segments(self):
+        self._status(extra_segments=["prompt_cache"], hidden_segments=["prompt_cache"])
+        self.assertNotIn("cache warm", self._render({"prompt_cache": self._cache()}))
+
+    def test_whitelist_can_name_an_opt_in_segment_directly(self):
+        self._status(visible_segments=["prompt_cache", "model"])
+        out = self._render({"model": {"display_name": "Opus"}, "prompt_cache": self._cache()})
+        self.assertIn("cache warm", out)
+
+    def test_extra_segments_ignored_when_whitelist_is_set(self):
+        self._status(visible_segments=["model"], extra_segments=["prompt_cache"])
+        self.assertNotIn("cache warm", self._render({"prompt_cache": self._cache()}))
+
+    def test_malformed_extra_segments_is_ignored(self):
+        for bad in ("prompt_cache", 5, {"prompt_cache": True}, None, [5, None, "nonsense"]):
+            with self.subTest(extra=bad):
+                self._status(extra_segments=bad)
+                out = self._render({"prompt_cache": self._cache()})
+                self.assertNotIn("cache warm", out)
+
+    def test_fast_mode_and_spend_limit_show_by_default_when_present(self):
+        out = self._render({
+            "fast_mode": True,
+            "rate_limits": {"spend_limit": {"used_percentage": 62.8, "used_usd": 314.12,
+                                            "limit_usd": 500, "period": "monthly"}},
+        })
+        self.assertIn("\U0001f680 fast", out)
+        self.assertIn("Spend: 62% · $314.12/$500 monthly", out)
+
+    def test_spend_limit_does_not_disturb_the_subscriber_quotas(self):
+        out = self._render({"rate_limits": {
+            "five_hour": {"used_percentage": 20, "resets_at": 1893456000},
+            "spend_limit": {"used_percentage": 10}}})
+        self.assertIn("API Quota: 20%", out)
+        self.assertIn("Spend: 10%", out)
+
+    def test_hidden_segments_can_drop_the_new_default_segments(self):
+        self._status(hidden_segments=["fast_mode", "spend_limit"])
+        out = self._render({"fast_mode": True,
+                            "rate_limits": {"spend_limit": {"used_percentage": 10}}})
+        self.assertNotIn("fast", out)
+        self.assertNotIn("Spend", out)
+
+    def test_malformed_new_fields_never_break_the_line(self):
+        self._status(extra_segments=["prompt_cache", "remote"])
+        junk = [None, True, "x", 5, [], {}, {"warm": "yes", "expires_at": {}}, [1, 2]]
+        for v in junk:
+            with self.subTest(value=v):
+                out = self._render({
+                    "model": {"display_name": "Opus"},
+                    "fast_mode": v, "remote": v, "prompt_cache": v,
+                    "rate_limits": {"spend_limit": v},
+                })
+                self.assertIn("[Opus]", out)  # the line still rendered
+
+    def test_non_dict_rate_limits_is_safe(self):
+        for rl in (None, [], "x", 5):
+            with self.subTest(rate_limits=rl):
+                out = self._render({"model": {"display_name": "Opus"}, "rate_limits": rl})
+                self.assertIn("[Opus]", out)
+
+    def test_cache_segment_lands_on_line_two_and_fast_on_line_one(self):
+        self._status(extra_segments=["prompt_cache"])
+        out = self._render({"model": {"display_name": "Opus"}, "fast_mode": True,
+                            "prompt_cache": self._cache()})
+        lines = [l for l in out.splitlines() if l.strip()]
+        self.assertIn("fast", lines[0])
+        self.assertTrue(any("cache warm" in l for l in lines[1:]))
+        self.assertNotIn("cache warm", lines[0])
+
+    def test_width_truncation_keeps_segments_whole_and_rows_in_budget(self):
+        # Worst case: every new segment populated, with the longest cause text,
+        # on a narrow terminal. Rows wrap at segment boundaries; a row may
+        # exceed the budget only when it is a single unsplittable segment, and
+        # that segment must still be intact rather than clipped mid-way.
+        import time as _t
+        self._status(extra_segments=["prompt_cache", "remote"])
+        now = int(_t.time())
+        payload = {
+            "model": {"display_name": "Opus"}, "fast_mode": True,
+            "remote": {"session_id": "abc"},
+            "prompt_cache": self._cache(
+                warm=False, expires_at=None, recache_tokens_if_cold=1_250_000,
+                last_miss_at=now - 5,
+                last_miss_cause={"causes": ["system_prompt_changed", "tools_changed", "model_changed"]}),
+            "rate_limits": {"spend_limit": {"used_percentage": 140, "used_usd": 1234.56,
+                                            "limit_usd": 1000, "period": "monthly",
+                                            "resets_at": now + 86400 * 20}},
+        }
+        mod = _load_module()
+        for columns in (40, 60, 80):
+            with self.subTest(columns=columns):
+                out = self._render(payload, columns=str(columns))
+                budget = max(20, columns - mod.WIDTH_SAFETY_MARGIN)
+                for line in [l for l in out.splitlines() if l.strip()]:
+                    if "  " in line or " | " in line:  # more than one segment on the row
+                        self.assertLessEqual(mod._vwidth(line), budget,
+                                             msg=f"overflow at {columns}: {line!r}")
+                self.assertIn("cache cold · 1.2M to re-cache · miss: system prompt changed +2", out)
+                self.assertIn("Spend: 140%", out)
+                self.assertIn("\U0001f680 fast", out)
+
+
+class TestOptInSegmentCatalog(unittest.TestCase):
+    """The catalogue's ``default`` flag and the renderer's ``OPT_IN_SEGMENTS``
+    are two hand-kept copies of one decision; drift would advertise a segment
+    as default that never shows (or the reverse)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.mod = _load_module()
+        src = (REPO / "bin" / "audio-hooks.py").read_text(encoding="utf-8")
+        block = re.search(r"STATUSLINE_SEGMENTS\s*[:=].*?\n\]", src, re.DOTALL).group(0)
+        cls.defaults = {
+            name: flag == "True"
+            for name, flag in re.findall(r'"name":\s*"([a-z0-9_]+)".*?"default":\s*(True|False)\}', block)
+        }
+
+    def test_every_segment_declares_its_default(self):
+        self.assertEqual(set(self.defaults), set(self.mod.ALL_SEGMENTS))
+
+    def test_default_flag_matches_opt_in_set(self):
+        off = {n for n, d in self.defaults.items() if not d}
+        self.assertEqual(off, set(self.mod.OPT_IN_SEGMENTS))
+
+    def test_opt_in_segments_are_real_segments(self):
+        self.assertTrue(self.mod.OPT_IN_SEGMENTS <= self.mod.ALL_SEGMENTS)
+
+    def test_segment_count(self):
+        self.assertEqual(len(self.mod.ALL_SEGMENTS), 33)
+
+    def test_template_ships_the_extra_segments_key(self):
+        template = json.loads((REPO / "config" / "default_preferences.json").read_text(encoding="utf-8"))
+        self.assertEqual(template["statusline_settings"]["extra_segments"], [])
