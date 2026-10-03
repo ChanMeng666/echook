@@ -1,8 +1,8 @@
 # System Architecture
 
-> **Version:** 6.4.0 | **Last Updated:** 2026-07-20
+> **Version:** 6.6.0 | **Last Updated:** 2026-10-03
 
-This document explains the technical architecture of echook. It is the developer-facing deep dive — for operating the project, see [CLAUDE.md](../CLAUDE.md) (the canonical AI doc) or [README.md](../README.md). For the live machine description of every subcommand and config key, run `audio-hooks manifest`.
+This document explains the technical architecture of echook. It is the developer-facing deep dive — for operating the project, see [AGENTS.md](../AGENTS.md) (the canonical AI doc; `CLAUDE.md` only imports it) or [README.md](../README.md). For the live machine description of every subcommand and config key, run `audio-hooks manifest`.
 
 > **5.2.x update:** Codex lands as a third editor target. New `hooks/invoker.py` module extracted from `hook_runner.py` so `user_preferences.py` can ask "which IDE invoked us?" without a circular import. The runner consumes a `--invoker codex` CLI flag for native installs and the Codex plugin template at `codex-hooks/plugin-hooks.json` uses `${PLUGIN_ROOT}/runner/run.py`. `_resolve_data_dir()` honors `PLUGIN_DATA` for Codex plugins and otherwise lands Codex-native invocations at `$CODEX_HOME/audio-hooks-data/` when `detect_invoker() == "codex"`. The `run_hook` runtime no-ops the audio-hooks canonical events with no Codex equivalent. Codex hooks are enabled by default; install only emits machine-readable `next_steps` when `[features].hooks = false` disables hooks or `config.toml` cannot be parsed — we never round-trip user-authored TOML.
 
@@ -162,11 +162,13 @@ Three files:
 
 | File | Role |
 |---|---|
-| `bin/audio-hooks.py` | Python entry point (~1100 lines), 27 subcommands |
+| `bin/audio-hooks.py` | Python entry point (~4,800 lines), 20 top-level subcommands (`manifest` lists every form) |
 | `bin/audio-hooks` | Bash wrapper that probes `python3` / `python` / `py` and exec's the .py file. Skips Microsoft Store python3 stub on Windows. |
 | `bin/audio-hooks.cmd` | Windows shim that runs `python audio-hooks.py %*` |
 
 The bash wrapper exists because Git Bash on Windows doesn't reliably handle Python shebangs and the Microsoft Store python3 stub at `WindowsApps\python3.exe` exits 49 silently when invoked. The wrapper probes each candidate with a `-c "import sys"` test and skips broken stubs.
+
+**Read-only invocations (v6.7).** A command that only reports must leave the home and data directories byte-identical. `main()` classifies each invocation with `_is_read_only_invocation()` (backed by the `_READ_ONLY_FORMS` table: `manifest`, `version`, `status`, `diagnose`, `get`, `update`, `hooks list`, `theme [list]`, `snooze status`, bare `webhook` / `tts` / `rate-limits`, `statusline show|segments|subagent show|codex show|codex preview`, `logs tail`, `backup list|show`, and every `--help` path) and sets `_READ_ONLY` for the duration. In that mode `_load_config_raw()` calls `UserPreferences.load(read_only=True)`: template defaults merged under whatever is on disk and the plugin-option overlay applied, all in memory -- no auto-created `user_preferences.json`, no migration save (which also writes a `.bak` and a lock file), no `logs/` or `queue/` directory -- and `_save_config_raw()` refuses. The hook runner and every state-changing command keep the old behaviour: they initialise and migrate on first load. `tests/test_read_only_commands.py` walks every read-only form against a fresh home and a home whose preferences carry an older `_version`, and fails for any manifest subcommand that has not been classified either way.
 
 **Subcommand dispatch table** lives at the bottom of `audio-hooks.py` (the `DISPATCH` dict). Adding a new subcommand: write `cmd_<name>(args) -> int`, add to `DISPATCH`, add an entry to `_build_manifest()`'s `subcommands` list.
 
@@ -179,7 +181,7 @@ Self-contained plugin layout, populated by `bash scripts/build-plugin.sh` from t
 ```
 plugins/audio-hooks/
 ├── .claude-plugin/
-│   └── plugin.json              # name, version, userConfig
+│   └── plugin.json              # name, displayName, version, userConfig (webhook_url is sensitive)
 ├── hooks/
 │   ├── hooks.json               # matcher-scoped hook registration (auto-discovered)
 │   └── hook_runner.py           # copy of /hooks/hook_runner.py
@@ -188,6 +190,8 @@ plugins/audio-hooks/
 ├── skills/
 │   └── audio-hooks/
 │       └── SKILL.md             # natural-language activation
+├── evals/                       # `claude plugin eval` cases for the skill (text-only; results/ is git-ignored)
+├── README.md                    # hand-edited disclosure: what it runs, sends, writes (plugin directory requirement)
 ├── bin/
 │   ├── audio-hooks              # bash wrapper
 │   ├── audio-hooks.py           # Python entry
@@ -257,7 +261,7 @@ Users can customise which segments appear via `statusline_settings.visible_segme
 
 **Codex status line curation (v6.3.0).** Codex's status line is *not* command-backed — it renders only fixed lists of built-in item IDs under `[tui].status_line` and `[tui].terminal_title` in `config.toml` (command rendering is open feature request openai/codex#17827). echook cannot render a custom Codex status line, only **curate** those fixed lists so they stop truncating with an ellipsis. `audio-hooks statusline codex {show,preview,apply}` (presets `minimal`/`balanced`/`full`, `--items`, `--target status_line|terminal_title|both`) does a **surgical** text edit via `_codex_apply_tui_array(text, key, items)`: it locates the `[tui]` table and replaces only the targeted array (matching the exact key so `status_line` is not confused with `status_line_use_colors`; handling multi-line arrays by bracket balance; inserting the key or a `[tui]` header when absent), preserving every other table, comment, and the file's formatting. `apply` backs up `config.toml` first (`_backup_file()`) and, when `tomllib` is available (3.11+), validates the result parses and round-trips before writing. Regression-guarded by `tests/test_codex_statusline.py`.
 
-**Width-aware reflow (v6.1.0+).** Each line is packed into as many physical rows as the terminal width needs, wrapping only at segment boundaries so no segment is ever split or truncated by Claude Code (the `Webho…` overflow). Width is resolved by `_terminal_width()`: explicit `statusline_settings.max_width` override → the `COLUMNS` env var Claude Code exports before each run (v2.1.153+; read via `shutil.get_terminal_size`, which can't probe a piped stdout directly) → fallback 80, minus `WIDTH_SAFETY_MARGIN` (4 columns). The margin matters because `COLUMNS` is the *full* terminal width but the *usable* width is smaller — the registered `padding` indents the line and terminals reserve the rightmost cell — so packing against the raw `COLUMNS` overfills the last row by a few columns and Claude Code truncates it. `statusline install` registers `padding: 0` (was `1`) to maximise usable width; the margin covers any residual padding plus the edge. Users on a narrower-than-reported terminal can pin the exact width via `max_width`. Segment widths are measured by `_vwidth()`, which strips ANSI escapes (zero width), counts emoji/CJK as two cells and box-drawing bar glyphs (█/░) as one, and ignores variation selectors / combining marks — then `_pack_lines()` greedily distributes segments. Regression-guarded by `tests/test_statusline.py::TestReflow` / `TestVwidth` / `TestPackLines`.
+**Width-aware reflow (v6.1.0+).** Each line is packed into as many physical rows as the terminal width needs, wrapping only at segment boundaries so no segment is ever split or truncated by Claude Code (the `Webho…` overflow). Width is resolved by `_terminal_width()`: explicit `statusline_settings.max_width` override → the `COLUMNS` env var Claude Code exports before each run (v2.1.153+; read via `shutil.get_terminal_size`, which can't probe a piped stdout directly) → fallback 80, minus `WIDTH_SAFETY_MARGIN` (8 columns since v6.3.1; it was 4 before). The margin matters because `COLUMNS` is the *full* terminal width but the *usable* width is smaller — the registered `padding` indents the line and terminals reserve the rightmost cell — so packing against the raw `COLUMNS` overfills the last row by a few columns and Claude Code truncates it. `statusline install` registers `padding: 0` (was `1`) to maximise usable width; the margin covers any residual padding plus the edge. Users on a narrower-than-reported terminal can pin the exact width via `max_width`. Segment widths are measured by `_vwidth()`, which strips ANSI escapes (zero width), counts emoji/CJK as two cells and box-drawing bar glyphs (█/░) as one, and ignores variation selectors / combining marks — then `_pack_lines()` greedily distributes segments. Regression-guarded by `tests/test_statusline.py::TestReflow` / `TestVwidth` / `TestPackLines`.
 
 `refreshInterval: 60` is set in the registration so snooze countdowns, rate-limit bars, and context usage bars update during idle periods. The script caches `audio-hooks status` for 5 seconds keyed on `session_id` to keep render time <100ms.
 
@@ -476,7 +480,7 @@ class ErrorCode:
     INTERNAL_ERROR = "INTERNAL_ERROR"
 ```
 
-The `bin/audio-hooks.py` `cmd_diagnose` function adds one more code that is CLI-specific (not from hook_runner): `DUAL_INSTALL_DETECTED`.
+The CLI emits more codes than that: `INVALID_USAGE`, `DUAL_INSTALL_DETECTED`, `DUPLICATE_BRIDGE`, `UNINSTALL_INCOMPLETE`, the `UPGRADE_*` family and the `diagnose` findings (`NO_COMPLETION_SIGNAL`, `WINDOWS_NO_GIT_BASH`, ...) exist only in `bin/audio-hooks.py`. Since v6.7 they are catalogued in its `CLI_ERROR_CODES` table (code, one-line meaning, suggested remedy, and whether it appears in a command error or in `diagnose`), and `_build_manifest()` merges that table with `ErrorCode`, so `audio-hooks manifest` → `error_codes` lists every code either side can emit. `tests/test_cli_error_codes.py` parses the CLI source and fails when an `emit_error("CODE", ...)` call or a `{"code": "CODE"}` literal names a code in neither table, or when the table lists one that is never emitted.
 
 `_ERROR_HINTS` (a dict in `hook_runner.py`) maps each code to a `hint` (one sentence) and `suggested_command` (a literal `audio-hooks ...` command). When `log_error_event(code, action, message)` is called, the resulting NDJSON event has the full error object populated automatically.
 
@@ -590,7 +594,7 @@ make a break loud.
     `test_legacy_scripts_contract.py` fail loudly if the registration, the
     synthetic map, the audio files, the catalogue and the scripts have drifted.
 21. Docs: the counts are **not** touched by `bump-version.sh` and are all
-    manual — `README.md`, `CLAUDE.md`/`AGENTS.md`, `llms.txt`,
+    manual — `README.md`, `AGENTS.md`, `llms.txt`,
     `docs/CLI_REFERENCE.md`, `docs/INSTALLATION_GUIDE.md`, `SKILL.md`, both
     `plugin.json`s and `marketplace.json`.
 22. Bump the version and write the CHANGELOG entry.
@@ -637,7 +641,7 @@ The `tests/` directory is wired into `.github/workflows/smoke.yml` and runs on e
 
 ## See also
 
-- [CLAUDE.md](../CLAUDE.md) — canonical AI-facing operating guide
+- [AGENTS.md](../AGENTS.md) — canonical AI-facing operating guide (`CLAUDE.md` is a one-line import of it, because Claude Code ignores `AGENTS.md` when a `CLAUDE.md` exists)
 - [README.md](../README.md) — public-facing project introduction
 - [CHANGELOG.md](../CHANGELOG.md) — version history including the v5.0/v5.0.1 detail
 - [EVENT_BEHAVIOR_NOTES.md](EVENT_BEHAVIOR_NOTES.md) — observed vs documented behaviour of Claude Code's hook events

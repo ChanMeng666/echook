@@ -54,7 +54,7 @@ Verify by asking your agent:
 > run audio-hooks status
 ```
 
-Expected: `editor_targets.cursor.state` == `bridged-via-claude-code`. 8 of 10 hook events bridge — `Notification` and `PermissionRequest` have no Cursor equivalent (per Cursor's docs) and stay silent under Cursor by design.
+Expected: `editor_targets.cursor.state` == `bridged-via-claude-code`. 8 events bridge (`pretooluse`, `posttooluse`, `userpromptsubmit`, `stop`, `subagent_stop`, `session_start`, `session_end`, `precompact`) — `Notification` and `PermissionRequest` have no Cursor equivalent (per Cursor's docs) and stay silent under Cursor by design. The live list is `supported_editors.cursor.bridged_events_subset` in `audio-hooks manifest`.
 
 ### Path B — Cursor without Claude Code (native install)
 
@@ -169,7 +169,7 @@ If anything is broken, the diagnose output includes a `suggested_command` for ea
 - [README.md](../README.md) — public introduction (features, value, mermaid diagrams)
 - [docs/CLI_REFERENCE.md](CLI_REFERENCE.md) — `audio-hooks` CLI subcommands, config keys, env vars, error codes
 - [docs/NATURAL_LANGUAGE_CONTROL.md](NATURAL_LANGUAGE_CONTROL.md) — every natural-language prompt, with diagrams
-- [CLAUDE.md](../CLAUDE.md) — canonical AI-facing operating guide (decision tree for natural-language requests)
+- [AGENTS.md](../AGENTS.md) — canonical AI-facing operating guide (decision tree for natural-language requests)
 - [docs/ARCHITECTURE.md](ARCHITECTURE.md) — developer-facing architecture deep dive
 - [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md) — troubleshooting (mostly a pointer to `audio-hooks diagnose`)
 - [CHANGELOG.md](../CHANGELOG.md) — full changelog, including the 5.1.5 painless-upgrades release notes
