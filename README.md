@@ -366,6 +366,10 @@ Python 3.6+ is the only runtime requirement.
 
 This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details. Commercial use, modification, distribution, and private use all allowed.
 
+## Privacy
+
+echook runs entirely on your machine and collects nothing for its maintainer: no telemetry, no analytics, no update checks. Data leaves your computer only if you configure a webhook, and then only to the URL you chose. The full statement is in [PRIVACY.md](PRIVACY.md).
+
 ---
 
 ## Author

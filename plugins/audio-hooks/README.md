@@ -56,4 +56,4 @@ claude plugin install audio-hooks@chanmeng-audio-hooks
 
 Then type `/reload-plugins` in Claude Code, and run `audio-hooks status` and `audio-hooks diagnose` to confirm.
 
-Full documentation, the complete command reference (`audio-hooks manifest`), troubleshooting and the changelog live in the repository: <https://github.com/ChanMeng666/echook>. Support and security reports: see `SUPPORT.md` and `SECURITY.md` there. Licensed under MIT.
+Full documentation, the complete command reference (`audio-hooks manifest`), troubleshooting and the changelog live in the repository: <https://github.com/ChanMeng666/echook>. Privacy policy: [PRIVACY.md](https://github.com/ChanMeng666/echook/blob/master/PRIVACY.md). Support and security reports: see `SUPPORT.md` and `SECURITY.md` there. Licensed under MIT.

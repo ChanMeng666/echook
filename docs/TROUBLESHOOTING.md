@@ -1,6 +1,6 @@
 # Troubleshooting
 
-> **Version:** 6.7.0 | **Last Updated:** 2026-10-03
+> **Version:** 6.7.1 | **Last Updated:** 2026-10-04
 
 The troubleshooting story is one command:
 

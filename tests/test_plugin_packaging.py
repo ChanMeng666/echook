@@ -93,6 +93,27 @@ class TestPluginPackaging(unittest.TestCase):
         for field in ("name", "version", "description", "author", "license", "displayName"):
             self.assertTrue(self.manifest.get(field), field)
 
+    def test_directory_listing_links_are_https_and_point_at_real_files(self) -> None:
+        """The directory reads these from plugin.json only. The policy link must
+        resolve to a file that exists in the repository it names."""
+        for field in ("documentationUrl", "supportUrl", "privacyPolicyUrl"):
+            with self.subTest(field=field):
+                self.assertTrue(str(self.manifest.get(field, "")).startswith("https://"), field)
+        prefix = "https://github.com/ChanMeng666/echook/blob/master/"
+        for field in ("supportUrl", "privacyPolicyUrl"):
+            with self.subTest(field=field):
+                url = self.manifest[field]
+                self.assertTrue(url.startswith(prefix), url)
+                self.assertTrue((REPO / url[len(prefix):]).is_file(), url)
+
+    def test_privacy_policy_states_the_one_way_data_leaves_the_machine(self) -> None:
+        text = (REPO / "PRIVACY.md").read_text(encoding="utf-8").lower()
+        for needle in ("webhook", "no telemetry", "update check", "last message",
+                       "user_preferences.json", "events.ndjson"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+        self.assertIn("PRIVACY.md", self.readme, "the plugin README should link the policy")
+
     def test_marketplace_entry_carries_category_and_tags(self) -> None:
         market = json.loads((REPO / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
         entry = market["plugins"][0]
