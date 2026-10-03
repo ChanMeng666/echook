@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [6.7.2] - 2026-10-04
+
+Packaging only; no behaviour change.
+
+### Added
+
+- **A listing icon**, `plugins/audio-hooks/.claude-plugin/icon.png`: the project
+  logo (`public/echook-logo.svg`) rendered to a 1024×1024 PNG. Anthropic's
+  plugin directory looks for an icon at that path and accepts a square PNG or
+  JPEG of 512 to 2048 px under 2 MB; it does not accept SVG. Per the developer
+  portal, the file can become the listing icon only the first time the plugin is
+  saved or submitted there, so it has to exist before the first submission.
+  Claude Code does not read it.
+
+### Note
+
+The developer portal's validation of 6.7.1 passed with no blocking finding. It
+reported three policy holds that send a version to a human reviewer and that
+this release does not change: the bundled `.mp3` files (binary files the
+validator cannot inspect), the Python hook runner (the validator follows only
+plain shell scripts when the plugin is a subfolder of its repository), and a
+heuristic that pairs the CLI's reading of environment variables with a URL in
+one of its hint strings.
+
 ## [6.7.1] - 2026-10-04
 
 A packaging and documentation release. No behaviour of the hooks, the status

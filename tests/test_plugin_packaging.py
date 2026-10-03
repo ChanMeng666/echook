@@ -114,6 +114,18 @@ class TestPluginPackaging(unittest.TestCase):
                 self.assertIn(needle, text)
         self.assertIn("PRIVACY.md", self.readme, "the plugin README should link the policy")
 
+    def test_listing_icon_meets_the_directory_requirements(self) -> None:
+        """The directory wants a square PNG of 512-2048 px under 2 MB at this path."""
+        import struct
+        icon = PLUGIN / ".claude-plugin" / "icon.png"
+        self.assertTrue(icon.is_file())
+        data = icon.read_bytes()
+        self.assertLess(len(data), 2 * 1024 * 1024)
+        self.assertEqual(data[:8], bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+        width, height = struct.unpack(">II", data[16:24])
+        self.assertEqual(width, height)
+        self.assertTrue(512 <= width <= 2048, width)
+
     def test_marketplace_entry_carries_category_and_tags(self) -> None:
         market = json.loads((REPO / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
         entry = market["plugins"][0]
