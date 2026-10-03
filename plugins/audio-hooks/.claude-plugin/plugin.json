@@ -1,5 +1,6 @@
 {
   "name": "audio-hooks",
+  "displayName": "echook",
   "version": "6.6.0",
   "description": "Audio notifications + AI-controlled config for Claude Code, Cursor IDE, and Codex CLI events. 39 hook events + 44 matcher variants, each with its own sound. Desktop toasts, TTS, webhooks, status line + per-subagent rows, rate-limit alerts. Auto-bridges to Cursor IDE 3.2.16+; native install via 'audio-hooks install --cursor' or 'audio-hooks install --codex'.",
   "author": {
@@ -19,7 +20,8 @@
     "webhook_url": {
       "type": "string",
       "title": "Webhook URL (optional)",
-      "description": "Optional webhook URL for Slack/Discord/Teams/ntfy/raw notifications. Leave blank to skip."
+      "description": "Optional webhook URL for Slack/Discord/Teams/ntfy/raw notifications. Leave blank to skip. Event text, including the start of Claude's last message, is sent to this URL.",
+      "sensitive": true
     },
     "webhook_format": {
       "type": "string",
