@@ -1,6 +1,6 @@
 # echook — AI Operator Guide
 
-> v6.7.1 · Multi-platform: Claude Code (plugin) · Cursor (native + auto-bridge) · Codex (plugin + native). Source-of-truth for every capability is `audio-hooks manifest` (live JSON, includes `pointers`, `editor_targets`, `supported_editors`). This file is orientation only.
+> v6.7.2 · Multi-platform: Claude Code (plugin) · Cursor (native + auto-bridge) · Codex (plugin + native). Source-of-truth for every capability is `audio-hooks manifest` (live JSON, includes `pointers`, `editor_targets`, `supported_editors`). This file is orientation only.
 
 <critical>
 1. **`audio-hooks` CLI is the only interface.** Single Python binary, JSON output, stable error codes. Never hand-edit `user_preferences.json` — use `audio-hooks set <dotted.key> <value>`.
@@ -66,7 +66,7 @@ audio-hooks set filters.stop.skip_if_background_tasks_running true
 
 ## Tests, CI, and version bumps
 
-- **Run tests:** `python -m unittest discover -v tests` (688 tests; 2 are skipped on Windows because they are POSIX-only file-mode tests — CI runs them on Linux and macOS, and the 6.6.0 matrix passed with them). NOT pytest — no `pyproject.toml` / `pytest.ini`.
+- **Run tests:** `python -m unittest discover -v tests` (689 tests; 2 are skipped on Windows because they are POSIX-only file-mode tests — CI runs them on Linux and macOS, and the 6.6.0 matrix passed with them). NOT pytest — no `pyproject.toml` / `pytest.ini`.
 - **CI:** `.github/workflows/smoke.yml` — Ubuntu/Windows/macOS × Python 3.9/3.12/3.13, plus `bash scripts/build-plugin.sh --check`.
 - **Bump version:** `bash scripts/bump-version.sh <new_version>` — rewrites all 12 canonical version stamps in 9 files (`.claude-plugin/marketplace.json` carries two stamps and `config/default_preferences.json` three — see the gotcha below), the header stamps (this file's `> vX.Y.Z ·` line and the `Version | Last Updated` line of `docs/ARCHITECTURE.md`, `docs/INSTALLATION_GUIDE.md`, `docs/TROUBLESHOOTING.md`; the date moves only when the version does), and runs `build-plugin.sh`. Idempotent. It validates every target in a dry pass before writing anything: a header or key that does not match exits 1 with a JSON error naming the file and pattern, and nothing is changed. Outputs JSON with `files_changed`, `needs_hand_written` and `next_steps`. It deliberately does **not** stamp the release entry in `CHANGELOG.md` or the `vX.Y.Z = …` summary in `llms.txt` (the sentence is the content); it lists them under `needs_hand_written` when they lack the new version.
 
