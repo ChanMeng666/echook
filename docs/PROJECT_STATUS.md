@@ -1,6 +1,6 @@
 # Project status
 
-**Snapshot taken 2026-10-04, at v6.7.2 (`master` = `f692417`).** This page says where the project stands: what shipped recently, what is waiting on someone, what is claimed but not verified, and what was looked at and deliberately left alone. Everything here can go stale; each section says how to re-check it. When you change something listed here, update this page in the same commit.
+**Snapshot taken 2026-10-04, at v6.7.2.** The plugin folder last changed at commit `f692417`; the commits after it on `master` are documentation only. This page says where the project stands: what shipped recently, what is waiting on someone, what is claimed but not verified, and what was looked at and deliberately left alone. Everything here can go stale; each section says how to re-check it. When you change something listed here, update this page in the same commit.
 
 For how the code works, read `AGENTS.md`. For measured upstream behaviour, `docs/EVENT_BEHAVIOR_NOTES.md`. For the release mechanics, `docs/RELEASING.md`. For the directory listing, `docs/DIRECTORY_LISTING.md`.
 
@@ -60,7 +60,7 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 **Unknown**
 - Whether the classic status line renders in the Claude Desktop app. This decides whether a separate "band" mod for Desktop users would have any purpose.
 - Whether `model_refusal_fallback` ever fires as a `Notification`. It is declared in the binary; no emitter was found, so it is not registered.
-- What the plugin directory does with a commit that changes nothing inside `plugins/audio-hooks/`.
+- What the plugin directory does with a new commit to `plugins/audio-hooks/` while the first version is still with a reviewer. (A documentation-only push outside that folder was observed once not to create a new version; see `docs/DIRECTORY_LISTING.md`.)
 
 ## Known limits that are accepted for now
 
