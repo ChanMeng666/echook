@@ -18,6 +18,27 @@ Exercise the paths deliberately — long turns, `Task` subagents, background she
 
 `CLAUDE_HOOKS_DEBUG=1` also makes echook dump the last status-line stdin, but note that echook's own `hook_start` NDJSON event does **not** record raw stdin, so it cannot substitute for a shim when you need payload fields.
 
+A less intrusive way to load a probe, used throughout the 2.1.288 sync: put the probe in a throwaway plugin directory outside the repo and run `claude -p "<a trivial prompt>" --plugin-dir <probe> --no-session-persistence --model haiku --settings '{"enabledPlugins":{"audio-hooks@chanmeng-audio-hooks":false}}'`. Nothing in `~/.claude/settings.json` is touched and echook stays silent for the run. It leaves an empty `~/.claude/plugins/data/<probe>-inline` directory behind; remove it afterwards. A headless run cannot show anything that belongs to the interactive terminal UI (the per-subagent status row, toasts, bands) — those need an interactive session.
+
+---
+
+## How to re-sync against a new Claude Code release
+
+This is the procedure that produced the 2.1.288 findings below. Four sources, in this order, because each one is cheaper than the next and each catches what the previous one cannot.
+
+1. **The changelog, for the whole range.** `https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md`, from the version echook last synced at to the newest. Read all of it; then grep it for the surfaces that matter (`hook`, the event names, `matcher`, `async`, `terminalSequence`, `statusline`, `rate_limits`, `plugin`, `reload-plugins`). It is the only source that says *when* something changed, and it omits most payload-field changes.
+2. **The current documentation, as raw Markdown.** Append `.md` to a `code.claude.com/docs/en/…` URL and fetch it with `curl`: `hooks`, `hooks-guide`, `statusline`, `plugins-reference`, `plugins/manifest-reference`, `plugins/loading`, `plugins/cli-reference`. **Do not rely on a tool that summarises the page**: during the 2.1.288 sync a summary reported `session_crons` entry fields that do not exist and misquoted the `SubagentStop` passage. Diff the event list, each event's matcher values, the documented payload fields and the status line's stdin schema against `audio-hooks manifest`, `plugins/audio-hooks/hooks/hooks.json` and the maps in `hooks/hook_runner.py`.
+3. **The installed binary, for what the documentation omits.** `claude.exe` (or the file under `~/.local/share/claude/versions/`) embeds its JavaScript as plain text. Scan the file in chunks for a printable run containing a known anchor, carve that region out to a scratch file, and search it with a small regex script. Minified function names change with every build, so anchor on **literal strings**: the event array (`"PreToolUse","PostToolUse",…`), `notification_type`, `background_tasks:`, `session_crons`, `prompt_cache`, `Exit code 2`, an event's description text, an error message. Record the file offset of each finding so it can be re-checked. Two kinds of result come out of this and must be kept apart: a literal that was read (**[BIN]**) and control flow inferred from minified code (**[INFER]**). Minified control flow is easy to misread, so an **[INFER]** finding gets a live check before echook relies on it.
+4. **A live experiment, for anything echook will rely on.** A blocking event, a payload field a filter depends on, a timing budget, a Windows-specific spawn path. Use the probe-plugin method above, run it at least three times, and write down what the run does *not* establish (a headless exit is not an interactive close; an absolute path to `python.exe` is not a bare `python`).
+
+Then record each finding below with its evidence tag and the version it was observed on, state its limits, and change echook only for what is established. Three things to check every time, because each has bitten this project:
+
+- **Is a new event blocking?** Look for `permissionDecision`, `decision`, a "blocked by a … hook" error string, or a result the caller waits for. A blocking or provider event must never be registered by an async notification plugin (`WorktreeCreate`, `PreModelSwitch`).
+- **Are there matcher values with no variant?** `hooks.json` has no catch-all under `Notification` or `StopFailure`, so an unregistered value is a permanently silent event, and a failure that Claude Code reclassifies under a new value goes quiet without anything in echook changing.
+- **Did the status line's stdin gain fields?** Compare the builder in the binary with the fields the status line script reads.
+
+Keep the carved extract, the offset notes, the fetched documentation and the raw experiment logs somewhere outside the repository until the findings are no longer in dispute: the binary is replaced when Claude Code updates and the documentation pages change, so none of it can be regenerated later.
+
 ---
 
 ## Findings

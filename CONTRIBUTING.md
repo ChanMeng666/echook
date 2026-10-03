@@ -69,7 +69,7 @@ echook/
 5. Test: `python -m unittest discover -v tests` (Ubuntu/Windows/macOS × Python 3.9/3.12/3.13 in CI). **Not** pytest.
 6. Bump version (when releasing): `bash scripts/bump-version.sh <new_version>` — atomically updates all canonical version locations and re-runs `build-plugin.sh`.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system design, hook lifecycle, and how to add a new hook event or audio file.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system design, hook lifecycle, and how to add a new hook event or audio file. The release procedure — verification, version bump, CI, tagging, and upgrading a live install — is in [docs/RELEASING.md](docs/RELEASING.md), and [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) says where the project stands and what has already been evaluated and set aside. Since 2026-10-04 every push to `master` is scanned by Anthropic's plugin directory; see [docs/DIRECTORY_LISTING.md](docs/DIRECTORY_LISTING.md) before changing anything under `plugins/audio-hooks/`.
 
 ## Code of Conduct
 

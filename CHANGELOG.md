@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [Unreleased]
+
+### Docs
+
+- **`docs/PROJECT_STATUS.md`** (new): a dated snapshot of where the project
+  stands — what shipped in 6.6.0 to 6.7.2, what is waiting on someone, what is
+  claimed but not verified, what was evaluated and deliberately not done, and
+  candidates for a later release.
+- **`docs/RELEASING.md`** (new): the release procedure as it was actually
+  followed for 6.6.0 to 6.7.2, including generating a new sound, the contained
+  fake-home method for testing anything that edits a user's files, and what to
+  do when the secret scanner flags a false positive.
+- **`docs/DIRECTORY_LISTING.md`** (new): echook was submitted to Anthropic's
+  plugin directory on 2026-10-04 (v6.7.2 at `f692417`). The security scan
+  passed and the version is in review, held for content policy review; nothing
+  is live. The page records what the portal's validation reported, what was
+  declared on the submission form, and the rules the listing puts on changes to
+  `plugins/audio-hooks/`. A GitHub push webhook now reports every push to
+  `master` to the directory.
+- **`docs/EVENT_BEHAVIOR_NOTES.md`**: a new section, "How to re-sync against a
+  new Claude Code release", writes down the four-source procedure used for the
+  2.1.288 sync (changelog range, raw documentation, the installed binary, a live
+  experiment), and "How to capture" gains the probe-plugin method.
+- **`AGENTS.md`**: pointers to the three new documents; the handler count in the
+  `terminalSequence` gotcha corrected to 70; three new gotchas (a push to
+  `master` is watched by the plugin directory; the secret scanner can flag a
+  sound-file mapping; do not write backslash-bearing file content through a
+  shell heredoc).
+
 ## [6.7.2] - 2026-10-04
 
 Packaging only; no behaviour change.
