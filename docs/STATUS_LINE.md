@@ -3,7 +3,7 @@
 > Authoritative orientation for echook's **second track**, the status line. The
 > *live* source of truth is always the CLI: `audio-hooks statusline segments`
 > (Claude Code catalog) and `audio-hooks statusline codex show` (Codex state).
-> This page explains the model behind those commands. Current as of **v6.4.1**.
+> This page explains the model behind those commands. Current as of **v6.7.0**.
 
 ## The one thing to understand first
 
@@ -16,7 +16,7 @@ echook treats them differently:
 | **Codex** | Renders only a **fixed list of built-in item IDs** under `[tui].status_line` / `[tui].terminal_title` in `~/.codex/config.toml`. No command/script hook (open feature request [openai/codex#17827](https://github.com/openai/codex/issues/17827)). | **Curates** that fixed list. echook *cannot* render custom text or new segments in Codex — it can only pick/order/de-duplicate the built-in IDs so the line stops truncating. |
 | **Cursor** | IDE: none. CLI (`cursor-agent`): a custom `statusLine` command exists upstream but is unverified — see below. | — |
 
-If you remember nothing else: **Claude Code = render (rich, 29 segments); Codex = curate (fixed menu).**
+If you remember nothing else: **Claude Code = render (rich, 33 segments); Codex = curate (fixed menu).**
 
 ---
 
@@ -32,12 +32,14 @@ audio-hooks statusline uninstall   # remove
 audio-hooks statusline segments    # JSON catalog of every segment (the live source of truth)
 ```
 
-### Segment catalog (29)
+### Segment catalog (33)
 
 Every segment maps to a field Claude Code pipes to the script on stdin
 (see <https://code.claude.com/docs/en/statusline>). **data-gated** segments
 render only when their field is present, so a plain session stays uncluttered
-while a rich one shows the full picture.
+while a rich one shows the full picture. Two segments (`remote`, `prompt_cache`)
+are **opt-in**: they are not part of the "show everything" default, see
+[Opt-in segments](#opt-in-segments-v670).
 
 **Line 1 — identity / configuration**
 
@@ -46,7 +48,9 @@ while a rich one shows the full picture.
 | `model` | always | `model.display_name` | Active model display name |
 | `session_name` | data-gated | `session_name` | Custom session name set via `--name` or `/rename` |
 | `agent` | data-gated | `agent.name` | Agent name when running with `--agent` |
+| `remote` | data-gated, **opt-in** | `remote.session_id` | `☁ remote` for a session attached to a remote/cloud surface. **Undocumented upstream** |
 | `effort` | data-gated | `effort.level` | Reasoning effort (low/medium/high/xhigh/max) |
+| `fast_mode` | data-gated | `fast_mode` | `🚀 fast` while [fast mode](https://code.claude.com/docs/en/fast-mode) is on; nothing when off |
 | `thinking` | data-gated | `thinking.enabled` | Shown when extended thinking is enabled |
 | `vim` | data-gated | `vim.mode` | Vim editing mode (when vim mode is on) |
 | `output_style` | data-gated | `output_style.name` | Active output style (hidden when `default`) |
@@ -70,8 +74,10 @@ while a rich one shows the full picture.
 | `added_dirs` | data-gated | `workspace.added_dirs` | Count of `/add-dir` directories |
 | `api_quota` | data-gated | `rate_limits.five_hour` | 5-hour rate-limit usage + reset clock (date shown if not today) |
 | `weekly_quota` | data-gated | `rate_limits.seven_day` | 7-day rate-limit usage + reset clock — date + time, e.g. `resets Jul 4 5am` |
+| `spend_limit` | data-gated | `rate_limits.spend_limit` | Claude apps gateway spend limit: usage %, `$used/$limit period` when sent, reset clock — e.g. `Spend: 62% · $314.12/$500 monthly · resets Nov 1 8am` |
 | `context` | data-gated | `context_window` | Context-window usage % + token counts |
 | `tokens` | data-gated | `context_window.current_usage` | Cache-hit ratio (cache reads ÷ input) |
+| `prompt_cache` | data-gated, **opt-in** | `prompt_cache` | Prompt-cache state: `cache warm 4m` (time to expiry) or `cache cold`, plus the cause of a recent miss |
 | `exceeds_200k` | data-gated | `exceeds_200k_tokens` | Warning flag when tokens exceed 200K |
 | `cost` | data-gated | `cost.total_cost_usd` | Session cost + lines added/removed |
 | `duration` | data-gated | `cost.total_duration_ms` | Wall-clock session duration |
@@ -90,12 +96,17 @@ while a rich one shows the full picture.
 
 ### Choosing which segments appear
 
-Two config keys under `statusline_settings` (set via `audio-hooks set`):
+Three config keys under `statusline_settings` (set via `audio-hooks set`):
 
 - **`visible_segments`** — *whitelist*. When non-empty, **only** these show.
 - **`hidden_segments`** — *blacklist*. Applied only when `visible_segments` is
   empty: show everything **except** these. Use this to drop a couple of segments
   from the comprehensive default without enumerating all the keepers.
+- **`extra_segments`** (v6.7) — *opt-in additions*. Applied only when
+  `visible_segments` is empty: segments that are left out of the default
+  (the catalog marks them `"default": false`) appear only when named here.
+  `hidden_segments` still wins over it. A non-empty `visible_segments`
+  whitelist can name an opt-in segment directly instead.
 
 ```bash
 # Show only the two progress bars:
@@ -104,7 +115,39 @@ audio-hooks set statusline_settings.visible_segments '["context","api_quota"]'
 audio-hooks set statusline_settings.hidden_segments '["burn_rate","api_time"]'
 # Back to the full default:
 audio-hooks set statusline_settings.visible_segments '[]'
+# Turn on the opt-in prompt-cache segment (keeps everything else as is):
+audio-hooks set statusline_settings.extra_segments '["prompt_cache"]'
 ```
+
+### Opt-in segments (v6.7.0)
+
+Every segment so far joined the default set, which is safe only because each is
+data-gated: an upgrade changes nothing for a user whose session does not carry
+the field. That stops being true for a field Claude Code sends to *everyone*.
+
+| Segment | Default | Why |
+|---|---|---|
+| `fast_mode` | **on** | Draws only while fast mode is on (`fast_mode` is always sent, as a boolean, so `false` renders nothing). A user in fast mode is exactly who should see it. |
+| `spend_limit` | **on** | Draws only behind a Claude apps gateway that sets a spend limit — the same population `api_quota`/`weekly_quota` already serve for subscribers. |
+| `prompt_cache` | **off** | `prompt_cache` is sent to every session after its first response, so a default-on segment would add a permanent item to every existing user's line on upgrade, and its countdown changes on every refresh. Enable it with `extra_segments`. |
+| `remote` | **off** | The field is undocumented and the condition that makes Claude Code send it was not traced, so it must not start appearing by default. |
+
+`audio-hooks statusline segments` reports each segment's `default` flag.
+
+**What they look like**
+
+```
+cache warm 4m                                           warm, 4 minutes to expiry (green; yellow in the last 60 s)
+cache warm 4m · miss: tools changed                     ...and the last miss (under 10 minutes ago) was a tool change
+cache cold · 45K to re-cache · miss: idle past 5m TTL   expired; the next request re-caches ~45K tokens
+████░░░░ Spend: 62% · $314.12/$500 monthly · resets Nov 1 8am
+🚀 fast
+☁ remote
+```
+
+`cache cold` after an idle gap is normal, not a fault, hence yellow rather than red.
+`prompt_cache` is on line 2 beside `tokens`; `fast_mode` and `remote` are on line 1
+beside `effort` and `agent`; `spend_limit` follows `weekly_quota`.
 
 ### Width & truncation
 
@@ -120,17 +163,40 @@ audio-hooks set statusline_settings.max_width 120   # pin width if COLUMNS is un
 audio-hooks set statusline_settings.max_width 0     # back to auto-detect
 ```
 
-### Available upstream, not yet rendered
+### Upstream fields added in v6.7.0
 
-Claude Code (checked against 2.1.288) pipes a few fields to a status line script that none of the 29 segments reads. They are recorded here so a future segment starts from the source, not from a guess; none is rendered today. echook's renderer reads only `rate_limits.five_hour` and `rate_limits.seven_day` from that object.
+Four fields Claude Code (checked against 2.1.288) pipes to a status line script
+were read by no segment until v6.7.0. **[DOC]** means the field is in the
+official status line page (<https://code.claude.com/docs/en/statusline>, read as
+raw Markdown); **[CHANGELOG]** and **[BIN]** mean the Claude Code changelog and
+the 2.1.288 binary.
 
-| Field | Since | Evidence | Notes |
-|---|---|---|---|
-| `prompt_cache` (whole object: `warm`, `ttl`, `expires_at`, `requests`, `misses`, `hit_ratio`, …) | 2.1.251 | **[CHANGELOG]** *"Added a per-session prompt-cache line to `/cost` (hit ratio, misses, tokens re-cached, warm/cold) and a matching `prompt_cache` object for status line scripts"*; fields read from the binary builder (near offset 213060031) | Omitted from the stdin until a request has been made. |
-| `prompt_cache.last_miss_cause` | 2.1.260 | **[CHANGELOG]** *"Added a likely cause for prompt-cache misses (e.g. tool definitions or system prompt changed, idle past the TTL) to `/cost` and the status line's `prompt_cache` field"* | `null` until a miss is attributed (read from the builder). |
-| `rate_limits.spend_limit` (`used_usd`, `limit_usd`, `period`) | 2.1.284 | **[CHANGELOG]** *"…the status line's `rate_limits.spend_limit` also gains `used_usd`, `limit_usd` and `period`"* | Claude apps gateway spend limit. `rate_limits` itself is only sent when at least one of `five_hour`, `seven_day` or `spend_limit` exists (**[BIN]**). |
-| `fast_mode` | — | **[BIN]** present in the stdin builder (near offset 213056069); no changelog entry found for the range | Not checked against the status-line documentation. |
-| `remote.session_id` | — | **[BIN]** `remote:{session_id}`, added only when an internal condition holds (`mr()!==null`); what that condition means was not traced | **Undocumented.** Treat as unstable. |
+| Segment | Field | Minimum Claude Code | Evidence | Behaviour worth knowing |
+|---|---|---|---|---|
+| `prompt_cache` | `prompt_cache` (`warm`, `caching_observed`, `ttl`, `expires_at`, `recache_tokens_if_cold`, `last_miss_at`, `last_miss_cause`, …) | 2.1.251 | **[DOC]** field table + "Prompt cache fields"; **[CHANGELOG]** 2.1.251 | Absent until the main conversation's first API response; subagent requests are not counted. A warm cache reaching `expires_at` makes Claude Code re-run the script, so the payload can say `warm: true` for an instant after expiry — the segment treats `expires_at <= now` as cold. `caching_observed: false` (caching off, or a provider that does not report it) renders nothing. |
+| `prompt_cache` miss cause | `prompt_cache.last_miss_at`, `last_miss_cause.causes[]` | 2.1.260 | **[DOC]** "Last miss cause"; **[CHANGELOG]** 2.1.260; the cause names and their meanings come from the binary's closed set (**[BIN]**, `promptCacheLedger`) | `last_miss_cause` is `null` until a miss, and again when no cause could be identified. The cause is shown only for a miss newer than 10 minutes (`RECENT_MISS_SEC`), so a stale diagnosis never sits beside a live state. Several causes show the first plus `+N`. |
+| `spend_limit` | `rate_limits.spend_limit.used_percentage`, `resets_at` | 2.1.251 | **[DOC]** "Spend limit fields" | Claude apps gateway users only. `used_percentage` can exceed 100 once the limit is passed (the bar clamps, the number does not). |
+| `spend_limit` amounts | `rate_limits.spend_limit.used_usd`, `limit_usd`, `period` | 2.1.284, on both Claude Code **and** the gateway | **[DOC]**; **[CHANGELOG]** 2.1.284 | Each can be absent even when `spend_limit` is present (and stays absent under `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`); the amounts arrive up to ~5 minutes after the percentage. `period` is one of `daily`, `weekly`, `monthly`. |
+| `fast_mode` | `fast_mode` | not stated in the docs | **[DOC]** field table ("Whether fast mode is enabled for the session"); **[BIN]** the stdin builder always emits it, as a boolean | Only a literal `true` draws anything. |
+| `remote` | `remote.session_id` | unknown | **[BIN] only — undocumented.** Added when the session's surface reports a remote attachment (`surfaceCapabilities.remote`, `null` for an ordinary local session); the exact trigger was not traced | Opt-in for that reason. May change or vanish without notice. |
+
+The rest of `prompt_cache` (`requests`, `misses`, `expected_rebuilds`,
+`hit_ratio`, `cache_write_tokens`, `miss_recache_tokens`, `miss_causes`) is still
+not rendered: the `tokens` segment already shows the per-call cache-hit ratio, and
+a second ratio beside it would disagree for good reasons that a one-line segment
+cannot explain.
+
+**Every field here can be absent, `null`, or the wrong type** on an older or newer
+Claude Code, and a status line script that raises prints nothing at all. Each
+formatter (`_fmt_prompt_cache`, `_fmt_spend_limit`, `_fmt_fast_mode`,
+`_fmt_remote` in `bin/audio-hooks-statusline.py`) therefore returns `""` on
+anything it does not recognise; numbers must be real numbers (a `bool` or a numeric
+string is rejected), and a timestamp implausibly far in the future (a millisecond
+epoch) drops the countdown rather than showing `1000h`.
+
+**Codex is unaffected.** Codex renders only a fixed list of item IDs; it already
+has `fast-mode` and its own rate-limit items, and has nothing equivalent to
+`prompt_cache`, `spend_limit` or `remote`. The new segments are Claude Code only.
 
 ---
 
@@ -235,7 +301,7 @@ your own command and render its output (with live token usage data) in the
 prompt footer"* (April 2026), later *"a custom `statusLine` command keeps its
 throttle during streaming updates"* (August 2026) — and the mechanism is
 explicitly modelled on Claude Code's convention (`type: "command"`, a spawned
-script, JSON on stdin), which would make echook's existing 29-segment renderer
+script, JSON on stdin), which would make echook's existing 33-segment renderer
 largely reusable.
 
 It is not implemented because **`cursor-agent` is not installable on the machine

@@ -4,16 +4,20 @@
 Reads the JSON session document Claude Code pipes to stdin and prints up to
 two lines to stdout.  Which segments appear is controlled by the user config
 key ``statusline_settings.visible_segments`` (an array of segment names).
-When the array is empty (default) every segment is shown.
+When the array is empty (default) every segment is shown except the opt-in ones.
 
 Available segments
 ------------------
 Line 1 (identity / config):
-  model, session_name, agent, effort, thinking, vim, output_style, cc_version,
-  cwd, repo, version, sounds, webhook, theme
+  model, session_name, agent, remote*, effort, fast_mode, thinking, vim,
+  output_style, cc_version, cwd, repo, version, sounds, webhook, theme
 Line 2 (live state / metrics):
   snooze, branch, git_dirty, worktree, pr, added_dirs, api_quota, weekly_quota,
-  context, tokens, exceeds_200k, cost, duration, api_time, burn_rate
+  spend_limit, context, tokens, prompt_cache*, exceeds_200k, cost, duration,
+  api_time, burn_rate
+
+* opt-in (v6.7): ``remote`` and ``prompt_cache`` are not part of the "show
+  everything" default; see "Segment selection".
 
 Every segment maps to a field Claude Code pipes on stdin (see
 https://code.claude.com/docs/en/statusline). Most of the richer segments render
@@ -38,6 +42,11 @@ Two config keys (under ``statusline_settings``) control which segments appear:
     is empty: every available segment shows except these. This lets a user drop
     a couple of segments from the comprehensive default without having to
     enumerate all the ones they want to keep.
+  - ``extra_segments`` — opt-in additions to that default. A segment in
+    ``OPT_IN_SEGMENTS`` stays out of the empty-``visible_segments`` default
+    (so an upgrade never changes an existing status line) and appears only when
+    named here. ``hidden_segments`` still wins over it. A non-empty
+    ``visible_segments`` whitelist can name an opt-in segment directly.
 
 The ``cwd`` segment shows the current working directory as an abbreviated
 path (home folder collapsed to ``~``; long paths shortened to
@@ -98,15 +107,33 @@ CACHE_TTL_SEC = 5
 WIDTH_SAFETY_MARGIN = 8
 
 # Line 1 — identity / configuration (mostly static within a session).
-LINE1_SEGMENTS = ["model", "session_name", "agent", "effort", "thinking", "vim",
-                  "output_style", "cc_version", "cwd", "repo", "version", "sounds",
-                  "webhook", "theme"]
+LINE1_SEGMENTS = ["model", "session_name", "agent", "remote", "effort", "fast_mode",
+                  "thinking", "vim", "output_style", "cc_version", "cwd", "repo",
+                  "version", "sounds", "webhook", "theme"]
 # Line 2 — live state / metrics (change as the session runs).
 LINE2_SEGMENTS = ["snooze", "branch", "git_dirty", "worktree", "pr", "added_dirs",
-                  "api_quota", "weekly_quota", "context", "tokens", "exceeds_200k",
-                  "cost", "duration", "api_time", "burn_rate"]
+                  "api_quota", "weekly_quota", "spend_limit", "context", "tokens",
+                  "prompt_cache", "exceeds_200k", "cost", "duration", "api_time",
+                  "burn_rate"]
 # Order is preserved for rendering; the set is used for membership tests.
 ALL_SEGMENTS = set(LINE1_SEGMENTS) | set(LINE2_SEGMENTS)
+# Segments left out of the "show everything" default. They render only when the
+# user names them in `statusline_settings.extra_segments` (or in a non-empty
+# `visible_segments` whitelist). `prompt_cache` would otherwise appear on every
+# render of every session once caching is observed -- a visible change on
+# upgrade for people who never asked for it. `remote` reads an undocumented
+# upstream field whose trigger condition was not traced, so it must not start
+# appearing by default either.
+OPT_IN_SEGMENTS = frozenset({"prompt_cache", "remote"})
+
+# A prompt_cache miss older than this is history, not state: the cause is only
+# shown next to a miss recent enough to explain what the user is looking at.
+RECENT_MISS_SEC = 600
+# Cache TTLs are 5m or 1h; anything further out is a malformed (or millisecond)
+# timestamp, so the countdown is dropped rather than shown as "1000h".
+MAX_PLAUSIBLE_CACHE_TTL_SEC = 2 * 3600
+# Warm caches closer than this to expiry are drawn in the warning colour.
+CACHE_EXPIRING_SOON_SEC = 60
 
 # Backwards compatibility: accept old segment names from existing configs
 # Friendly names users are likely to type. Every value MUST be a member of
@@ -325,6 +352,182 @@ def _fmt_tokens(n: int) -> str:
     if n >= 1_000:
         return f"{n // 1_000}K"
     return str(n)
+
+
+def _num(v: Any) -> Optional[float]:
+    """Return ``v`` as a finite float, or None for anything that is not a real
+    number. ``bool`` is excluded on purpose (``True`` is an ``int`` in Python,
+    and a flag where a count belongs is a malformed payload, not a ``1``)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    f = float(v)
+    return f if f == f and f not in (float("inf"), float("-inf")) else None
+
+
+def _clip(text: str, max_len: int) -> str:
+    """Shorten free text to ``max_len`` characters with an ellipsis."""
+    return text if len(text) <= max_len else text[: max_len - 1] + "…"
+
+
+def _fmt_usd(v: Any) -> str:
+    """Render a dollar amount compactly: ``500`` -> ``$500``, ``314.1`` ->
+    ``$314.10``. Returns "" for absent, non-numeric or negative input."""
+    f = _num(v)
+    if f is None or f < 0:
+        return ""
+    return f"${int(f)}" if f == int(f) else f"${f:.2f}"
+
+
+# Short, human labels for `prompt_cache.last_miss_cause.causes[]`. The names are
+# upstream's closed set (promptCacheLedger.ts, recovered from the 2.1.288
+# binary); an unlisted name -- a newer Claude Code may add one -- falls back to
+# the name itself with underscores read as spaces, so it still shows something.
+_CACHE_CAUSE_LABELS = {
+    "system_prompt_changed": "system prompt changed",
+    "tools_changed": "tools changed",
+    "model_changed": "model changed",
+    "fast_mode_changed": "fast mode toggled",
+    "cache_scope_or_ttl_changed": "scope/TTL changed",
+    "betas_changed": "betas changed",
+    "effort_changed": "effort changed",
+    "thinking_mode_changed": "thinking toggled",
+    "thinking_display_changed": "thinking view changed",
+    "auto_mode_changed": "auto mode toggled",
+    "overage_changed": "usage limit changed",
+    "extra_body_changed": "request fields changed",
+    "defer_loading_changed": "tool loading changed",
+    "messages_rewritten": "messages changed",
+    "ttl_expired_5m": "idle past 5m TTL",
+    "ttl_expired_1h": "idle past 1h TTL",
+    "likely_server_side": "likely server-side",
+    "unknown": "unknown cause",
+}
+
+
+def _fmt_cache_miss(cache: Dict[str, Any], now: float) -> str:
+    """``miss: <cause>`` for a *recent* miss, "" when the last miss is old or
+    absent. A miss with no diagnosed cause (``last_miss_cause`` is null) renders
+    as a bare ``miss``. Needs ``last_miss_at``: without it recency can't be
+    judged, and a stale cause beside a live state would be a false claim."""
+    at = _num(cache.get("last_miss_at"))
+    if at is None or at <= 0:
+        return ""
+    age = now - at
+    # A small negative age is clock skew between Claude Code and this process;
+    # a large one is garbage.
+    if age > RECENT_MISS_SEC or age < -CACHE_EXPIRING_SOON_SEC:
+        return ""
+    cause = cache.get("last_miss_cause")
+    names = cause.get("causes") if isinstance(cause, dict) else None
+    labels = [
+        _CACHE_CAUSE_LABELS.get(n, n.replace("_", " "))
+        for n in (names if isinstance(names, list) else [])
+        if isinstance(n, str) and n
+    ]
+    if not labels:
+        return "miss"
+    more = f" +{len(labels) - 1}" if len(labels) > 1 else ""
+    return "miss: " + _clip(labels[0], 28) + more
+
+
+def _fmt_prompt_cache(cache: Any, now: Optional[float] = None) -> str:
+    """Render the ``prompt_cache`` object as one compact segment, or "".
+
+    ``cache warm 4m``       cached prefix is inside its TTL; 4m until it goes
+                            cold (green, yellow within ``CACHE_EXPIRING_SOON_SEC``)
+    ``cache cold``          TTL passed or the last response reported no cache
+                            tokens; ``· 45K to re-cache`` when upstream says how
+                            much the next request will rewrite
+    ``... · miss: <cause>`` appended while the last miss is recent
+
+    Nothing is drawn when the object is absent/not a dict/empty, or when
+    ``caching_observed`` is False (caching is off or the provider doesn't report
+    it, so there is no cache state to describe). ``warm`` is cross-checked
+    against ``expires_at``: Claude Code re-runs the script *at* ``expires_at``,
+    so a payload can say ``warm: true`` for a moment after it has expired --
+    that renders as cold. Never raises.
+    """
+    try:
+        if not isinstance(cache, dict) or cache.get("caching_observed") is False:
+            return ""
+        t = time.time() if now is None else float(now)
+        expires = _num(cache.get("expires_at"))
+        remaining = None
+        if expires is not None and expires > 0:
+            remaining = expires - t
+            if remaining > MAX_PLAUSIBLE_CACHE_TTL_SEC:
+                remaining = None  # malformed / millisecond epoch
+        warm = cache.get("warm")
+        if not isinstance(warm, bool):
+            if remaining is None:
+                return ""  # neither signal usable: say nothing, not a guess
+            warm = remaining > 0
+        if warm and remaining is not None and remaining <= 0:
+            warm = False
+        if warm:
+            if remaining is None:
+                head = f"{GREEN}cache warm{RESET}"
+            else:
+                colour = YELLOW if remaining <= CACHE_EXPIRING_SOON_SEC else GREEN
+                head = f"{colour}cache warm {_format_remaining(int(remaining))}{RESET}"
+        else:
+            head = f"{YELLOW}cache cold{RESET}"
+            recache = _num(cache.get("recache_tokens_if_cold"))
+            if recache is not None and recache >= 1000:
+                head += f" · {_fmt_tokens(int(recache))} to re-cache"
+        miss = _fmt_cache_miss(cache, t)
+        return f"{head} · {DIM}{miss}{RESET}" if miss else head
+    except (TypeError, ValueError, OverflowError, AttributeError):
+        return ""
+
+
+_SPEND_PERIODS = {"daily", "weekly", "monthly"}
+
+
+def _fmt_spend_limit(spend: Any, now: Optional[float] = None) -> str:
+    """Render ``rate_limits.spend_limit`` (Claude apps gateway users), or "".
+
+    ``<bar> Spend: 63% · $314.12/$500 monthly · resets Nov 1 8am``
+
+    Only ``used_percentage`` is guaranteed; the dollar amounts and period
+    (v2.1.284+) appear when present, and ``resets_at`` when valid. The
+    percentage can exceed 100 once the limit is passed; the bar clamps, the
+    number does not. Never raises.
+    """
+    try:
+        if not isinstance(spend, dict):
+            return ""
+        pct = _num(spend.get("used_percentage"))
+        if pct is None or pct < 0:
+            return ""
+        out = f"{_bar(pct)} Spend: {int(pct)}%"
+        used = _fmt_usd(spend.get("used_usd"))
+        limit = _fmt_usd(spend.get("limit_usd"))
+        if used and limit:
+            period = spend.get("period")
+            period_str = f" {period}" if isinstance(period, str) and period in _SPEND_PERIODS else ""
+            out += f" · {used}/{limit}{period_str}"
+        resets = _fmt_reset_clock(spend.get("resets_at"), with_date=True, now=now)
+        if resets:
+            out += f" · resets {resets}"
+        return out
+    except (TypeError, ValueError, OverflowError):
+        return ""
+
+
+def _fmt_fast_mode(value: Any) -> str:
+    """``fast_mode`` is a boolean upstream (always present); only an actual
+    ``True`` draws anything, so the segment is silent in the normal case."""
+    return "\U0001f680 fast" if value is True else ""
+
+
+def _fmt_remote(value: Any) -> str:
+    """``remote`` -> ``☁ remote`` for a session attached to a remote/cloud
+    surface. Undocumented upstream: it is ``{"session_id": ...}`` when present
+    and absent otherwise, so require that shape rather than any truthy value."""
+    if isinstance(value, dict) and isinstance(value.get("session_id"), str) and value["session_id"]:
+        return "☁ remote"
+    return ""
 
 
 def _abbrev_path(cwd: str, max_len: int = 40) -> str:
@@ -593,7 +796,9 @@ def main() -> int:
         visible = _normalise_segments(raw_vis)
     else:
         hidden = _normalise_segments(sl_cfg.get("hidden_segments") or [])
-        visible = ALL_SEGMENTS - hidden
+        extra = sl_cfg.get("extra_segments")
+        extra = _normalise_segments(extra) if isinstance(extra, list) else set()
+        visible = ((ALL_SEGMENTS - OPT_IN_SEGMENTS) | (extra & OPT_IN_SEGMENTS)) - hidden
 
     def show(segment: str) -> bool:
         return segment in visible
@@ -627,8 +832,16 @@ def main() -> int:
         l1_parts.append(f"\U0001f3f7 {session_name}")
     if show("agent") and isinstance(agent_name, str) and agent_name:
         l1_parts.append(f"\U0001f916 {agent_name}")
+    if show("remote"):
+        text = _fmt_remote(session.get("remote"))
+        if text:
+            l1_parts.append(text)
     if show("effort") and effort:
         l1_parts.append(f"\U0001f9e0 {effort}")
+    if show("fast_mode"):
+        text = _fmt_fast_mode(session.get("fast_mode"))
+        if text:
+            l1_parts.append(text)
     if show("thinking") and thinking_on:
         l1_parts.append("\U0001f4ad thinking")
     if show("vim") and isinstance(vim_mode, str) and vim_mode:
@@ -713,6 +926,11 @@ def main() -> int:
             except (TypeError, ValueError):
                 pass
 
+    if show("spend_limit"):
+        text = _fmt_spend_limit(rate_limits.get("spend_limit"))
+        if text:
+            parts.append(text)
+
     if show("context"):
         ctx_used = ctx_window.get("used_percentage")
         if ctx_used is not None:
@@ -754,6 +972,11 @@ def main() -> int:
                     parts.append(f"cache {int(round(cache_read * 100.0 / total_in))}%")
             except (TypeError, ValueError):
                 pass
+
+    if show("prompt_cache"):
+        text = _fmt_prompt_cache(session.get("prompt_cache"))
+        if text:
+            parts.append(text)
 
     if show("exceeds_200k") and exceeds_200k:
         parts.append(f"{YELLOW}⚠ >200K{RESET}")
