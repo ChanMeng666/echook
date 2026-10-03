@@ -208,6 +208,10 @@ class TestHelpIsSideEffectFree(unittest.TestCase):
         (["tts", "set", "--enabled=true"], "= form was consumed as a flag"),
         (["rate-limits", "set", "--bogus", "x"], ""),
         (["set", "--bogus", "1"], "wrote a key literally named --bogus"),
+        (["test", "stop", "--dry-run"], "played the sound; the flag was never read"),
+        (["test", "all", "--bogus"], "ran every hook"),
+        (["test", "--bogus", "stop"], ""),
+        (["test", "stop", "notification"], "second hook name was ignored"),
     ]
 
     def test_unknown_flags_are_rejected_without_side_effects(self) -> None:
@@ -225,6 +229,24 @@ class TestHelpIsSideEffectFree(unittest.TestCase):
         self.run.assert_not_called()
         self.popen.assert_not_called()
         self.urlopen.assert_not_called()
+
+    def test_test_plays_only_the_named_hook(self) -> None:
+        """`audio-hooks test` makes a sound, so the playback is patched out."""
+        with mock.patch.object(self.cli.HR, "run_hook", return_value=0) as run_hook:
+            rc, doc = self._invoke(["test", "stop"])
+            self.assertEqual(rc, 0, doc)
+            self.assertEqual(run_hook.call_count, 1)
+            self.assertEqual(run_hook.call_args[0][0], "stop")
+            run_hook.reset_mock()
+            rc, doc = self._invoke(["test", "stop", "--dry-run"])
+            self.assertEqual(rc, 1)
+            self.assertEqual(doc["error"]["code"], "INVALID_USAGE")
+            rc, doc = self._invoke(["test"])
+            self.assertEqual(rc, 1)
+            self.assertEqual(doc["error"]["code"], "INVALID_USAGE")
+            rc, doc = self._invoke(["test", "not_a_hook"])
+            self.assertEqual(doc["error"]["code"], "UNKNOWN_HOOK_TYPE")
+            run_hook.assert_not_called()
 
     def test_bare_tts_and_rate_limits_only_display(self) -> None:
         self._invoke(["get", "audio_theme"])

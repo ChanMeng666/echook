@@ -632,12 +632,22 @@ def _config_path() -> Path:
     return _prefs().config_path
 
 
+# v6.7: set by main() for invocations that only report (see
+# _is_read_only_invocation). Such a command works from the in-memory defaults
+# merged with whatever is on disk and creates, migrates and re-stamps nothing.
+_READ_ONLY = False
+
+
 def _load_config_raw() -> Dict[str, Any]:
-    """Load user_preferences.json (auto-init from template + plugin-option overlay)."""
+    """Load user_preferences.json (auto-init from template + plugin-option overlay).
+
+    In a read-only invocation nothing is created or migrated on disk; the same
+    merged result is computed in memory instead.
+    """
     if PROJECT_ROOT is None:
         return {}
     try:
-        return _prefs().load()
+        return _prefs().load(read_only=_READ_ONLY)
     except Exception:
         return {}
 
@@ -646,6 +656,8 @@ def _save_config_raw(cfg: Dict[str, Any]) -> Tuple[bool, str]:
     """Save user_preferences.json (atomic write + auto-backup snapshot)."""
     if PROJECT_ROOT is None:
         return False, "PROJECT_ROOT not detected"
+    if _READ_ONLY:
+        return False, "refusing to write during a read-only invocation"
     try:
         _prefs().save(cfg)
         return True, ""
@@ -703,6 +715,14 @@ def _queue_dir() -> Path:
 
 def _snooze_file() -> Path:
     return _queue_dir() / "snooze_until"
+
+
+def _log_dir() -> Path:
+    """Directory holding events.ndjson. HR.get_log_dir() creates it; a read-only
+    invocation must not, so it takes the path without the mkdir."""
+    if _READ_ONLY and PROJECT_ROOT is not None:
+        return _prefs().log_dir
+    return HR.get_log_dir() if HR else Path("/tmp")
 
 
 def _snooze_status() -> Dict[str, Any]:
@@ -782,7 +802,7 @@ def cmd_status(_args: List[str]) -> int:
 
     customizations: Dict[str, Any] = {}
     try:
-        customizations = _prefs().diff_from_default()
+        customizations = _prefs().diff_from_default(read_only=_READ_ONLY)
     except Exception:
         pass
 
@@ -811,7 +831,7 @@ def cmd_status(_args: List[str]) -> int:
         "project_dir": str(PROJECT_ROOT),
         "plugin_data_dir": plugin_data_dir,
         "queue_dir": str(_queue_dir()),
-        "log_dir": str(HR.get_log_dir()) if HR else None,
+        "log_dir": str(_log_dir()) if HR else None,
         "theme": cfg.get("audio_theme", "default"),
         "enabled_hooks": enabled,
         "enabled_hook_count": len(enabled),
@@ -1115,6 +1135,9 @@ def cmd_snooze(args: List[str]) -> int:
         return rc
     arg = args[0] if args else "30m"
     sf = _snooze_file()
+    if arg == "status":
+        emit({"ok": True, **_snooze_status()})
+        return 0
     sf.parent.mkdir(parents=True, exist_ok=True)
     if arg in ("off", "resume", "cancel"):
         try:
@@ -1124,9 +1147,6 @@ def cmd_snooze(args: List[str]) -> int:
         except OSError as e:
             return emit_error("INTERNAL_ERROR", str(e))
         emit({"ok": True, "active": False})
-        return 0
-    if arg == "status":
-        emit({"ok": True, **_snooze_status()})
         return 0
     secs = _parse_duration(arg)
     if secs is None or secs <= 0:
@@ -1384,9 +1404,15 @@ def _run_one_test(hook_name: str) -> Dict[str, Any]:
 def cmd_test(args: List[str]) -> int:
     if require_project_root() != 0:
         return 1
+    # v6.7: `test stop --dry-run` used to be accepted and then played the sound
+    # (the flag was never read); like every other subcommand, an argument the
+    # grammar does not define is an error and nothing runs.
+    rc = _check_args("test", args, max_positionals=1)
+    if rc is not None:
+        return rc
     if not args:
-        emit({"ok": False, "error": {"code": "INVALID_USAGE", "message": "Usage: audio-hooks test <hook_name|all>"}})
-        return 1
+        return emit_error("INVALID_USAGE", "Usage: audio-hooks test <hook_name|all>",
+                          suggested_command="audio-hooks hooks list")
     target = args[0]
     if target == "all":
         results = [_run_one_test(h["name"]) for h in HOOK_CATALOG]
@@ -1803,9 +1829,13 @@ def cmd_diagnose(_args: List[str]) -> int:
                 "Before 6.5.1 migration ran only when the config's _version "
                 "differed from the template's, and the template's was left at "
                 "5.1.5 for four releases — so equal strings meant no migration "
-                "ever ran. Loading the config once on this version migrates it."
+                "ever ran. The next hook event migrates it (the hook runner and "
+                "every state-changing command do); read-only commands such as "
+                "status and diagnose deliberately do not. To migrate now, set a "
+                "key to its current value: read it with `audio-hooks get "
+                "audio_theme`, then `audio-hooks set audio_theme <that value>`."
             ),
-            "suggested_command": "audio-hooks status",
+            "suggested_command": "audio-hooks get audio_theme",
             "retired_keys": prefs_schema.get("retired_keys", []),
         })
 
@@ -1885,8 +1915,7 @@ def cmd_logs(args: List[str]) -> int:
     if not args:
         return emit_error("INVALID_USAGE", "Usage: audio-hooks logs <tail|clear>")
     sub = args[0]
-    log_dir = HR.get_log_dir() if HR else Path("/tmp")
-    log_file = log_dir / "events.ndjson"
+    log_file = _log_dir() / "events.ndjson"
     if sub == "clear":
         rc = _check_args("logs clear", args[1:], max_positionals=0)
         if rc is not None:
@@ -4362,6 +4391,133 @@ def _claude_code_registered_events() -> List[str]:
     return [h["name"] for h in HOOK_CATALOG if h["name"] in registered]
 
 
+# ---------------------------------------------------------------------------
+# CLI-level error codes
+# ---------------------------------------------------------------------------
+
+# v6.7: codes the CLI emits that hook_runner.ErrorCode does not define -- the
+# runner's catalogue covers what a *hook* can report, so the manifest used to
+# omit INVALID_USAGE, DUPLICATE_BRIDGE, UNINSTALL_INCOMPLETE and the rest, which
+# CLAUDE.md names as the place an agent looks codes up. _build_manifest() merges
+# this over HR.ErrorCode. "appears_in" says where the code shows up: "error"
+# (the {"ok": false, "error": {"code": ...}} a command returns) or "diagnose"
+# (an entry in `audio-hooks diagnose` errors/warnings).
+# tests/test_cli_error_codes.py scans this file for every code it can emit and
+# fails when one is in neither this table nor HR.ErrorCode.
+CLI_ERROR_CODES: Dict[str, Dict[str, str]] = {
+    "INVALID_USAGE": {
+        "appears_in": "error",
+        "hint": "The command was called with an unknown flag, a missing value, a stray argument or a help-like value. Nothing was changed.",
+        "suggested_command": "audio-hooks manifest",
+    },
+    "DUAL_INSTALL_DETECTED": {
+        "appears_in": "error, diagnose",
+        "hint": "The script install and the Claude Code plugin are both active, so every hook fires twice; or a script install was refused because the plugin is present.",
+        "suggested_command": "audio-hooks uninstall",
+    },
+    "DUPLICATE_BRIDGE": {
+        "appears_in": "error, diagnose",
+        "hint": "Cursor receives echook both through Claude Code's auto-bridge and through a native ~/.cursor/hooks.json, so events fire twice. `install --cursor` refuses unless --force.",
+        "suggested_command": "audio-hooks uninstall --cursor",
+    },
+    "CURSOR_NOT_FOUND": {
+        "appears_in": "error",
+        "hint": "~/.cursor/ does not exist, so there is nothing to install the native Cursor hooks into. Install Cursor first.",
+        "suggested_command": "audio-hooks status",
+    },
+    "UNINSTALL_INCOMPLETE": {
+        "appears_in": "error",
+        "hint": "Uninstall removed what it could but left entries it did not recognise or could not delete; the response lists them. Read unmatched_references before --remove-unmatched.",
+        "suggested_command": "audio-hooks uninstall",
+    },
+    "BACKUP_NOT_FOUND": {
+        "appears_in": "error",
+        "hint": "No preferences backup has that id.",
+        "suggested_command": "audio-hooks backup list",
+    },
+    "RESTORE_FAILED": {
+        "appears_in": "error",
+        "hint": "The chosen backup could not be read or restored.",
+        "suggested_command": "audio-hooks backup list",
+    },
+    "NOT_INSTALLED": {
+        "appears_in": "error",
+        "hint": "upgrade found the audio-hooks plugin in no scope; there is nothing to upgrade.",
+        "suggested_command": "audio-hooks install --plugin",
+    },
+    "PRIOR_UPGRADE_INCOMPLETE": {
+        "appears_in": "error",
+        "hint": "A previous `upgrade` left its in-progress marker behind; the response carries it. Check state, then retry with --force.",
+        "suggested_command": "audio-hooks status",
+    },
+    "UPGRADE_UNINSTALL_FAILED": {
+        "appears_in": "error",
+        "hint": "The `claude plugin uninstall` step of upgrade failed; the installed plugin was not replaced.",
+        "suggested_command": "audio-hooks upgrade --check-only",
+    },
+    "UPGRADE_REINSTALL_FAILED": {
+        "appears_in": "error",
+        "hint": "The `claude plugin install` step of upgrade failed after the uninstall, so the plugin may be absent now. Run the suggested install command.",
+        "suggested_command": "audio-hooks install --plugin",
+    },
+    "UPGRADE_VERIFY_FAILED": {
+        "appears_in": "error",
+        "hint": "The upgrade ran but the final `claude plugin list` check failed; it may well have completed.",
+        "suggested_command": "audio-hooks upgrade --check-only",
+    },
+    "HOOKS_NOT_REGISTERED": {
+        "appears_in": "diagnose",
+        "hint": "No hooks block in ~/.claude/settings.json and no plugin install found, so nothing triggers echook.",
+        "suggested_command": "audio-hooks install --plugin",
+    },
+    "NATIVE_NOTIFICATIONS_ACTIVE": {
+        "appears_in": "diagnose",
+        "hint": "Claude Code's own notification channel is on and signals the same events, so expect a doubled bell or toast. Turn one of the two off.",
+        "suggested_command": "audio-hooks diagnose",
+    },
+    "NO_COMPLETION_SIGNAL": {
+        "appears_in": "diagnose",
+        "hint": "None of stop, subagent_stop or notification is enabled, so no hook can say a turn finished. echook is healthy but silent for that.",
+        "suggested_command": "audio-hooks hooks enable stop",
+    },
+    "TERMINAL_SEQUENCE_INERT": {
+        "appears_in": "diagnose",
+        "hint": "notification_settings.terminal_sequence is enabled but Claude Code never emits it from an async hook. Use notification_settings.mode audio_and_notification for a desktop toast.",
+        "suggested_command": "audio-hooks set notification_settings.mode audio_and_notification",
+    },
+    "PREFS_SCHEMA_STALE": {
+        "appears_in": "diagnose",
+        "hint": "user_preferences.json is stamped with an older version or carries keys this version removed. The next hook event or any state-changing command migrates it; read-only commands (status, diagnose, get) do not.",
+        "suggested_command": "audio-hooks get audio_theme",
+    },
+    "STALE_PLUGIN_CACHE": {
+        "appears_in": "diagnose",
+        "hint": "installed_plugins.json records a version or install path that is not the code now running.",
+        "suggested_command": "audio-hooks upgrade",
+    },
+    "WINDOWS_NO_GIT_BASH": {
+        "appears_in": "diagnose",
+        "hint": "Windows without Git Bash on PATH: Claude Code runs command hooks through bash and refuses them when it is missing, so every handler fails.",
+        "suggested_command": "audio-hooks diagnose",
+    },
+    "CODEX_HOOKS_DISABLED": {
+        "appears_in": "diagnose",
+        "hint": "Codex hooks are installed but [features].hooks is false in config.toml, so Codex invokes none of them.",
+        "suggested_command": "audio-hooks install --codex",
+    },
+    "CODEX_CONFIG_PARSE_ERROR": {
+        "appears_in": "diagnose",
+        "hint": "Codex hooks are installed but config.toml could not be read or parsed. Fix the TOML; hooks are on unless [features].hooks = false.",
+        "suggested_command": "audio-hooks diagnose",
+    },
+    "CODEX_MANAGED_HOOKS_ONLY": {
+        "appears_in": "diagnose",
+        "hint": "Codex allows managed hooks only, so $CODEX_HOME/hooks.json is ignored and a native --codex install never fires. Ask whoever owns the Codex policy.",
+        "suggested_command": "audio-hooks diagnose",
+    },
+}
+
+
 def _build_manifest() -> Dict[str, Any]:
     error_codes: Dict[str, Dict[str, str]] = {}
     if HR is not None:
@@ -4374,6 +4530,9 @@ def _build_manifest() -> Dict[str, Any]:
                 "hint": meta.get("hint", ""),
                 "suggested_command": meta.get("suggested_command", ""),
             }
+    # CLI-level codes; the runner's text wins where both define a code.
+    for code, meta in CLI_ERROR_CODES.items():
+        error_codes.setdefault(code, dict(meta))
     return {
         "ok": True,
         "name": "audio-hooks",
@@ -4581,6 +4740,7 @@ def _build_manifest() -> Dict[str, Any]:
             "CODEX_HOME": "Codex CLI home directory (defaults to ~/.codex). Used by audio-hooks install --codex to locate hooks.json and config.toml, and by the runner to resolve the Codex-native data dir.",
         },
         "pointers": {
+            "agents_md": "AGENTS.md",
             "claude_md": "CLAUDE.md",
             "skill": "plugins/audio-hooks/skills/audio-hooks/SKILL.md",
             "readme": "README.md",
@@ -4593,7 +4753,7 @@ def _build_manifest() -> Dict[str, Any]:
                 "hooks/", "bin/", "audio/", "config/",
                 "cursor-hooks/", "codex-hooks/",
             ],
-            "_note": "All paths are relative to the project root reported in `audio-hooks status.project_dir`.",
+            "_note": "All paths are relative to the project root reported in `audio-hooks status.project_dir`. agents_md is the full operating guide; claude_md only imports it (Claude Code ignores AGENTS.md when a CLAUDE.md exists).",
         },
     }
 
@@ -4640,6 +4800,57 @@ DISPATCH = {
 _SELF_DOCUMENTING = frozenset({"install", "uninstall", "upgrade"})
 
 
+# v6.7: invocations that only report. main() marks them read-only so they leave
+# the home and data directories byte-identical -- no auto-initialised
+# user_preferences.json, no migration save, no logs/ or queue/ directory. Each
+# entry maps a subcommand to the first-argument forms that are read-only;
+# None means "no arguments" (a bare `webhook` displays), "*" means any form.
+# Everything else (set, hooks enable, snooze 30m, install, test, ...) keeps
+# initialising and migrating as before, and so does the hook runner.
+# tests/test_read_only_commands.py walks every manifest subcommand against this.
+_READ_ONLY_FORMS: Dict[str, Tuple[Optional[str], ...]] = {
+    "manifest": ("*",),
+    "version": ("*",),
+    "status": ("*",),
+    "diagnose": ("*",),
+    "get": ("*",),
+    "update": ("*",),
+    "hooks": ("list",),
+    "theme": (None, "list"),
+    "snooze": ("status",),
+    # Bare form and the flagless `set` both only display (v6.6).
+    "webhook": (None,),
+    "tts": (None,),
+    "rate-limits": (None,),
+    "logs": ("tail",),
+    "backup": ("list", "show"),
+}
+
+
+def _is_read_only_invocation(cmd: str, args: List[str]) -> bool:
+    """True when ``cmd args`` only reports and must not touch disk state."""
+    if any(_is_help_flag(a) for a in (args[:1] if cmd == "set" else args)):
+        return True  # usage is printed, nothing runs
+    if cmd == "statusline":
+        sub = args[0] if args else "show"
+        if sub in ("show", "segments"):
+            return True
+        if sub in ("subagent", "codex"):
+            action = args[1] if len(args) > 1 else "show"
+            return action in (("show",) if sub == "subagent" else ("show", "preview"))
+        return False
+    forms = _READ_ONLY_FORMS.get(cmd)
+    if forms is None:
+        return False
+    if "*" in forms:
+        return True
+    first = args[0] if args else None
+    if first in forms:
+        return True
+    # `webhook set` / `tts set` / `rate-limits set` with no flags only display.
+    return cmd in ("webhook", "tts", "rate-limits") and args == ["set"]
+
+
 def _emit_subcommand_usage(cmd: str) -> int:
     """Print the manifest entries for ``cmd``; run nothing, write nothing."""
     entries: List[Dict[str, Any]] = []
@@ -4659,6 +4870,8 @@ def _emit_subcommand_usage(cmd: str) -> int:
 
 
 def main(argv: List[str]) -> int:
+    global _READ_ONLY
+    _READ_ONLY = False
     if len(argv) < 2:
         # No-arg invocation returns the manifest as the canonical introspection target
         return cmd_manifest([])
@@ -4678,11 +4891,18 @@ def main(argv: List[str]) -> int:
     # the key is rejected by cmd_set (it must never be stored as a value).
     help_args = argv[2:3] if cmd == "set" else argv[2:]
     if cmd not in _SELF_DOCUMENTING and any(_is_help_flag(a) for a in help_args):
-        return _emit_subcommand_usage(cmd)
+        _READ_ONLY = True
+        try:
+            return _emit_subcommand_usage(cmd)
+        finally:
+            _READ_ONLY = False
+    _READ_ONLY = _is_read_only_invocation(cmd, argv[2:])
     try:
         return fn(argv[2:])
     except Exception as e:
         return emit_error("INTERNAL_ERROR", str(e))
+    finally:
+        _READ_ONLY = False
 
 
 if __name__ == "__main__":
