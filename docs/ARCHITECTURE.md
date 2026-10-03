@@ -266,14 +266,14 @@ Users can customise which segments appear via `statusline_settings.visible_segme
 echook is **AI-agent-first**: every script is non-interactive and machine-callable.
 There are no human-only menus and no `curl | bash` flows — an agent operates the whole
 project through the `audio-hooks` CLI. The script install below is the engine behind
-`audio-hooks install` (cloned-repo / non-plugin path); on Claude Code the canonical path
+`audio-hooks install --scripts` (cloned-repo / non-plugin path; since v6.6.0 `install` has no default mode and refuses `--scripts` while the plugin is installed unless `--force`); on Claude Code the canonical path
 is the plugin marketplace.
 
 | Script | Purpose | AI-callable? |
 |---|---|---|
 | `install-complete.sh` | Script install engine (registers `hook_runner.py`) | yes — always non-interactive |
 | `install-windows.ps1` | PowerShell install engine for Windows | yes — always non-interactive |
-| `uninstall.sh` | Uninstall engine | yes — always non-interactive, `--purge` for full removal |
+| `uninstall.sh` | Thin wrapper for a source checkout: runs `audio-hooks uninstall --scripts` (the removal itself lives in the CLI since v6.6.0 and works from the plugin layout, which ships no `scripts/`) and implements `--purge` for that checkout's config/audio | yes — always non-interactive, `--purge` for full removal |
 | `build-plugin.sh` | Sync canonical → plugin layout | yes (NDJSON output, `--check` flag for CI) |
 | `bump-version.sh` | Atomic version bump across canonical files | yes (JSON output) |
 | `generate-audio.py` | ElevenLabs audio generator | yes (NDJSON output, `--force` / `--only` / `--dry-run`) |
@@ -576,8 +576,10 @@ make a break loud.
 
 16. `install-complete.sh` → `all_hook_types` (+ `hooks_with_matcher` /
     `smart_matchers` if applicable).
-17. `uninstall.sh` → **both** `HOOK_EVENTS` (bash) and `hook_events` (the
-    embedded Python). Missing it here is the worst failure mode: the
+17. `LEGACY_HOOK_EVENTS` in `bin/audio-hooks.py` (the native removal behind
+    `audio-hooks uninstall`; `scripts/uninstall.sh` is now a wrapper with no
+    event list or matching rule of its own, which
+    `test_legacy_scripts_contract.py` asserts). Missing it here is the worst failure mode: the
     registration outlives the uninstall, pointing at a deleted script.
 
 **Finish**

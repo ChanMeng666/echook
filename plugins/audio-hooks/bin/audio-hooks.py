@@ -29,7 +29,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Path discovery — find the project root and import hook_runner helpers
@@ -133,6 +133,64 @@ def emit_error(code: str, message: str, hint: str = "", suggested_command: str =
     return 1
 
 
+def _is_help_flag(tok: str) -> bool:
+    """``--help`` / ``-h`` plus the spellings agents and shells reach for next.
+
+    v6.6: ``/?`` (Windows), ``-?`` and ``--help=<anything>`` used to be ordinary
+    unknown arguments, so on a state-changing subcommand they were ignored and
+    the command ran.
+    """
+    return tok in ("-h", "--help", "-?", "/?") or tok.startswith("--help=")
+
+
+def _looks_like_flag(tok: str) -> bool:
+    return (tok.startswith("-") and tok != "-") or tok == "/?"
+
+
+def _check_args(cmd: str, args: List[str], *, flags: Tuple[str, ...] = (),
+                valued: Tuple[str, ...] = (), max_positionals: Optional[int] = None) -> Optional[int]:
+    """Reject arguments a state-changing subcommand does not define.
+
+    v6.6: these subcommands used to skip anything they did not recognise and
+    then act -- ``statusline install --dry-run`` rewrote settings.json,
+    ``tts set --bogus x`` wrote a ``bogus`` key. Returns None when the
+    arguments are fine, else emits ``INVALID_USAGE`` (nothing was changed) and
+    returns the exit code.
+
+    ``valued`` flags consume the next token whatever it looks like. Anything
+    else that starts with ``-`` (or is ``/?``) is an unknown flag; a bare token
+    is a positional, counted against ``max_positionals`` (None = unlimited).
+    The decision is per call site, from that subcommand's real grammar: a
+    positional that may legitimately start with ``-`` (the value of
+    ``set <key> <value>``) is simply never passed through here.
+    """
+    accepted = list(flags) + list(valued)
+    hint = ("Accepted flags: " + ", ".join(accepted)) if accepted else "This subcommand takes no flags."
+    usage_cmd = f"audio-hooks {cmd.split(' ')[0]} --help"
+    positionals = 0
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok in valued:
+            if i + 1 >= len(args):
+                return emit_error("INVALID_USAGE", f"{tok} requires a value. Nothing was changed.",
+                                  hint=hint, suggested_command=usage_cmd)
+            i += 2
+            continue
+        if tok in flags:
+            i += 1
+            continue
+        if _looks_like_flag(tok):
+            return emit_error("INVALID_USAGE", f"Unknown argument for `audio-hooks {cmd}`: {tok}. Nothing was changed.",
+                              hint=hint, suggested_command=usage_cmd, unknown_args=[tok])
+        positionals += 1
+        if max_positionals is not None and positionals > max_positionals:
+            return emit_error("INVALID_USAGE", f"Unexpected argument for `audio-hooks {cmd}`: {tok}. Nothing was changed.",
+                              hint=hint, suggested_command=usage_cmd, unknown_args=[tok])
+        i += 1
+    return None
+
+
 def require_project_root() -> int:
     """Bail with a structured error if the project root could not be found."""
     if PROJECT_ROOT is None:
@@ -156,7 +214,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "6.5.1"
+PROJECT_VERSION = "6.6.0"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -205,6 +263,28 @@ HOOK_CATALOG: List[Dict[str, Any]] = [
 ]
 
 
+def _in_orphaned_cache_dir(entry: Path, cache_dir: Path) -> bool:
+    """True when ``entry`` sits under a plugin-cache version dir Claude Code orphaned.
+
+    v6.6: after an uninstall Claude Code leaves the old
+    ``cache/<marketplace>/<plugin>/<version>/`` directory behind and drops an
+    ``.orphaned_at`` file (a millisecond epoch) in it; the live version dir has
+    none (it carries ``.in_use/`` instead). Observed on disk: 7 of 8 context7
+    version dirs carry the marker, the one in use does not. Counting an orphan
+    as "installed" made ``install --scripts`` refuse with a remedy that could
+    not help.
+    """
+    try:
+        for ancestor in entry.parents:
+            if (ancestor / ".orphaned_at").exists():
+                return True
+            if ancestor == cache_dir:
+                break
+    except OSError:
+        pass
+    return False
+
+
 def _detect_install_mode() -> Dict[str, Any]:
     """Detect whether the script install and/or plugin install are present.
 
@@ -214,10 +294,15 @@ def _detect_install_mode() -> Dict[str, Any]:
     The plugin install is detected by:
       1. CLAUDE_PLUGIN_ROOT being set (we're invoked from inside a hook), OR
       2. ~/.claude/plugins/installed_plugins.json containing audio-hooks, OR
-      3. ~/.claude/plugins/cache/<id>/ existing for any audio-hooks plugin.
+      3. ~/.claude/plugins/cache/<id>/ existing for any audio-hooks plugin
+         (ignoring version dirs Claude Code marked with ``.orphaned_at``).
     """
     home = Path.home()
-    script_install = (home / ".claude" / "hooks" / "hook_runner.py").exists()
+    # By content, like the removal: a user's own (or marker-less) hook_runner.py is
+    # not an echook script install, and reporting it as one would send an agent to
+    # `audio-hooks uninstall`, which correctly refuses to touch it -- forever.
+    runner = home / ".claude" / "hooks" / "hook_runner.py"
+    script_install = runner.is_file() and _has_marker(runner, LEGACY_FILE_MARKERS["hook_runner.py"])
 
     plugin_install = bool(os.environ.get("CLAUDE_PLUGIN_ROOT"))
     if not plugin_install:
@@ -237,6 +322,8 @@ def _detect_install_mode() -> Dict[str, Any]:
             try:
                 for entry in cache_dir.rglob("plugin.json"):
                     try:
+                        if _in_orphaned_cache_dir(entry, cache_dir):
+                            continue
                         if "audio-hooks" in entry.parent.name.lower():
                             plugin_install = True
                             break
@@ -251,11 +338,25 @@ def _detect_install_mode() -> Dict[str, Any]:
 
     result: Dict[str, Any] = {"script_install": script_install, "plugin_install": plugin_install}
     if script_install and plugin_install:
+        remedy_text, _remedy_cmd = _script_uninstall_remedy()
         result["warning"] = {
             "code": "DUAL_INSTALL_DETECTED",
-            "message": "Both the script install and the plugin install are active. This causes double audio. Run `audio-hooks uninstall` to remove the script install (preserves config + audio).",
+            "message": "Both the script install and the plugin install are active. This causes double audio. " + remedy_text,
         }
     return result
+
+
+def _script_uninstall_remedy() -> Tuple[str, str]:
+    """(prose, runnable command) that removes the script install.
+
+    v6.6: ``audio-hooks uninstall`` removes it natively on every platform, so
+    the remedy no longer depends on scripts/uninstall.sh (which the plugin
+    layout does not ship and which cannot run under a plain Windows shell).
+    """
+    return (
+        "Run `audio-hooks uninstall` to remove the script install (preserves config + audio).",
+        "audio-hooks uninstall",
+    )
 
 
 def _detect_codex_native_install() -> bool:
@@ -387,8 +488,9 @@ def _detect_cursor_native_install() -> bool:
 
     Cursor-native install is what ``audio-hooks install --cursor`` writes.
     Distinct from the auto-bridge: the bridge fires whenever Claude Code
-    plugins are present + Third-party-skills enabled in Cursor Settings,
-    requiring no file in ``~/.cursor/``.
+    plugins are present (and, in the IDE, the third-party-plugins toggle in
+    Cursor Settings is on; cursor-agent bridges regardless), requiring no
+    file in ``~/.cursor/``.
     """
     cursor_hooks = Path.home() / ".cursor" / "hooks.json"
     if not cursor_hooks.exists():
@@ -407,8 +509,10 @@ def _detect_editor_targets() -> Dict[str, Any]:
       * ``active`` — installed and primary integration path
       * ``bridged-via-claude-code`` — Cursor IDE auto-bridges Claude Code
         plugins (cursor.com/docs/reference/third-party-hooks). Fires when
-        the user has Claude Code's audio-hooks plugin installed AND
-        "Third-party skills" enabled in Cursor Settings.
+        the user has Claude Code's audio-hooks plugin installed. In the IDE
+        the bridge can be switched off at Cursor Settings > Rules, Skills,
+        Subagents > "Include third-party Plugins, Skills, and other configs";
+        that toggle has no effect on cursor-agent, where bridging is hardcoded.
       * ``native`` — Cursor-only ``~/.cursor/hooks.json`` install
       * ``double-registered`` — both bridge AND native — causes double audio
       * ``inactive`` — no integration detected
@@ -765,6 +869,25 @@ def cmd_set(args: List[str]) -> int:
     if len(args) < 2:
         return emit_error("INVALID_USAGE", "Usage: audio-hooks set <key> <value>", suggested_command="audio-hooks manifest")
     key = args[0]
+    if _looks_like_flag(key):
+        # Only the key is checked: the value may legitimately start with "-"
+        # (a negative number).
+        return emit_error("INVALID_USAGE", f"Unknown argument for `audio-hooks set`: {key}. Nothing was changed.",
+                          hint="Usage: audio-hooks set <dotted.key> <value>", suggested_command="audio-hooks set --help",
+                          unknown_args=[key])
+    if any(_is_help_flag(a) for a in args[1:]):
+        # A leading help token is intercepted by main() and prints usage. One
+        # after the key would be stored as the value (`notification_settings.mode`
+        # = "--help" silences every hook), so it is an error, never data.
+        bad = next(a for a in args[1:] if _is_help_flag(a))
+        return emit_error("INVALID_USAGE",
+                          f"`audio-hooks set` does not accept a value spelled like a help flag ({bad}). Nothing was changed.",
+                          hint="Put --help first to see usage: audio-hooks set --help",
+                          suggested_command="audio-hooks set --help", unknown_args=[bad])
+    if len(args) > 2:
+        return emit_error("INVALID_USAGE", f"Unexpected argument for `audio-hooks set`: {args[2]}. Nothing was changed.",
+                          hint="Usage: audio-hooks set <dotted.key> <value> (quote a value that contains spaces)",
+                          suggested_command="audio-hooks set --help", unknown_args=args[2:])
     value = _coerce_value(args[1])
     cfg = _load_config_raw()
     old = _get_dotted(cfg, key)
@@ -872,6 +995,10 @@ def cmd_hooks(args: List[str]) -> int:
         return emit_error("INVALID_USAGE", "Usage: audio-hooks hooks <list|enable|disable|enable-only> [name...]")
     sub = args[0]
     rest = args[1:]
+    if sub in ("enable", "disable", "enable-only"):
+        rc = _check_args(f"hooks {sub}", rest)
+        if rc is not None:
+            return rc
     if sub == "list":
         # Variants are opt-in: `hooks list` is read by AI agents, and tripling
         # the row count by default would cost every caller context it does not
@@ -887,17 +1014,21 @@ def cmd_hooks(args: List[str]) -> int:
         return 0
     if sub in ("enable", "disable"):
         if not rest:
-            return emit_error("INVALID_USAGE", f"Usage: audio-hooks hooks {sub} <name>")
-        name = rest[0]
+            return emit_error("INVALID_USAGE", f"Usage: audio-hooks hooks {sub} <name> [name ...]")
         valid = {h["name"] for h in HOOK_CATALOG} | _variant_names()
-        if name not in valid:
-            return emit_error("UNKNOWN_HOOK_TYPE", f"Unknown hook: {name}", hint="Run `audio-hooks hooks list --variants` to see all hooks and matcher variants.", suggested_command="audio-hooks hooks list --variants")
+        # v6.6: every name given is applied (it used to act on the first and
+        # return ok for the rest). All-or-nothing: validate them all first.
+        for name in rest:
+            if name not in valid:
+                return emit_error("UNKNOWN_HOOK_TYPE", f"Unknown hook: {name}. Nothing was changed.", hint="Run `audio-hooks hooks list --variants` to see all hooks and matcher variants.", suggested_command="audio-hooks hooks list --variants")
         cfg = _load_config_raw()
-        cfg.setdefault("enabled_hooks", {})[name] = (sub == "enable")
+        eh = cfg.setdefault("enabled_hooks", {})
+        for name in rest:
+            eh[name] = (sub == "enable")
         ok, err = _save_config_raw(cfg)
         if not ok:
             return emit_error("CONFIG_READ_ERROR", err)
-        emit({"ok": True, "hook": name, "enabled": sub == "enable"})
+        emit({"ok": True, "hook": rest[0], "hooks": list(rest), "enabled": sub == "enable"})
         return 0
     if sub == "enable-only":
         if not rest:
@@ -956,6 +1087,9 @@ def cmd_theme(args: List[str]) -> int:
     if args[0] == "set":
         if len(args) < 2:
             return emit_error("INVALID_USAGE", "Usage: audio-hooks theme set <default|custom>")
+        rc = _check_args("theme set", args[1:], max_positionals=1)
+        if rc is not None:
+            return rc
         theme = args[1]
         if theme not in ("default", "custom"):
             return emit_error("INVALID_USAGE", f"Invalid theme: {theme}")
@@ -976,6 +1110,9 @@ def cmd_theme(args: List[str]) -> int:
 def cmd_snooze(args: List[str]) -> int:
     if require_project_root() != 0:
         return 1
+    rc = _check_args("snooze", args, max_positionals=1)
+    if rc is not None:
+        return rc
     arg = args[0] if args else "30m"
     sf = _snooze_file()
     sf.parent.mkdir(parents=True, exist_ok=True)
@@ -1029,6 +1166,14 @@ def cmd_webhook(args: List[str]) -> int:
         return 0
     sub = args[0]
     rest = args[1:]
+    if sub in ("set", "clear", "test"):
+        rc = _check_args(
+            f"webhook {sub}", rest,
+            valued=("--url", "--format", "--hook-types", "--enabled") if sub == "set" else (),
+            max_positionals=0,
+        )
+        if rc is not None:
+            return rc
     if sub == "set":
         # Parse --url, --format, --hook-types flags
         parsed: Dict[str, Any] = {}
@@ -1048,6 +1193,11 @@ def cmd_webhook(args: List[str]) -> int:
             i += 1
         cfg = _load_config_raw()
         w = cfg.setdefault("webhook_settings", {})
+        if not parsed:
+            # v6.6: nothing to change means nothing to write (a save also
+            # overwrites the .bak with the current file).
+            emit({"ok": True, "webhook_settings": {"enabled": bool(w.get("enabled")), "format": w.get("format", "raw"), "url_redacted": _redact_url(w.get("url", ""))}})
+            return 0
         for k, v in parsed.items():
             w[k] = v
         if "url" in parsed and parsed["url"]:
@@ -1107,13 +1257,49 @@ def _kv_flags(rest: List[str]) -> Dict[str, Any]:
     return out
 
 
+# The keys `tts set` / `rate-limits set` may write, mirroring the
+# tts_settings / rate_limit_alerts objects in the preferences schema.
+def _both_spellings(*flags: str) -> Tuple[str, ...]:
+    """``--five-hour-thresholds`` and ``--five_hour_thresholds``: HEAD's
+    ``_kv_flags`` turned either into the same key, so both stay accepted."""
+    out: List[str] = []
+    for f in flags:
+        out.extend((f, "--" + f[2:].replace("-", "_")))
+    return tuple(dict.fromkeys(out))
+
+
+_TTS_SET_FLAGS = _both_spellings("--enabled", "--speak-assistant-message", "--assistant-message-max-chars", "--messages")
+_RATE_LIMITS_SET_FLAGS = _both_spellings("--enabled", "--five-hour-thresholds", "--seven-day-thresholds", "--audio")
+
+
+def _threshold_list(value: Any) -> List[int]:
+    """Normalise a thresholds value to a list of ints (raises ValueError/TypeError)."""
+    if isinstance(value, bool):
+        raise TypeError("thresholds must be numbers")
+    if isinstance(value, (int, float)):
+        return [int(value)]
+    if isinstance(value, str):
+        return [int(x.strip()) for x in value.split(",") if x.strip()]
+    if isinstance(value, (list, tuple)):
+        return [int(x) for x in value]
+    raise TypeError("thresholds must be a number, a comma-separated string or a list")
+
+
 def cmd_tts(args: List[str]) -> int:
     if require_project_root() != 0:
         return 1
     if not args or args[0] == "set":
         rest = args[1:] if args else []
+        rc = _check_args("tts set", rest, valued=_TTS_SET_FLAGS, max_positionals=0)
+        if rc is not None:
+            return rc
         flags = _kv_flags(rest)
         cfg = _load_config_raw()
+        if not flags:
+            # v6.6: bare `tts` only displays. It used to save, which also
+            # overwrote the .bak with the current file.
+            emit({"ok": True, "tts_settings": cfg.get("tts_settings", {})})
+            return 0
         t = cfg.setdefault("tts_settings", {})
         for k, v in flags.items():
             t[k] = v
@@ -1130,13 +1316,27 @@ def cmd_rate_limits(args: List[str]) -> int:
         return 1
     if not args or args[0] == "set":
         rest = args[1:] if args else []
+        rc = _check_args("rate-limits set", rest, valued=_RATE_LIMITS_SET_FLAGS, max_positionals=0)
+        if rc is not None:
+            return rc
         flags = _kv_flags(rest)
         cfg = _load_config_raw()
+        if not flags:
+            emit({"ok": True, "rate_limit_alerts": cfg.get("rate_limit_alerts", {})})
+            return 0
         r = cfg.setdefault("rate_limit_alerts", {})
+        new_values: Dict[str, Any] = {}
         for k, v in flags.items():
-            if k in ("five_hour_thresholds", "seven_day_thresholds") and isinstance(v, str):
-                v = [int(x.strip()) for x in v.split(",") if x.strip()]
-            r[k] = v
+            if k in ("five_hour_thresholds", "seven_day_thresholds"):
+                # v6.6: always a list. `--five-hour-thresholds 90` used to store
+                # the integer 90, which check_rate_limits then tried to sort().
+                try:
+                    v = _threshold_list(v)
+                except (TypeError, ValueError, OverflowError):
+                    return emit_error("INVALID_USAGE", f"--{k.replace('_', '-')} needs whole numbers such as 80,95. Nothing was changed.",
+                                      suggested_command="audio-hooks rate-limits set --five-hour-thresholds 80,95")
+            new_values[k] = v
+        r.update(new_values)
         ok, err = _save_config_raw(cfg)
         if not ok:
             return emit_error("CONFIG_READ_ERROR", err)
@@ -1529,7 +1729,7 @@ def cmd_diagnose(_args: List[str]) -> int:
             "code": "DUAL_INSTALL_DETECTED",
             "message": install["warning"]["message"],
             "hint": "Both the script install and the plugin install fire on every event, causing duplicate audio.",
-            "suggested_command": "audio-hooks uninstall",
+            "suggested_command": _script_uninstall_remedy()[1],
         })
 
     editor_targets = _detect_editor_targets()
@@ -1688,6 +1888,9 @@ def cmd_logs(args: List[str]) -> int:
     log_dir = HR.get_log_dir() if HR else Path("/tmp")
     log_file = log_dir / "events.ndjson"
     if sub == "clear":
+        rc = _check_args("logs clear", args[1:], max_positionals=0)
+        if rc is not None:
+            return rc
         try:
             if log_file.exists():
                 log_file.unlink()
@@ -1738,39 +1941,137 @@ def cmd_logs(args: List[str]) -> int:
 # Subcommand: install / uninstall (delegates to existing scripts)
 # ---------------------------------------------------------------------------
 
+# v6.6: install/uninstall used to default to the legacy script installer and
+# silently ignore any argument they did not recognise, so `install --help`,
+# `install --bogus` and a bare `install` all rewrote ~/.claude/settings.json and
+# returned ok:true. These tables are the single source of truth for what the two
+# commands accept; anything outside them is an error, never a mode.
+_INSTALL_MODE_FLAGS = {
+    "--plugin": "plugin",
+    "--scripts": "scripts",
+    "--cursor": "cursor",
+    "--codex": "codex",
+}
+_INSTALL_MODE_HELP = {
+    "--plugin": "Claude Code plugin. Emits the `claude plugin` commands to run; changes nothing itself.",
+    "--scripts": "Legacy script install into ~/.claude (rewrites settings.json). Refused when the plugin is installed unless --force.",
+    "--cursor": "Native Cursor hooks: writes ~/.cursor/hooks.json. Refused when the plugin is installed unless --force.",
+    "--codex": "Native Codex hooks: writes $CODEX_HOME/hooks.json.",
+}
+
+
+def _parse_mode_args(args: List[str], extra_flags: Dict[str, str]):
+    """Split install/uninstall args into (modes, flags, unknown).
+
+    ``modes`` keeps the order given so a conflicting pair can be reported;
+    ``flags`` maps each recognised non-mode flag to True.
+    """
+    modes: List[str] = []
+    flags: Dict[str, bool] = {}
+    unknown: List[str] = []
+    for a in args:
+        if a in _INSTALL_MODE_FLAGS:
+            if _INSTALL_MODE_FLAGS[a] not in modes:
+                modes.append(_INSTALL_MODE_FLAGS[a])
+        elif a in extra_flags:
+            flags[a] = True
+        else:
+            unknown.append(a)
+    return modes, flags, unknown
+
+
+_UNINSTALL_MODE_HELP = {
+    "--plugin": "Claude Code plugin. Lists the `claude plugin uninstall … --keep-data --json` command to run; changes nothing itself.",
+    "--scripts": "Legacy script install (the default when no mode is given). Backs up, then removes echook's registrations from ~/.claude/settings.json and settings.local.json and echook's own files from ~/.claude/hooks. Files are judged by content, not name alone.",
+    "--cursor": "Native Cursor hooks: removes audio-hooks-managed entries from ~/.cursor/hooks.json.",
+    "--codex": "Native Codex hooks: removes audio-hooks-managed entries from $CODEX_HOME/hooks.json.",
+}
+
+
+def _install_usage(verb: str, extra_flags: Dict[str, str]) -> Dict[str, Any]:
+    uninstall = verb == "uninstall"
+    modes_txt = "|".join(_INSTALL_MODE_FLAGS)
+    return {
+        "ok": True,
+        "usage": f"audio-hooks {verb} " + (f"[{modes_txt}]" if uninstall else modes_txt)
+                 + "".join(f" [{f}]" for f in extra_flags),
+        "modes": dict(_UNINSTALL_MODE_HELP if uninstall else _INSTALL_MODE_HELP),
+        "flags": dict(extra_flags),
+        "note": (
+            "Bare `uninstall` (no mode) means --scripts. Unknown arguments are rejected, not ignored." if verb == "uninstall"
+            else "A mode flag is required; there is no default. Unknown arguments are rejected, not ignored."
+        ),
+    }
+
+
+_INSTALL_EXTRA_FLAGS = {"--force": "Override the DUPLICATE_BRIDGE / DUAL_INSTALL_DETECTED refusal (accept double-firing hooks)."}
+_UNINSTALL_EXTRA_FLAGS = {
+    "--purge": "Also delete the audio-hooks-data directory. Only valid with --cursor / --codex; rejected with --scripts / --plugin.",
+    "--remove-unmatched": "Scripts mode only. When a result is UNINSTALL_INCOMPLETE because registrations spell the home directory in a form uninstall does not recognise ($env:USERPROFILE, %HOMEDRIVE%%HOMEPATH%, an MSYS /c/Users path, `\"$HOME\"/…`, `true;~/…`), also strip every entry listed in unmatched_references and then remove the scripts they pointed at. Read unmatched_references first: the loose match can catch another tool's variable such as $XDG_CONFIG_HOME or %ANDROID_HOME%.",
+}
+
+
 def cmd_install(args: List[str]) -> int:
+    if any(_is_help_flag(a) for a in args):
+        emit(_install_usage("install", _INSTALL_EXTRA_FLAGS))
+        return 0
+    modes, flags, unknown = _parse_mode_args(args, _INSTALL_EXTRA_FLAGS)
+    if unknown:
+        return emit_error(
+            "INVALID_USAGE",
+            f"Unknown argument(s) for install: {' '.join(unknown)}. Nothing was changed.",
+            hint="Run `audio-hooks install --help` for the accepted flags.",
+            suggested_command="audio-hooks install --help",
+            unknown_args=unknown,
+        )
+    if not modes:
+        return emit_error(
+            "INVALID_USAGE",
+            "install needs a mode; there is no default. Nothing was changed.",
+            hint="Pick the editor you are installing for.",
+            suggested_command="audio-hooks install --plugin",
+            modes=dict(_INSTALL_MODE_HELP),
+            next_steps=[f"audio-hooks install {f}" for f in _INSTALL_MODE_FLAGS],
+        )
+    if len(modes) > 1:
+        return emit_error(
+            "INVALID_USAGE",
+            f"install modes are mutually exclusive, got: {', '.join(modes)}. Nothing was changed.",
+            suggested_command="audio-hooks install --help",
+        )
     if require_project_root() != 0:
         return 1
-    mode = "scripts"
-    force = False
-    for a in args:
-        if a == "--plugin":
-            mode = "plugin"
-        elif a == "--scripts":
-            mode = "scripts"
-        elif a == "--cursor":
-            mode = "cursor"
-        elif a == "--codex":
-            mode = "codex"
-        elif a == "--force":
-            force = True
+    mode = modes[0]
+    force = "--force" in flags
     if mode == "plugin":
+        # v6.6: Claude Code ships CLI equivalents (with --json) for the
+        # marketplace and install steps, so an agent can run them directly.
+        # /reload-plugins is the one step with no CLI form.
         emit({
             "ok": True,
             "mode": "plugin",
             "next_steps": [
-                "Run inside Claude Code: /plugin marketplace add ChanMeng666/echook",
-                "Run inside Claude Code: /plugin install audio-hooks@chanmeng-audio-hooks",
+                "claude plugin marketplace add ChanMeng666/echook --json",
+                "claude plugin install audio-hooks@chanmeng-audio-hooks --json",
+                "Ask the user to type /reload-plugins inside Claude Code (REPL-only, no CLI equivalent)",
                 "Verify: audio-hooks status",
             ],
-            "hint": "Plugin installation is performed by Claude Code itself; this command only documents the steps.",
+            "hint": "Plugin installation is performed by Claude Code itself; this command only lists the commands to run.",
         })
         return 0
     if mode == "cursor":
         return _install_cursor(force=force)
     if mode == "codex":
         return _install_codex()
-    # Script install: delegate to existing installer
+    # Script install: delegate to existing installer. v6.6: with the plugin
+    # present this registers every hook twice, so it needs an explicit --force
+    # (same stance as the Cursor path).
+    if not force and _detect_install_mode().get("plugin_install"):
+        return emit_error(
+            "DUAL_INSTALL_DETECTED",
+            "The Claude Code audio-hooks plugin is already installed. A script install on top of it would fire every hook twice. Nothing was changed. To switch to the script install deliberately, uninstall the plugin first (`audio-hooks uninstall --plugin` lists the command, which keeps your preferences), or pass --force to install anyway.",
+            suggested_command="audio-hooks uninstall --plugin",
+        )
     import subprocess
     if platform.system() == "Windows":
         installer = PROJECT_ROOT / "scripts" / "install-windows.ps1"
@@ -2258,43 +2559,698 @@ def _uninstall_codex(*, purge: bool) -> int:
 
 
 def cmd_uninstall(args: List[str]) -> int:
+    if any(_is_help_flag(a) for a in args):
+        emit(_install_usage("uninstall", _UNINSTALL_EXTRA_FLAGS))
+        return 0
+    modes, flags, unknown = _parse_mode_args(args, _UNINSTALL_EXTRA_FLAGS)
+    if unknown:
+        return emit_error(
+            "INVALID_USAGE",
+            f"Unknown argument(s) for uninstall: {' '.join(unknown)}. Nothing was changed.",
+            hint="Run `audio-hooks uninstall --help` for the accepted flags.",
+            suggested_command="audio-hooks uninstall --help",
+            unknown_args=unknown,
+        )
+    if len(modes) > 1:
+        return emit_error(
+            "INVALID_USAGE",
+            f"uninstall modes are mutually exclusive, got: {', '.join(modes)}. Nothing was changed.",
+            suggested_command="audio-hooks uninstall --help",
+        )
     if require_project_root() != 0:
         return 1
-    mode = "scripts"
-    purge = False
-    for a in args:
-        if a == "--plugin":
-            mode = "plugin"
-        elif a == "--scripts":
-            mode = "scripts"
-        elif a == "--cursor":
-            mode = "cursor"
-        elif a == "--codex":
-            mode = "codex"
-        elif a == "--purge":
-            purge = True
+    # Bare `uninstall` is the script-install removal, and since v6.6 it is done
+    # natively (see _uninstall_scripts) on every platform: it is the documented
+    # remedy for DUAL_INSTALL_DETECTED, and PROJECT_ROOT is the plugin directory
+    # in exactly that situation, which ships no scripts/.
+    mode = modes[0] if modes else "scripts"
+    purge = "--purge" in flags
+    if "--remove-unmatched" in flags and mode != "scripts":
+        return emit_error(
+            "INVALID_USAGE",
+            f"--remove-unmatched applies to the script install (`uninstall` / `uninstall --scripts`), not --{mode}. Nothing was changed.",
+            suggested_command="audio-hooks uninstall --help",
+        )
+    if purge and mode in ("scripts", "plugin"):
+        return emit_error(
+            "INVALID_USAGE",
+            f"--purge applies to `uninstall --cursor` and `uninstall --codex` (it removes their audio-hooks-data directory); it does nothing for --{mode}. Nothing was changed.",
+            suggested_command="audio-hooks uninstall --help",
+        )
     if mode == "plugin":
+        # --keep-data matches cmd_upgrade: without it `claude plugin uninstall`
+        # deletes ~/.claude/plugins/data/<id>/ (user_preferences.json, backups).
         emit({
             "ok": True,
             "mode": "plugin",
-            "next_steps": ["Run inside Claude Code: /plugin uninstall audio-hooks@chanmeng-audio-hooks"],
+            "next_steps": ["claude plugin uninstall audio-hooks@chanmeng-audio-hooks --keep-data --json"],
+            "data_note": "--keep-data preserves ~/.claude/plugins/data/<id>/ (your preferences and backups). Without it Claude Code's uninstall does not preserve that directory.",
         })
         return 0
     if mode == "cursor":
         return _uninstall_cursor(purge=purge)
     if mode == "codex":
         return _uninstall_codex(purge=purge)
-    import subprocess
-    if platform.system() == "Windows":
-        emit({"ok": True, "mode": "scripts", "hint": "Run scripts/uninstall.sh from Git Bash or WSL."})
+    return _uninstall_scripts(remove_unmatched="--remove-unmatched" in flags)
+
+
+# ---------------------------------------------------------------------------
+# Native removal of the legacy script install (v6.6)
+# ---------------------------------------------------------------------------
+#
+# `audio-hooks uninstall` used to shell out to scripts/uninstall.sh, which the
+# plugin layout does not ship (PROJECT_ROOT is the plugin directory there, the
+# exact situation in which DUAL_INSTALL_DETECTED is reported) and which has no
+# Windows implementation. The removal therefore lives here, and scripts/uninstall.sh
+# now delegates to it, so there is exactly one implementation and one rule.
+
+# Every hook event install-complete.sh can register (and so uninstall must clear).
+LEGACY_HOOK_EVENTS: Tuple[str, ...] = (
+    "Notification", "Stop", "StopFailure", "SessionStart", "SessionEnd",
+    "SubagentStart", "SubagentStop", "PermissionRequest",
+    "PermissionDenied", "TaskCreated", "TaskCompleted", "TeammateIdle",
+    "PreToolUse", "PostToolUse", "PostToolUseFailure", "UserPromptSubmit",
+    "PreCompact", "PostCompact", "ConfigChange", "InstructionsLoaded",
+    "Elicitation", "ElicitationResult", "CwdChanged", "DirectoryAdded",
+    "WorktreeRemove", "FileChanged",
+    "Setup", "UserPromptExpansion", "PostToolBatch", "MessageDisplay",
+)
+
+# Scripts the installers register as hook *commands* (the names a settings.json
+# command or a settings.local.json permission may reference).
+LEGACY_COMMAND_SCRIPTS: Tuple[str, ...] = (
+    "notification_hook.sh", "stop_hook.sh", "pretooluse_hook.sh",
+    "posttooluse_hook.sh", "userprompt_hook.sh", "subagent_hook.sh",
+    "precompact_hook.sh", "session_start_hook.sh", "session_end_hook.sh",
+    "play_audio.sh",   # legacy v1.0
+    "hook_runner.py",  # v3.0+ Python runner
+)
+
+# Files the installers place in ~/.claude/hooks/ besides the command scripts:
+# hook_runner.py imports the two modules at runtime; .project_path records the checkout.
+LEGACY_EXTRA_HOOK_FILES: Tuple[str, ...] = ("invoker.py", "user_preferences.py", ".project_path")
+
+# Bytecode of the modules we installed; nothing else in __pycache__ is ours.
+LEGACY_INSTALLED_MODULES: Tuple[str, ...] = ("hook_runner", "invoker", "user_preferences")
+
+# --- Ownership by content --------------------------------------------------
+# A file name alone proves nothing: `~/.claude/hooks/stop_hook.sh` is an ordinary
+# name for a user's own hook, and `shared/` an ordinary directory. A file is
+# echook's only when its first 8 KiB also carry a marker taken from every
+# historical revision of that file (checked with `git log --all` / `git show`):
+#   * the nine wrappers (*_hook.sh): all 9 files, in every revision, contain
+#     `source "$SCRIPT_DIR/shared/hook_config.sh"`;
+#   * play_audio.sh (v1.0): every revision has the header line
+#     `# Claude Code Stop Hook - Play notification audio`;
+#   * hook_runner.py: all 44 revisions open with the docstring title
+#     `Claude Code Audio Hooks - Python Hook Runner` (30) or `echook - Python Hook Runner` (14);
+#   * invoker.py / user_preferences.py: the module docstrings below (one and five revisions);
+#   * shared/*.sh: the header comment of each library, across both product names.
+_LEGACY_WRAPPER_MARKER = r'source "\$SCRIPT_DIR/shared/hook_config\.sh"'
+LEGACY_FILE_MARKERS: Dict[str, str] = {
+    **{n: _LEGACY_WRAPPER_MARKER for n in LEGACY_COMMAND_SCRIPTS if n.endswith("_hook.sh")},
+    "play_audio.sh": r"^# Claude Code Stop Hook - Play notification audio$",
+    "hook_runner.py": r"(?:echook|Claude Code Audio Hooks) - Python Hook Runner",
+    "invoker.py": r"Invoker detection for the audio-hooks runner",
+    "user_preferences.py": r"single source of truth for user_preferences\.json access",
+}
+LEGACY_SHARED_MARKERS: Dict[str, str] = {
+    "hook_config.sh": r"^# (?:echook|Claude Code Audio Hooks) - Shared Configuration Library$",
+    "hook_config_with_path_utils.sh": r"^# (?:echook|Claude Code Audio Hooks) - Shared Configuration Library$",
+    "path_utils.sh": r"^# (?:echook|Claude Code Audio Hooks) - Path Utilities$",
+    "hook_logger.sh": r"^# Hook Logger - Records all hook triggers for debugging$",
+}
+
+# A command or permission is ours only when, after backslashes become forward
+# slashes, it references `<home>/.claude/hooks/<known script>`: <home> is one of
+# _LEGACY_HOME_SPELLINGS or the actual home directory (case-insensitive on
+# Windows); it starts at a word boundary (start of string, whitespace, a quote,
+# `=`, `:` or an opening parenthesis); and the script name is not followed by
+# more path characters. Another directory's `.claude/hooks` (`node
+# D:/proj/.claude/hooks/hook_runner.py`) and a bare substring (`bash
+# ~/bin/my_stop_hook.sh`) are NOT ours. Whether the *file* it names is echook's
+# is a separate question, decided by content (above).
+_LEGACY_HOME_SPELLINGS: Tuple[str, ...] = (r"~", r"\$HOME", r"\$\{HOME\}", r"%USERPROFILE%")
+_LEGACY_REF_TEMPLATE = r"""(?:^|[\s"'=:(])(?:%s)/\.claude/hooks/(?:%s)(?![\w.\-/])"""
+
+
+def _legacy_names_pattern() -> str:
+    return "(?P<name>" + "|".join(re.escape(n) for n in LEGACY_COMMAND_SCRIPTS) + ")"
+
+
+def _legacy_ref_regex() -> "re.Pattern[str]":
+    home = str(Path.home()).replace("\\", "/").rstrip("/")
+    homes = list(_LEGACY_HOME_SPELLINGS) + ([re.escape(home)] if home else [])
+    flags = re.IGNORECASE if platform.system() == "Windows" else 0
+    return re.compile(_LEGACY_REF_TEMPLATE % ("|".join(homes), _legacy_names_pattern()), flags)
+
+
+def _legacy_ref_name(text: Any, rx: Optional["re.Pattern[str]"] = None) -> Optional[str]:
+    """The known script a command/permission references (home-anchored), else None."""
+    if not isinstance(text, str):
+        return None
+    m = (rx or _legacy_ref_regex()).search(text.replace("\\", "/"))
+    return m.group("name") if m else None
+
+
+def _is_legacy_script_ref(text: Any, _rx: Optional["re.Pattern[str]"] = None) -> bool:
+    return _legacy_ref_name(text, _rx) is not None
+
+
+def _strip_legacy_hooks(settings: Dict[str, Any],
+                        owned: Optional[Callable[[str], bool]] = None,
+                        extra_ref: Optional[Callable[[str], Optional[str]]] = None) -> int:
+    """Remove only our hook entries from ``settings["hooks"]`` (in place); return the count.
+
+    Per entry, not per group: a group is dropped only when every hook in it was
+    ours, an event key only when it had removals and no groups remain, and the
+    ``hooks`` object only when removals emptied it. ``owned(name)`` says whether
+    the script file an entry names is echook's (or gone); an entry that points at
+    a user's own file of the same name is kept.
+
+    ``extra_ref(command)`` (used by ``--remove-unmatched``) names the script of a
+    command whose home is spelled in a form the strict rule does not recognise.
+    When given, every event key is examined, not only the 30 echook registers.
+    """
+    removed = 0
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
         return 0
-    cmd = ["bash", str(PROJECT_ROOT / "scripts" / "uninstall.sh")]
+    rx = _legacy_ref_regex()
+
+    def is_ours_entry(h: Any) -> bool:
+        if not isinstance(h, dict):
+            return False
+        cmd = h.get("command")
+        name = _legacy_ref_name(cmd, rx)
+        if name is None and extra_ref is not None and isinstance(cmd, str):
+            name = extra_ref(cmd)
+        return name is not None and (owned is None or owned(name))
+
+    events = list(LEGACY_HOOK_EVENTS)
+    if extra_ref is not None:
+        events += [e for e in hooks if e not in LEGACY_HOOK_EVENTS]
+    for event_name in events:
+        groups = hooks.get(event_name)
+        if not isinstance(groups, list):
+            continue
+        kept_groups: List[Any] = []
+        event_removed = 0
+        for group in groups:
+            entries = group.get("hooks") if isinstance(group, dict) else None
+            if not isinstance(entries, list):
+                kept_groups.append(group)
+                continue
+            kept = [h for h in entries if not is_ours_entry(h)]
+            gone = len(entries) - len(kept)
+            event_removed += gone
+            if gone == 0:
+                kept_groups.append(group)
+            elif kept:
+                group = dict(group)  # a copy keeps key order
+                group["hooks"] = kept
+                kept_groups.append(group)
+        if event_removed:
+            removed += event_removed
+            if kept_groups:
+                hooks[event_name] = kept_groups
+            else:
+                del hooks[event_name]
+    if removed and not hooks:
+        del settings["hooks"]
+    return removed
+
+
+def _strip_legacy_permissions(settings: Dict[str, Any],
+                              owned: Optional[Callable[[str], bool]] = None,
+                              extra_ref: Optional[Callable[[str], Optional[str]]] = None) -> int:
+    """Remove our entries from ``settings["permissions"]["allow"]`` (in place)."""
+    perms = settings.get("permissions")
+    if not isinstance(perms, dict) or not isinstance(perms.get("allow"), list):
+        return 0
+    before = len(perms["allow"])
+    rx = _legacy_ref_regex()
+
+    def is_ours_perm(p: Any) -> bool:
+        name = _legacy_ref_name(p, rx)
+        if name is None and extra_ref is not None and isinstance(p, str):
+            name = extra_ref(p)
+        return name is not None and (owned is None or owned(name))
+
+    perms["allow"] = [p for p in perms["allow"] if not is_ours_perm(p)]
+    return before - len(perms["allow"])
+
+
+def _read_head(path: Path, limit: int = 8192) -> str:
+    with open(path, "rb") as f:
+        data = f.read(limit)
+    return data.decode("utf-8", errors="replace").replace("\r\n", "\n").lstrip("﻿")
+
+
+def _has_marker(path: Path, pattern: str) -> bool:
     try:
-        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
-        emit({"ok": proc.returncode == 0, "mode": "scripts", "exit_code": proc.returncode})
-        return 0 if proc.returncode == 0 else 1
+        return re.search(pattern, _read_head(path), re.MULTILINE) is not None
+    except OSError:
+        return False
+
+
+def _marker_state(path: Path, pattern: str) -> Tuple[str, str]:
+    """('yes'|'no'|'unreadable', detail) -- an unreadable file is not 'no marker'."""
+    try:
+        head = _read_head(path)
+    except OSError as e:
+        return "unreadable", str(e)
+    return ("yes" if re.search(pattern, head, re.MULTILINE) else "no"), ""
+
+
+def _classify_legacy_files(hooks_dir: Path) -> Dict[str, Any]:
+    """Split the name-matching files in ~/.claude/hooks into ours and not-ours.
+
+    Returns ``ours`` (paths), ``ours_names`` (set), ``not_ours`` ({path, reason}
+    dicts), ``not_ours_names`` (set), ``shared_ours`` (paths in shared/) and
+    ``shared_present`` (the shared dir exists).
+    """
+    ours: List[Path] = []
+    not_ours: List[Dict[str, str]] = []
+    ours_names: set = set()
+    not_ours_names: set = set()
+
+    for name in LEGACY_COMMAND_SCRIPTS + LEGACY_EXTRA_HOOK_FILES:
+        p = hooks_dir / name
+        if not p.is_file() or name == ".project_path":
+            continue
+        state, detail = _marker_state(p, LEGACY_FILE_MARKERS[name])
+        if state == "yes":
+            ours.append(p)
+            ours_names.add(name)
+        else:
+            reason = ("name matches an echook file but its content has no echook marker" if state == "no"
+                      else f"name matches an echook file but it could not be read ({detail}); left alone")
+            not_ours.append({"path": str(p), "reason": reason})
+            not_ours_names.add(name)
+
+    # .project_path holds the checkout path the installers record. It is ours when
+    # it is a single path line and sits beside echook's runner, or names a checkout.
+    pp = hooks_dir / ".project_path"
+    if pp.is_file():
+        head = ""
+        unreadable = ""
+        try:
+            head = _read_head(pp, 4096).strip()
+        except OSError as e:
+            unreadable = str(e)
+        single_line = bool(head) and "\n" not in head and "\0" not in head
+        points_at_checkout = False
+        if single_line:
+            try:
+                points_at_checkout = (Path(head) / "hooks" / "hook_runner.py").is_file()
+            except (OSError, ValueError):
+                pass
+        if single_line and ("hook_runner.py" in ours_names or points_at_checkout):
+            ours.append(pp)
+            ours_names.add(".project_path")
+        else:
+            not_ours.append({"path": str(pp),
+                             "reason": (f"could not be read ({unreadable}); left alone" if unreadable else
+                                        "not a single-line path beside echook's hook_runner.py or naming an echook checkout")})
+            not_ours_names.add(".project_path")
+
+    shared = hooks_dir / "shared"
+    shared_ours: List[Path] = []
+    if shared.is_dir():
+        for name, marker in LEGACY_SHARED_MARKERS.items():
+            p = shared / name
+            if not p.is_file():
+                continue
+            state, detail = _marker_state(p, marker)
+            if state == "yes":
+                shared_ours.append(p)
+            else:
+                reason = ("name matches an echook library but its content has no echook marker" if state == "no"
+                          else f"name matches an echook library but it could not be read ({detail}); left alone")
+                not_ours.append({"path": str(p), "reason": reason})
+    return {"ours": ours, "ours_names": ours_names, "not_ours": not_ours,
+            "not_ours_names": not_ours_names, "shared_ours": shared_ours,
+            "shared_present": shared.is_dir()}
+
+
+_LEGACY_LOOSE_REF_RE = re.compile(
+    r"""/\.claude/hooks/%s(?![\w.\-/])""" % _legacy_names_pattern())
+
+
+def _prefix_segment(norm: str, start: int) -> str:
+    """The path-ish word that ends at ``norm[start]`` (the '/' of '/.claude/hooks/…').
+
+    Runs back to the previous whitespace or '(' and drops quotes, then keeps what
+    follows the last shell separator, so `"$HOME"`, `true;~`, `true&&~` and
+    backtick-~ all reduce to the home spelling and `./` or `$PROJECT/` to a
+    relative or foreign one.
+    """
+    j = start
+    while j > 0 and not norm[j - 1].isspace() and norm[j - 1] != "(":
+        j -= 1
+    segment = norm[j:start].replace('"', "").replace("'", "")
+    return re.split(r"[;&|`<>=]", segment)[-1]
+
+
+def _prefix_denotes_home(prefix: str, name: str, hooks_dir: Path) -> bool:
+    """Could ``prefix`` be a spelling of the user's home that the strict rule missed?
+
+    True for a lone `~` (however it is attached to a shell separator),
+    environment-variable spellings (`$env:USERPROFILE`, `%HOMEDRIVE%%HOMEPATH%`,
+    anything like `$…HOME…`), and an ABSOLUTE path (also an MSYS `/c/Users/…` path)
+    that resolves to the very same file as the one in the real hooks directory
+    (8.3 short names included). Relative prefixes (`./`, `$PROJECT_DIR/`) and other
+    projects' directories are not: they would otherwise be judged against the
+    current working directory.
+    """
+    if prefix == "~":
+        return True
+    if re.search(r"(?i)\$env:|\$\{?\w*(?:HOME|USERPROFILE)|%\w*(?:HOME|USERPROFILE)", prefix):
+        return True
+    candidates = []
+    if os.path.isabs(prefix) or re.match(r"^[A-Za-z]:[/\\]", prefix):
+        candidates.append(prefix)
+    m = re.match(r"^/([A-Za-z])/(.*)$", prefix)
+    if m:
+        candidates.append(f"{m.group(1)}:/{m.group(2)}")
+    target = hooks_dir / name
+    for cand in candidates:
+        try:
+            other = Path(cand) / ".claude" / "hooks" / name
+            if other.exists() and target.exists() and os.path.samefile(other, target):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
+def _unmatched_names(text: str, hooks_dir: Path, not_ours_names: set) -> List[str]:
+    """Known scripts that ``text`` references with a home spelling the strict rule
+    missed (excluding scripts that are a user's own files)."""
+    norm = text.replace("\\", "/")
+    names: List[str] = []
+    for m in _LEGACY_LOOSE_REF_RE.finditer(norm):
+        name = m.group("name")
+        if name in not_ours_names:
+            continue
+        if _prefix_denotes_home(_prefix_segment(norm, m.start()), name, hooks_dir) and name not in names:
+            names.append(name)
+    return names
+
+
+def _candidate_strings(doc: Dict[str, Any]):
+    """The strings uninstall edits: hook commands (any event) and permissions.allow."""
+    hooks = doc.get("hooks")
+    if isinstance(hooks, dict):
+        for groups in hooks.values():
+            for group in groups if isinstance(groups, list) else []:
+                entries = group.get("hooks") if isinstance(group, dict) else None
+                for h in entries if isinstance(entries, list) else []:
+                    if isinstance(h, dict) and isinstance(h.get("command"), str):
+                        yield h["command"]
+    perms = doc.get("permissions")
+    if isinstance(perms, dict) and isinstance(perms.get("allow"), list):
+        for p in perms["allow"]:
+            if isinstance(p, str):
+                yield p
+
+
+def _unmatched_legacy_references(label: str, doc: Dict[str, Any], hooks_dir: Path,
+                                 not_ours_names: set) -> List[Dict[str, Any]]:
+    """Registrations that survive stripping because the home is spelled in a form
+    the strict rule does not recognise. ``scripts`` carries the full set of script
+    names (taken from the untruncated text); ``value`` is only for display."""
+    out: List[Dict[str, Any]] = []
+    for text in _candidate_strings(doc):
+        names = _unmatched_names(text, hooks_dir, not_ours_names)
+        if names:
+            out.append({"file": label, "value": text[:200], "scripts": names})
+    return out
+
+
+def _encode_json(data: Any) -> bytes:
+    """UTF-8, non-ASCII preserved, trailing newline. May raise (RecursionError,
+    UnicodeEncodeError for a lone surrogate) -- callers do this BEFORE any write."""
+    return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _write_bytes_atomic(path: Path, data: bytes) -> None:
+    """Replace ``path`` with ``data`` atomically, keeping its identity.
+
+    Writes through a symlink to the resolved target (a dotfiles-managed
+    settings.json stays a link to the managed file) and keeps the original
+    permission bits. The temp file is created 0600 from the start, so a secret-
+    bearing file is never briefly readable more widely than the original.
+    """
+    import stat
+    target = Path(os.path.realpath(path))
+    tmp = target.with_name(target.name + ".uninstall-tmp")
+    try:
+        mode = None
+        try:
+            mode = stat.S_IMODE(os.stat(target).st_mode)
+        except OSError:
+            pass
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        if mode is not None and os.name == "posix":
+            os.chmod(tmp, mode)
+        os.replace(tmp, target)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+def _uninstall_scripts(*, remove_unmatched: bool = False) -> int:
+    """Remove the legacy script install (``~/.claude/hooks`` + its settings entries).
+
+    Order matters: nothing is deleted until the settings edits succeeded, so an
+    abort leaves a working install. Both settings files are parsed, edited and
+    serialised to bytes before either is written; each write is atomic and keeps
+    symlinks and permissions; a file with nothing to remove is not rewritten.
+    Only files whose *content* identifies them as echook's are removed, and a
+    registration is stripped only if the file it names is echook's or gone. The
+    temp lock/queue directory is deliberately left alone: with the plugin also
+    installed (the dual-install case this exists for) it holds live state.
+
+    Result: ``ok:true, incomplete:false`` when everything echook put there is gone.
+    If something could not be removed, or a registration spells the home in a form
+    the strict rule does not recognise (so its script is kept rather than broken),
+    the result is ``ok:false`` with error ``UNINSTALL_INCOMPLETE`` and the same
+    fields. ``remove_unmatched`` (``--remove-unmatched``) additionally strips those
+    registrations and then removes the scripts they pointed at.
+    """
+    import shutil
+
+    claude_dir = Path.home() / ".claude"
+    hooks_dir = claude_dir / "hooks"
+    targets = (
+        (claude_dir / "settings.json", _strip_legacy_hooks),
+        (claude_dir / "settings.local.json", _strip_legacy_permissions),
+    )
+
+    # 1. What in ~/.claude/hooks is ours (by content).
+    cls = _classify_legacy_files(hooks_dir)
+    not_ours_names = cls["not_ours_names"]
+
+    def owned(name: str) -> bool:
+        return name not in not_ours_names  # ours, or the file is gone
+
+    def extra_ref(text: str) -> Optional[str]:
+        names = _unmatched_names(text, hooks_dir, not_ours_names)
+        return names[0] if names else None
+
+    # 2. Parse both settings files first; compute the new contents.
+    pending: List[Tuple[Path, Dict[str, Any], int]] = []
+    for path, strip in targets:
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+            if not isinstance(data, dict):
+                raise ValueError("top-level JSON value is not an object")
+        except Exception as e:  # OSError, ValueError, RecursionError on absurd nesting
+            return emit_error(
+                "CONFIG_READ_ERROR",
+                f"Cannot read {path}: {e}. Nothing was changed.",
+                hint="Fix or move the file, then re-run `audio-hooks uninstall`.",
+            )
+        pending.append((path, data, strip(data, owned, extra_ref if remove_unmatched else None)))
+    entries_removed = {p.name: n for p, _d, n in pending}
+
+    # 3. Registrations that survived because the home was spelled in an
+    #    unrecognised form. The names come from the untruncated text. Their
+    #    script files are kept: deleting a script a registration still points at
+    #    would break that hook.
+    unmatched: List[Dict[str, Any]] = []
+    for path, data, _n in pending:
+        unmatched.extend(_unmatched_legacy_references(path.name, data, hooks_dir, not_ours_names))
+    blocked_names = {n for u in unmatched for n in u["scripts"]}
+
+    # 4. What gets deleted, and what has to stay so a kept script still runs.
+    kept_reason: Dict[Path, str] = {}
+    runner_kept = "hook_runner.py" in blocked_names or "hook_runner.py" in not_ours_names
+    wrapper_kept = any(n.endswith("_hook.sh") and (n in blocked_names or n in not_ours_names)
+                       for n in LEGACY_COMMAND_SCRIPTS)
+    files: List[Path] = []
+    for f in cls["ours"]:
+        if f.name in blocked_names:
+            kept_reason[f] = "a registration still points at it"
+        elif runner_kept and f.name in ("invoker.py", "user_preferences.py", ".project_path"):
+            kept_reason[f] = "needed by the kept hook_runner.py (it imports it / reads it at runtime)"
+        else:
+            files.append(f)
+    shared_ours: List[Path] = cls["shared_ours"]
+    if wrapper_kept and shared_ours:
+        for f in shared_ours:
+            kept_reason[f] = "sourced by a kept *_hook.sh wrapper"
+        shared_ours = []
+    shared = hooks_dir / "shared"
+    pycache = hooks_dir / "__pycache__"
+    pyc: List[Path] = []
+    if pycache.is_dir():
+        removed_or_absent = {f.stem for f in files if f.suffix == ".py"} | {
+            m for m in LEGACY_INSTALLED_MODULES if not (hooks_dir / (m + ".py")).exists()}
+        for mod in LEGACY_INSTALLED_MODULES:
+            if mod in removed_or_absent:
+                pyc.extend(sorted(pycache.glob(mod + ".*.pyc")))
+
+    tmp_base = Path(os.environ.get("TEMP") or os.environ.get("TMP") or "/tmp")
+    left_in_place = [str(p) for p in (tmp_base / "claude_audio_hooks_queue", tmp_base / "claude_audio_hooks.lock")
+                     if p.exists()]
+    left_in_place.append("config/user_preferences.json and audio/ (preserved)")
+    left_in_place.extend(f"{f} (kept: {why})" for f, why in kept_reason.items())
+    skipped = list(cls["not_ours"])
+
+    def result(**extra: Any) -> Dict[str, Any]:
+        base: Dict[str, Any] = {
+            "mode": "scripts",
+            "removed_hook_entries": entries_removed.get("settings.json", 0),
+            "removed_permissions": entries_removed.get("settings.local.json", 0),
+            "removed_files": [], "backup_dir": None,
+            "skipped_not_ours": skipped, "unmatched_references": unmatched,
+            "left_in_place": left_in_place,
+        }
+        base.update(extra)
+        return base
+
+    def finish(res: Dict[str, Any], failed: List[str]) -> int:
+        incomplete = bool(unmatched or failed)
+        res["incomplete"] = incomplete
+        if not incomplete:
+            res["ok"] = True
+            emit(res)
+            return 0
+        problems = []
+        steps = []
+        if unmatched:
+            problems.append(f"{len(unmatched)} registration(s) spell the home directory in a form this command does not "
+                            "recognise, so they were left and the script files they point at were kept")
+            steps.append("Read unmatched_references (a variable such as $XDG_CONFIG_HOME or %ANDROID_HOME% may belong to "
+                         "another tool), then run: audio-hooks uninstall --remove-unmatched")
+        if failed:
+            problems.append(f"{len(failed)} file(s) could not be deleted")
+            steps.append("Close whatever holds the files listed in left_in_place, then run: audio-hooks uninstall")
+        res["next_steps"] = steps
+        res.pop("ok", None)
+        return emit_error("UNINSTALL_INCOMPLETE", "Uninstall is INCOMPLETE: " + "; ".join(problems) + ".",
+                          hint="Everything else that was echook's has been removed. Check unmatched_references before using "
+                               "--remove-unmatched: it removes every entry listed there and then the scripts they point at.",
+                          **{k: v for k, v in res.items() if k != "error"})
+
+    nothing = (not any(n for _p, _d, n in pending)) and not (files or pyc or shared_ours)
+    if nothing:
+        res = result(nothing_to_remove=not unmatched)
+        return finish(res, [])
+
+    # 5. Serialise BEFORE writing anything: encoding failures (a lone surrogate,
+    #    absurd nesting) must surface while the install is still untouched.
+    payloads: List[Tuple[Path, bytes]] = []
+    for path, data, count in pending:
+        if count:  # nothing removed -> leave the file byte-for-byte alone
+            try:
+                payloads.append((path, _encode_json(data)))
+            except Exception as e:
+                return emit_error("INTERNAL_ERROR",
+                                  f"Cannot serialise the edited {path.name}: {e}. Nothing was changed.")
+
+    # 6. Backup: everything that will be changed or deleted (bytecode excepted).
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    backup_dir = claude_dir / "backups" / f"audio-hooks-uninstall-{stamp}"
+    n = 1
+    while backup_dir.exists():
+        n += 1
+        backup_dir = claude_dir / "backups" / f"audio-hooks-uninstall-{stamp}-{n}"
+    try:
+        backup_dir.mkdir(parents=True)
+        for path, _d, _n in pending:
+            shutil.copy2(path, backup_dir / (path.name + ".backup"))
+        if files or shared_ours:
+            (backup_dir / "hooks").mkdir()
+            for f in files:
+                shutil.copy2(f, backup_dir / "hooks" / f.name)
+            if shared_ours:
+                (backup_dir / "hooks" / "shared").mkdir()
+                for f in shared_ours:
+                    shutil.copy2(f, backup_dir / "hooks" / "shared" / f.name)
+    except OSError as e:
+        return emit_error("INTERNAL_ERROR", f"Cannot create backup in {backup_dir}: {e}. Nothing was changed.")
+
+    # 7. Settings edits; on ANY failure restore what was written from the backup.
+    written: List[Path] = []
+    try:
+        for path, payload in payloads:
+            _write_bytes_atomic(path, payload)
+            written.append(path)
     except Exception as e:
-        return emit_error("INTERNAL_ERROR", str(e))
+        not_restored: List[str] = []
+        for path in written:
+            try:
+                _write_bytes_atomic(path, (backup_dir / (path.name + ".backup")).read_bytes())
+            except Exception:
+                not_restored.append(str(path))
+        if not_restored:
+            return emit_error(
+                "INTERNAL_ERROR",
+                f"Cannot update settings: {e}. These file(s) were already rewritten and could NOT be restored automatically: "
+                f"{', '.join(not_restored)}. The originals are in {backup_dir}; copy them back. No script files were deleted.",
+                backup_dir=str(backup_dir))
+        return emit_error("INTERNAL_ERROR",
+                          f"Cannot update settings: {e}. Settings restored from {backup_dir}; no files were deleted.",
+                          backup_dir=str(backup_dir))
+
+    # 8. Only now delete what we installed.
+    removed_files: List[str] = []
+    failed: List[str] = []
+    for f in files + pyc + shared_ours:
+        try:
+            f.unlink()
+            removed_files.append(str(f))
+        except OSError:
+            failed.append(str(f))
+            left_in_place.append(f"{f} (could not be deleted)")
+    if shared_ours and shared.is_dir():
+        # Only a directory we emptied is removed; a user's shared/ keeps living.
+        try:
+            shared.rmdir()
+            removed_files.append(str(shared))
+        except OSError:
+            left_in_place.append(f"{shared} (still holds files echook did not install)")
+    if pycache.is_dir():
+        try:
+            pycache.rmdir()  # only succeeds if our bytecode was all that was in it
+        except OSError:
+            pass
+    left_in_place.append(f"{hooks_dir} (the directory itself, and any file echook did not install)")
+
+    res = result(removed_files=removed_files, backup_dir=str(backup_dir),
+                 next_steps=["Restart Claude Code so it stops invoking the removed hook scripts"])
+    return finish(res, failed)
 
 
 def _uninstall_cursor(*, purge: bool) -> int:
@@ -2371,8 +3327,11 @@ def _uninstall_cursor(*, purge: bool) -> int:
         "hint": (
             "Restart Cursor IDE so it picks up the change. If you also want to"
             " stop Cursor's auto-bridge from firing the Claude Code plugin,"
-            " uninstall the plugin via /plugin uninstall in Claude Code, or"
-            " disable 'Third-party skills' in Cursor Settings."
+            " uninstall the plugin via `claude plugin uninstall"
+            " audio-hooks@chanmeng-audio-hooks --keep-data --json`. (Switching off"
+            " 'Include third-party Plugins, Skills, and other configs' in Cursor"
+            " Settings stops the bridge in the IDE only; it has no effect on"
+            " cursor-agent.)"
         ),
     })
     return 0
@@ -2621,6 +3580,11 @@ def _cmd_statusline_codex(args: List[str]) -> int:
     [tui] arrays (status_line and/or terminal_title) so they stop truncating."""
     action = args[0] if args else "show"
     rest = args[1:]
+    if action in ("preview", "apply"):
+        rc = _check_args(f"statusline codex {action}", rest,
+                         valued=("--preset", "--items", "--target"), max_positionals=0)
+        if rc is not None:
+            return rc
     preset = None
     items_flag = None
     target = "status_line"
@@ -2805,6 +3769,10 @@ def _cmd_statusline_subagent(args: List[str]) -> int:
     settings_path = Path.home() / ".claude" / "settings.json"
     script = PROJECT_ROOT / "bin" / "audio-hooks-subagent-statusline.py"
     sub = args[0] if args else "show"
+    if sub in ("install", "uninstall"):
+        rc = _check_args(f"statusline subagent {sub}", args[1:], max_positionals=0)
+        if rc is not None:
+            return rc
 
     def _read_settings() -> Dict[str, Any]:
         if not settings_path.exists():
@@ -2877,6 +3845,10 @@ def cmd_statusline(args: List[str]) -> int:
         return 1
     sub = args[0] if args else "show"
     settings_path = Path.home() / ".claude" / "settings.json"
+    if sub in ("install", "uninstall"):
+        rc = _check_args(f"statusline {sub}", args[1:], max_positionals=0)
+        if rc is not None:
+            return rc
 
     if sub == "segments":
         emit({
@@ -3032,6 +4004,10 @@ def cmd_backup(args: List[str]) -> int:
             "content": content,
         })
         return 0
+    if sub in ("restore", "prune"):
+        rc = _check_args(f"backup {sub}", rest, max_positionals=1 if sub == "restore" else 0)
+        if rc is not None:
+            return rc
     if sub == "restore":
         if not rest:
             return emit_error(
@@ -3083,6 +4059,27 @@ def cmd_backup(args: List[str]) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_upgrade(args: List[str]) -> int:
+    # v6.6: same class of bug as install/uninstall — `upgrade --help` or
+    # `upgrade --bogus` used to fall through to the real upgrade, which can
+    # uninstall and reinstall the plugin.
+    if any(_is_help_flag(a) for a in args):
+        emit({
+            "ok": True,
+            "usage": "audio-hooks upgrade [--check-only] [--force]",
+            "flags": {
+                "--check-only": "Report whether an upgrade is available; change nothing.",
+                "--force": "Upgrade even if the installed version is current.",
+            },
+        })
+        return 0
+    unknown = [a for a in args if a not in ("--check-only", "--force")]
+    if unknown:
+        return emit_error(
+            "INVALID_USAGE",
+            f"Unknown argument(s) for upgrade: {' '.join(unknown)}. Nothing was changed.",
+            suggested_command="audio-hooks upgrade --check-only",
+            unknown_args=unknown,
+        )
     if require_project_root() != 0:
         return 1
     check_only = "--check-only" in args
@@ -3408,8 +4405,8 @@ def _build_manifest() -> Dict[str, Any]:
             {"name": "diagnose", "args": [], "description": "System diagnostic: settings.json, audio player, audio files, errors, warnings"},
             {"name": "logs tail", "args": ["[--n N]", "[--level info|warn|error|debug]"], "description": "Tail recent NDJSON log events"},
             {"name": "logs clear", "args": [], "description": "Truncate the event log"},
-            {"name": "install", "args": ["[--plugin|--scripts|--cursor|--codex]", "[--force]"], "description": "Install non-interactively. --cursor writes ~/.cursor/hooks.json for Cursor IDE users. --codex writes $CODEX_HOME/hooks.json for Codex CLI users. --force overrides DUPLICATE_BRIDGE check (cursor only)."},
-            {"name": "uninstall", "args": ["[--plugin|--scripts|--cursor|--codex]", "[--purge]"], "description": "Uninstall non-interactively. --cursor / --codex remove audio-hooks-managed entries from the corresponding hooks.json (--purge also removes the audio-hooks-data directory)."},
+            {"name": "install", "args": ["<--plugin|--scripts|--cursor|--codex>", "[--force]", "[--help]"], "description": "Install non-interactively. A mode flag is required (no default); unknown arguments are rejected with INVALID_USAGE and change nothing. --plugin lists the `claude plugin` commands to run. --cursor writes ~/.cursor/hooks.json for Cursor IDE users. --codex writes $CODEX_HOME/hooks.json for Codex CLI users. --scripts is the legacy installer. --force overrides the DUPLICATE_BRIDGE check (--cursor) and the DUAL_INSTALL_DETECTED check (--scripts)."},
+            {"name": "uninstall", "args": ["[--plugin|--scripts|--cursor|--codex]", "[--purge]", "[--remove-unmatched]", "[--help]"], "description": "Uninstall non-interactively. Bare `uninstall` (= --scripts) removes the legacy script install natively on every platform: it backs up to ~/.claude/backups/audio-hooks-uninstall-<ts>/, edits settings.json / settings.local.json (only entries that reference ~/.claude/hooks/<known script>), then deletes only the files echook installed; it leaves the temp queue directory alone. Files are judged by content, not name; an incomplete result is ok:false / UNINSTALL_INCOMPLETE and --remove-unmatched finishes it (read unmatched_references first). Unknown arguments are rejected with INVALID_USAGE. --cursor / --codex remove audio-hooks-managed entries from the corresponding hooks.json (--purge also removes the audio-hooks-data directory)."},
             {"name": "statusline show", "args": [], "description": "Show Claude Code status line registration state"},
             {"name": "statusline install", "args": [], "description": "Register the echook status line in ~/.claude/settings.json"},
             {"name": "statusline uninstall", "args": [], "description": "Remove the echook status line registration"},
@@ -3459,6 +4456,7 @@ def _build_manifest() -> Dict[str, Any]:
             "filters.<hook_name>.<field_name>",
             "filters.<hook_name>.<field_name>_exclude",
             "filters.stop.skip_if_background_tasks_running",
+            "filters.stop.skip_if_session_crons_scheduled",
             "webhook_settings.enabled",
             "webhook_settings.url",
             "webhook_settings.format",
@@ -3482,10 +4480,10 @@ def _build_manifest() -> Dict[str, Any]:
         "supported_editors": {
             "claude-code": {
                 "events": _claude_code_registered_events(),
-                "install_via": "/plugin install audio-hooks@chanmeng-audio-hooks",
+                "install_via": "claude plugin marketplace add ChanMeng666/echook --json && claude plugin install audio-hooks@chanmeng-audio-hooks --json (then ask the user to type /reload-plugins)",
             },
             "cursor": {
-                "auto_bridge": "Cursor IDE 3.2.16+ auto-bridges Claude Code plugin hooks. Toggleable via Cursor Settings > Third-party skills.",
+                "auto_bridge": "Cursor IDE 3.2.16+ auto-bridges Claude Code plugin hooks. In the IDE, the bridge can be switched off at Cursor Settings > Rules, Skills, Subagents > 'Include third-party Plugins, Skills, and other configs'; that toggle has no effect on cursor-agent, where bridging is hardcoded.",
                 "bridged_events_subset": [
                     "pretooluse", "posttooluse", "userpromptsubmit",
                     "stop", "subagent_stop", "session_start",
@@ -3638,6 +4636,28 @@ DISPATCH = {
 }
 
 
+# Subcommands whose handler answers --help itself, with a richer payload.
+_SELF_DOCUMENTING = frozenset({"install", "uninstall", "upgrade"})
+
+
+def _emit_subcommand_usage(cmd: str) -> int:
+    """Print the manifest entries for ``cmd``; run nothing, write nothing."""
+    entries: List[Dict[str, Any]] = []
+    try:
+        entries = [e for e in _build_manifest().get("subcommands", [])
+                   if str(e.get("name", "")).split(" ")[0] == cmd]
+    except Exception:
+        # Usage must survive a broken checkout; the entry list is a convenience.
+        pass
+    emit({
+        "ok": True,
+        "command": cmd,
+        "usage": entries,
+        "note": "--help only prints usage; nothing was executed. `audio-hooks manifest` lists every subcommand.",
+    })
+    return 0
+
+
 def main(argv: List[str]) -> int:
     if len(argv) < 2:
         # No-arg invocation returns the manifest as the canonical introspection target
@@ -3648,6 +4668,17 @@ def main(argv: List[str]) -> int:
     fn = DISPATCH.get(cmd)
     if fn is None:
         return emit_error("INVALID_USAGE", f"Unknown subcommand: {cmd}", suggested_command="audio-hooks manifest")
+    # v6.6: --help / -h must never reach a handler. Before this, `tts set --help`,
+    # `webhook set --help` and the like parsed it as an ordinary argument and
+    # still rewrote the config, and `install --help` ran the installer -- an agent
+    # probing a subcommand for usage changed real state. No subcommand takes a
+    # literal "-h" or "--help" as a value. install/uninstall/upgrade keep the
+    # richer usage their handlers emit themselves.
+    # `set <key> <value>`: only a leading help token is help; one anywhere after
+    # the key is rejected by cmd_set (it must never be stored as a value).
+    help_args = argv[2:3] if cmd == "set" else argv[2:]
+    if cmd not in _SELF_DOCUMENTING and any(_is_help_flag(a) for a in help_args):
+        return _emit_subcommand_usage(cmd)
     try:
         return fn(argv[2:])
     except Exception as e:

@@ -21,7 +21,9 @@ It returns a JSON document listing the platform, audio player binary, the state 
 | `WEBHOOK_HTTP_ERROR` / `WEBHOOK_TIMEOUT` | Webhook unreachable | `audio-hooks webhook test`; check the URL and network |
 | `TTS_FAILED` | TTS engine failed or missing. **Before 6.5.1 this was never emitted**, and on Windows/WSL any spoken text containing a `"` produced an unparseable PowerShell script, so TTS went silent with no error | `audio-hooks tts set --enabled false` or install: macOS `say` (built-in), Linux `apt install espeak`, Windows SAPI (built-in) |
 | `SETTINGS_DISABLE_ALL_HOOKS` | `~/.claude/settings.json` has `"disableAllHooks": true` | Edit the settings file to remove or set `false` |
-| `DUAL_INSTALL_DETECTED` | Both the script install and the plugin install are active | `audio-hooks uninstall` (removes the script install, preserves config + audio) |
+| `DUAL_INSTALL_DETECTED` | Both the script install and the plugin install are active — or, since 6.6.0, `install --scripts` was refused because the plugin is installed | Both active: `audio-hooks uninstall` (removes the script install on every platform; backs up first; preserves config + audio). `install --scripts` refused: that command is the wrong direction — to switch to the script install deliberately run `audio-hooks uninstall --plugin` first (it lists a `--keep-data` command), or pass `--force` |
+| `INVALID_USAGE` | *(6.6.0)* An unknown subcommand, flag or stray positional on a state-changing subcommand (`set`, `hooks`, `theme set`, `snooze`, `webhook`, `tts set`, `rate-limits set`, `logs clear`, `backup`, `statusline …`, `upgrade`, `uninstall`); `install` without exactly one mode flag; `--purge` with `uninstall --scripts` / `--plugin`; `--remove-unmatched` outside scripts mode; a help-like token (`--help`, `-h`, `-?`, `/?`) as the value of `set`; a non-finite rate-limit threshold. **Nothing was changed** — before 6.6.0 the same input ran the script installer and reported `ok: true` | Follow the error's `suggested_command`: `audio-hooks install --help` lists the four modes (`--plugin`, `--scripts`, `--cursor`, `--codex`) |
+| `UNINSTALL_INCOMPLETE` | *(6.6.0)* `audio-hooks uninstall` removed what it could, but a file could not be deleted or a registration uses a home spelling it does not recognise | Read `unmatched_references` and `next_steps` in the output, then `audio-hooks uninstall --remove-unmatched` — see "Two sounds overlapping" below |
 | `PROJECT_DIR_NOT_FOUND` | Could not locate project directory | Ensure the project files are present at the install location |
 | `DUPLICATE_BRIDGE` | `install --cursor` aborted because Claude Code's plugin already auto-bridges to Cursor (would cause double audio) | `audio-hooks uninstall --plugin` first, **or** pass `--force` to `install --cursor` if you want both paths active (rare) |
 | `DUPLICATE_BRIDGE_RUNTIME_SKIP` | Runtime skipped a Cursor invocation because `install_marker.json` records `duplicate_bridge_forced: true` (you ran `install --cursor --force` over an active bridge) | `audio-hooks uninstall --cursor` to remove the native install — Claude Code's bridge then handles Cursor normally |
@@ -52,7 +54,7 @@ Pick the fix that matches what you actually want:
 audio-hooks hooks enable-only notification permission_request
 ```
 
-`notification`'s `idle_prompt` subtype is the genuine "Claude is waiting for your input" signal — it fires when the session is actually parked on you, not on every turn boundary.
+`notification`'s `idle_prompt` subtype is the genuine "Claude is waiting for your input" signal — it fires when the session is actually parked on you, not on every turn boundary. Per Claude Code's documentation it arrives about 60 seconds after Claude finishes and only if you have not typed since, so expect it to be late; `permission_request` is the immediate cue for "I need approval". Claude Code 2.1.288 also stopped it firing while background agents are still running. (Neither the delay nor that fix was re-measured here.)
 
 **"Keep the completion sound, but not while there's still work running."** v6.4 reads the `background_tasks` array Claude Code puts on the `Stop` payload and stays quiet until nothing is in flight:
 
@@ -60,7 +62,13 @@ audio-hooks hooks enable-only notification permission_request
 audio-hooks set filters.stop.skip_if_background_tasks_running true
 ```
 
-On a session driving ten teammates this is the difference between a chime per turn and a chime when the batch finishes.
+On a session driving ten teammates this is the difference between a chime per turn and a chime when the batch finishes. Since 6.6.0 a task still `pending` counts as in flight as well as one `running`, and Claude Code's own maintenance tasks (`dream`, `auto-mode scan`, `memory import`) are ignored, so they cannot hold the chime back forever.
+
+**"Keep the completion sound, but not while a `/loop` or scheduled wakeup is pending."** A session with a pending `CronCreate` / `ScheduleWakeup` / `/loop` entry carries it in `session_crons` on the `Stop` payload. That is a separate opt-in, because a recurring cron stays there for the whole session and would silence every turn for someone who only asked about running work:
+
+```bash
+audio-hooks set filters.stop.skip_if_session_crons_scheduled true
+```
 
 **"I just want fewer of them."** Blunt but effective, and worth trying only after the two above:
 
@@ -77,13 +85,26 @@ audio-hooks hooks disable notification_idle_prompt
 
 ### Two sounds overlapping (voice + chime)
 
-You have both the script install and the plugin install active. Diagnose reports `DUAL_INSTALL_DETECTED`. Fix:
+You have both the script install and the plugin install active. Diagnose reports `DUAL_INSTALL_DETECTED`. Since 6.6.0 `audio-hooks install --scripts` refuses to run on top of the plugin (it needs `--force`), and `audio-hooks install` with no mode flag no longer runs the script installer at all — before 6.6.0 a bare `install`, `install --help` or any unrecognised flag did, and that is how a machine that already had the plugin ended up here. Fix:
 
 ```bash
-audio-hooks uninstall        # removes the script install; preserves config + audio
+audio-hooks uninstall        # removes the script install natively; backs up first; preserves config + audio
 ```
 
 Then `/reload-plugins` inside Claude Code. (Or just say *"audio-hooks is playing double sounds, fix it."*)
+
+`audio-hooks uninstall` (6.6.0) works the same on Windows, macOS and Linux and does not need `scripts/uninstall.sh`, which the plugin layout does not ship. It copies `settings.json`, `settings.local.json` and everything it will delete to `~/.claude/backups/audio-hooks-uninstall-<timestamp>/` first, then removes echook's own hook and permission entries and only files that are echook's. The JSON it prints has `removed_hook_entries`, `removed_permissions`, `removed_files`, `backup_dir`, `skipped_not_ours`, `unmatched_references`, `left_in_place` and `incomplete`. Restart Claude Code afterwards. Before 6.6.0 a bare `uninstall` on Windows returned `ok: true` with a hint and removed nothing, so a Windows machine told to run it may still have the script install — run it again and check `removed_hook_entries`.
+
+- **`"nothing_to_remove": true`** — there was no script install (or it was already removed); no backup is created. The command is idempotent.
+- **`CONFIG_READ_ERROR`** — `settings.json` or `settings.local.json` could not be parsed. Nothing was changed; fix or move the file and re-run. (A file that parses but cannot be written back out is an `INTERNAL_ERROR`, also with nothing changed.)
+- **`UNINSTALL_INCOMPLETE` (`ok: false`, exit 1).** Everything that could be removed was; two things can remain. Either a file could not be deleted (something holds it open — close it and re-run `audio-hooks uninstall`), or a registration refers to an echook script through a spelling of the home directory the strict rule does not recognise: `$env:USERPROFILE\…`, `%HOMEDRIVE%%HOMEPATH%\…`, an MSYS `/c/Users/…` path, an 8.3 short path, `"$HOME"/…`, `;~/…`. Those are listed in `unmatched_references` (`{file, value, scripts}`), and the script they name is *kept*, together with the modules it needs (`invoker.py`, `user_preferences.py`, `.project_path`, and `shared/` libraries for a wrapper), so the surviving hook still runs. **Read the list, then run `audio-hooks uninstall --remove-unmatched`** (scripts mode only), which also strips those entries and removes the scripts they pointed at. Read it first because the loose rule can catch another tool's variable — `$XDG_CONFIG_HOME/.claude/hooks/hook_runner.py`, `%ANDROID_HOME%/…`.
+- **Why a file of yours was not removed (`skipped_not_ours`).** Ownership is decided by content as well as name: a file in `~/.claude/hooks/` is removed only if it carries echook's marker. A `stop_hook.sh` or a `shared/` directory of your own is left alone, listed with a reason, and its registration is kept; `shared/` loses only echook's four libraries and is removed only if that empties it. `.project_path` has no marker and is judged by a heuristic (a single path line beside echook's runner, or naming an echook checkout). A registration is removed only when the file it names is echook's or no longer exists.
+- **Accepted limits.** These are neither stripped nor reported: `$(echo ~)/…`, variables whose name contains neither HOME nor USERPROFILE, `~user/…`, relative prefixes, and a `cd … && ./hook_runner.py` form. A compound command of yours that mentions an echook script is removed as a whole entry (it is in the backup). A settings file that had removals is rewritten in a normalised format (indentation, LF, no BOM). There is no lock against a concurrent writer, so close Claude Code first.
+- **Source checkout:** `bash scripts/uninstall.sh` is a thin wrapper that runs `audio-hooks uninstall --scripts` (and forwards `--remove-unmatched`). Its `--purge` additionally removes only that checkout's `config/user_preferences.json` and `audio/default/*`, after backing them up to `~/.claude/backups/audio-hooks-purge-<timestamp>`.
+
+### "A subagent finished" cue when I started no subagent
+
+Claude Code fires `SubagentStop` for its own internal agents too (prompt suggestions, `/btw` side questions), not only for subagents your session spawned. Since 6.6.0 echook skips a `SubagentStop` whose `agent_type` is an empty string — Claude Code's documented marker for those events — and records it as a debug-level NDJSON event, `skipped_internal_subagent` (written only with `CLAUDE_HOOKS_DEBUG=1`; read it with `audio-hooks logs tail --level debug`). Two limits: it applies under the Claude Code plugin only (not Cursor, Codex, or the legacy script install), and in a session started with `--agent` the internal agents carry that agent's name, so they cannot be told apart from real subagents and still announce. If the cue still fires, `audio-hooks hooks disable subagent_stop` silences it outright.
 
 ### No sound when a task finishes, and no desktop popup
 
@@ -431,7 +452,7 @@ This is not a bug in either tool; they are independent notification systems that
 
 ### Desktop notifications (`terminalSequence`) do not appear
 
-> **As of 6.5.1 this is expected and cannot be configured away.** `terminalSequence` is inert on every echook event: Claude Code emits the escape only from a synchronous hook-completion path, and all 67 handlers are registered `async: true`. `diagnose` reports `TERMINAL_SEQUENCE_INERT`. For a real desktop toast use `notification_settings.mode = audio_and_notification`, which on Windows sends a WinRT toast. Details and the cost of a proper fix are in [EVENT_BEHAVIOR_NOTES.md](EVENT_BEHAVIOR_NOTES.md).
+> **As of 6.5.1 this is expected and cannot be configured away.** `terminalSequence` is inert on every echook event: Claude Code emits the escape only from a synchronous hook-completion path, and all 67 handlers are registered `async: true`. `diagnose` reports `TERMINAL_SEQUENCE_INERT`. For a real desktop toast use `notification_settings.mode = audio_and_notification`, which on Windows sends a WinRT toast. Details and the cost of a proper fix are in [EVENT_BEHAVIOR_NOTES.md](EVENT_BEHAVIOR_NOTES.md). Reading the 2.1.288 binary shows no change, so this still holds there; the checklist below only becomes relevant if a later Claude Code release delivers `terminalSequence` from async hooks.
 
 
 Check these in order:

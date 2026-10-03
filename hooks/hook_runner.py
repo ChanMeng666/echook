@@ -41,7 +41,7 @@ from invoker import detect_invoker, get_invoker as _get_invoker, strip_invoker_a
 
 # Version used for auto-sync: when the installed copy in ~/.claude/hooks/
 # detects a newer version in the project directory, it self-updates.
-HOOK_RUNNER_VERSION = "6.5.1"
+HOOK_RUNNER_VERSION = "6.6.0"
 
 # =============================================================================
 # STRUCTURED LOGGING (NDJSON)
@@ -1046,6 +1046,36 @@ def should_debounce(hook_type: str) -> bool:
     return False
 
 
+# v6.6: Claude Code's own "is this task in flight" predicate counts "pending"
+# as well as "running", and the Stop payload builder only ever passes tasks
+# that satisfy it -- so every entry arrives as one or the other. Counting
+# "running" alone under-counted a task that was queued but not yet started.
+_IN_FLIGHT_TASK_STATUSES = frozenset({"running", "pending"})
+
+# ``type`` in a background_tasks entry is Claude Code's friendly label, not the
+# internal discriminant. Three labels are maintenance work Claude Code runs for
+# itself ("dream", "auto-mode scan", "memory import");
+# none is something the user started, so none should hold back a turn-end sound.
+_INTERNAL_TASK_TYPES = frozenset({"dream", "auto-mode scan", "memory import"})
+
+
+def _is_user_background_task(task: Any) -> bool:
+    """True for a background_tasks entry that is in flight and user-facing.
+
+    Tolerates any malformed entry (non-dict, missing keys, non-string values)
+    by returning False: a set-membership test on a list or dict value raises
+    TypeError (unhashable), and a hook that raises is worse than one that plays
+    a sound.
+    """
+    if not isinstance(task, dict):
+        return False
+    status = task.get("status")
+    if not isinstance(status, str) or status not in _IN_FLIGHT_TASK_STATUSES:
+        return False
+    kind = task.get("type")
+    return not (isinstance(kind, str) and kind in _INTERNAL_TASK_TYPES)
+
+
 def should_filter(hook_type: str, stdin_data: dict, config: Dict[str, Any]) -> bool:
     """Check user-defined filters. Returns True if hook should be skipped.
 
@@ -1057,22 +1087,32 @@ def should_filter(hook_type: str, stdin_data: dict, config: Dict[str, Any]) -> b
     if not filters:
         return False
 
-    # v6.4: reserved non-regex filter. Claude Code's Stop payload carries an
-    # undocumented ``background_tasks`` array describing teammates, subagents
-    # and background shells still in flight. Because ``Stop`` fires at the end
-    # of every turn, a session running ten teammates chimes constantly; this
-    # lets a user hear the turn-end sound only once nothing is still working.
-    # Expressing it as a regex over the stringified array would depend on
-    # Python's repr of a Claude Code payload, which is far too brittle to ask
-    # of a user's config file.
+    # v6.4: reserved non-regex filter. Claude Code's Stop/SubagentStop payload
+    # carries a ``background_tasks`` array (documented since the hooks reference
+    # added it: it lets a hook "distinguish 'session is done' from 'session is
+    # paused waiting for background work to wake it back up'") listing the
+    # teammates, subagents and background shells still in flight. Because
+    # ``Stop`` fires at the end of every turn, a session running ten teammates
+    # chimes constantly; this lets a user hear the turn-end sound only once
+    # nothing is still working. Expressing it as a regex over the stringified
+    # array would depend on Python's repr of a Claude Code payload, which is far
+    # too brittle to ask of a user's config file.
     if filters.get("skip_if_background_tasks_running") is True:
         tasks = stdin_data.get("background_tasks")
-        if isinstance(tasks, list) and any(
-            isinstance(t, dict) and t.get("status") == "running" for t in tasks
-        ):
-            running = sum(1 for t in tasks
-                          if isinstance(t, dict) and t.get("status") == "running")
-            log_debug(f"Filter: {hook_type} skipped — {running} background task(s) still running")
+        if isinstance(tasks, list):
+            running = sum(1 for t in tasks if _is_user_background_task(t))
+            if running:
+                log_debug(f"Filter: {hook_type} skipped — {running} background task(s) still in flight")
+                return True
+
+    # v6.6: separate opt-in for scheduled wakeups. ``session_crons`` lists the
+    # session's CronCreate / ScheduleWakeup / /loop entries; a session with a
+    # recurring cron always has one, so folding this into the key above would
+    # silence every turn of such a session for users who never asked for that.
+    if filters.get("skip_if_session_crons_scheduled") is True:
+        crons = stdin_data.get("session_crons")
+        if isinstance(crons, list) and crons:
+            log_debug(f"Filter: {hook_type} skipped — {len(crons)} session cron(s) scheduled")
             return True
 
     # v6.5: another reserved non-regex filter. PostToolUse and
@@ -1109,7 +1149,7 @@ def should_filter(hook_type: str, stdin_data: dict, config: Dict[str, Any]) -> b
             continue
         if field.startswith("_"):
             continue  # skip comment keys
-        if field in ("skip_if_background_tasks_running", "min_duration_ms"):
+        if field in ("skip_if_background_tasks_running", "skip_if_session_crons_scheduled", "min_duration_ms"):
             continue  # reserved non-regex filters, handled above
 
         try:
@@ -2416,6 +2456,25 @@ def send_webhook(hook_type: str, context: str, stdin_data: dict, config: Dict[st
 # RATE LIMIT PRE-CHECK (v5.0)
 # =============================================================================
 
+def _threshold_values(raw: Any) -> List[Any]:
+    """Coerce a configured thresholds value to a list without raising.
+
+    v6.6: ``rate-limits set --five-hour-thresholds 90`` used to store the integer
+    90, and ``sorted(90)`` then raised before any audio for every event whose
+    payload carried ``rate_limits``. The setter now stores a list; this keeps a
+    config written by an older version (or by hand) from crashing the hook.
+    """
+    if raw is None or isinstance(raw, bool):
+        return []
+    if isinstance(raw, (int, float)):
+        return [raw]
+    if isinstance(raw, str):
+        return [x.strip() for x in raw.split(",") if x.strip()]
+    if isinstance(raw, (list, tuple)):
+        return list(raw)
+    return []
+
+
 def check_rate_limits(stdin_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     """Inspect stdin `rate_limits` and play a warning audio when crossing thresholds.
 
@@ -2438,8 +2497,8 @@ def check_rate_limits(stdin_data: Dict[str, Any], config: Dict[str, Any]) -> Non
     if not isinstance(rate_limits, dict):
         return
 
-    five_thresholds = rl_cfg.get("five_hour_thresholds", [80, 95]) or []
-    seven_thresholds = rl_cfg.get("seven_day_thresholds", [80, 95]) or []
+    five_thresholds = _threshold_values(rl_cfg.get("five_hour_thresholds", [80, 95]))
+    seven_thresholds = _threshold_values(rl_cfg.get("seven_day_thresholds", [80, 95]))
     audio_file_name = rl_cfg.get("audio", "notification-urgent.mp3")
 
     windows = (("five_hour", five_thresholds), ("seven_day", seven_thresholds))
@@ -2454,15 +2513,17 @@ def check_rate_limits(stdin_data: Dict[str, Any], config: Dict[str, Any]) -> Non
         try:
             used_int = int(used)
             resets_int = int(resets_at)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         # Fire only the highest crossed threshold per call. Each marker is
         # keyed on resets_at so a new reset window can re-fire.
-        for threshold in sorted(thresholds, reverse=True):
+        parsed: List[int] = []
+        for threshold in thresholds:
             try:
-                t_int = int(threshold)
-            except (TypeError, ValueError):
+                parsed.append(int(threshold))
+            except (TypeError, ValueError, OverflowError):  # OverflowError: 1e999 / inf
                 continue
+        for t_int in sorted(parsed, reverse=True):
             if used_int < t_int:
                 continue
             ensure_queue_dir()
@@ -2718,6 +2779,34 @@ def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = N
     }
     if _get_invoker() == "codex" and hook_type in _CODEX_UNSUPPORTED:
         log_event("debug", "skipped_no_codex_equivalent", hook=hook_type)
+        return 0
+
+    # v6.6: Claude Code fires SubagentStop for its own internal agents too
+    # (prompt suggestions, /btw side questions), not only for subagents the
+    # user's session spawned. For those, agent_type is the session's own agent
+    # name (--agent / the `agent` setting) or, when the session runs without
+    # one, an empty string -- so an empty string is the one reliable marker, and
+    # it would otherwise announce "Background task finished" for work the user
+    # never started. The key must be present: older Claude Code builds omit it,
+    # and absence is not evidence of an internal agent. In a session started
+    # with --agent, internal agents carry that agent's name and cannot be told
+    # apart from real subagents; they still announce.
+    # Scoped to Claude Code because that is the only editor whose docs and
+    # binary establish the meaning: nothing says what an empty agent_type is in
+    # a Cursor (native or auto-bridge, both report as "cursor") or Codex
+    # SubagentStop payload, and guessing could silence a real subagent there.
+    # A Claude Code hook that does not run as the plugin (legacy script install,
+    # or a terminal that inherited CURSOR_VERSION) does not report "claude-code"
+    # and keeps the old behaviour.
+    # SubagentStart is left alone: the hooks reference documents the internal-
+    # agent case for SubagentStop only.
+    if (
+        hook_type == "subagent_stop"
+        and _get_invoker() == "claude-code"
+        and isinstance(stdin_data, dict)
+        and stdin_data.get("agent_type") == ""
+    ):
+        log_event("debug", "skipped_internal_subagent", hook=hook_type, agent_type="")
         return 0
 
     # v5.1.6: when ``audio-hooks install --cursor --force`` was used to install

@@ -19,6 +19,11 @@ Run with::
 
 from __future__ import annotations
 
+try:
+    import _isolation  # noqa: F401  (suite-level isolation, tests/_isolation.py)
+except ImportError:  # python -m unittest tests.test_x from the repo root
+    from tests import _isolation  # noqa: F401
+
 import importlib.util
 import sys
 import unittest
@@ -271,7 +276,8 @@ class TestMachineReadableSurface(unittest.TestCase):
     def test_manifest_advertises_new_config_keys(self) -> None:
         keys = self.manifest["config_keys"]
         for expected in ("enabled_hooks.<variant_name>",
-                         "filters.stop.skip_if_background_tasks_running"):
+                         "filters.stop.skip_if_background_tasks_running",
+                         "filters.stop.skip_if_session_crons_scheduled"):
             self.assertIn(expected, keys, f"{expected!r} missing from config_keys")
 
     def test_status_surfaces_variant_overrides(self) -> None:

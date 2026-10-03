@@ -120,6 +120,18 @@ audio-hooks set statusline_settings.max_width 120   # pin width if COLUMNS is un
 audio-hooks set statusline_settings.max_width 0     # back to auto-detect
 ```
 
+### Available upstream, not yet rendered
+
+Claude Code (checked against 2.1.288) pipes a few fields to a status line script that none of the 29 segments reads. They are recorded here so a future segment starts from the source, not from a guess; none is rendered today. echook's renderer reads only `rate_limits.five_hour` and `rate_limits.seven_day` from that object.
+
+| Field | Since | Evidence | Notes |
+|---|---|---|---|
+| `prompt_cache` (whole object: `warm`, `ttl`, `expires_at`, `requests`, `misses`, `hit_ratio`, …) | 2.1.251 | **[CHANGELOG]** *"Added a per-session prompt-cache line to `/cost` (hit ratio, misses, tokens re-cached, warm/cold) and a matching `prompt_cache` object for status line scripts"*; fields read from the binary builder (near offset 213060031) | Omitted from the stdin until a request has been made. |
+| `prompt_cache.last_miss_cause` | 2.1.260 | **[CHANGELOG]** *"Added a likely cause for prompt-cache misses (e.g. tool definitions or system prompt changed, idle past the TTL) to `/cost` and the status line's `prompt_cache` field"* | `null` until a miss is attributed (read from the builder). |
+| `rate_limits.spend_limit` (`used_usd`, `limit_usd`, `period`) | 2.1.284 | **[CHANGELOG]** *"…the status line's `rate_limits.spend_limit` also gains `used_usd`, `limit_usd` and `period`"* | Claude apps gateway spend limit. `rate_limits` itself is only sent when at least one of `five_hour`, `seven_day` or `spend_limit` exists (**[BIN]**). |
+| `fast_mode` | — | **[BIN]** present in the stdin builder (near offset 213056069); no changelog entry found for the range | Not checked against the status-line documentation. |
+| `remote.session_id` | — | **[BIN]** `remote:{session_id}`, added only when an internal condition holds (`mr()!==null`); what that condition means was not traced | **Undocumented.** Treat as unstable. |
+
 ---
 
 ## Subagent status line (Claude Code, v6.5)

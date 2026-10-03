@@ -15,6 +15,11 @@ it. These tests pin the contract.
 
 from __future__ import annotations
 
+try:
+    import _isolation  # noqa: F401  (suite-level isolation, tests/_isolation.py)
+except ImportError:  # python -m unittest tests.test_x from the repo root
+    from tests import _isolation  # noqa: F401
+
 import importlib.util
 import json
 import re
@@ -969,10 +974,15 @@ class TestGitDirty(unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="gitdirty_"))
+        # Restore, don't pop: the suite-level isolation relies on this variable.
+        self._saved_data = os.environ.get("CLAUDE_AUDIO_HOOKS_DATA")
         os.environ["CLAUDE_AUDIO_HOOKS_DATA"] = str(self.tmp)
 
     def tearDown(self):
-        os.environ.pop("CLAUDE_AUDIO_HOOKS_DATA", None)
+        if self._saved_data is None:
+            os.environ.pop("CLAUDE_AUDIO_HOOKS_DATA", None)
+        else:
+            os.environ["CLAUDE_AUDIO_HOOKS_DATA"] = self._saved_data
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_none_for_missing_cwd(self):

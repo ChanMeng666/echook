@@ -57,3 +57,29 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify plugin copy matches canonical sources
         run: bash scripts/build-plugin.sh --check
+
+  # v6.6: validates the plugin and marketplace manifests with Claude Code's own
+  # validator. Its own job, tracking the latest Claude Code release on purpose:
+  # a red here with a green import-smoke means upstream tightened a manifest
+  # rule, not that the code regressed. `validate` needs no credentials (checked
+  # with an empty CLAUDE_CONFIG_DIR and no API key in the environment).
+  plugin-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Validate plugin (strict)
+        run: |
+          claude --version
+          claude plugin validate --strict plugins/audio-hooks
+
+      - name: Validate marketplace
+        run: claude plugin validate .

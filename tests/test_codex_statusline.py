@@ -15,6 +15,11 @@ the smoke workflow without new dependencies.
 
 from __future__ import annotations
 
+try:
+    import _isolation  # noqa: F401  (suite-level isolation, tests/_isolation.py)
+except ImportError:  # python -m unittest tests.test_x from the repo root
+    from tests import _isolation  # noqa: F401
+
 import importlib.util
 import json
 import os
