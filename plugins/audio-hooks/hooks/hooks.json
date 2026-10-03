@@ -34,7 +34,9 @@
       { "matcher": "quota_auto_resume_stale",
         "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" notification_quota_auto_resume_stale", "async": true, "timeout": 10 }] },
       { "matcher": "quota_auto_resume_disabled",
-        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" notification_quota_auto_resume_disabled", "async": true, "timeout": 10 }] }
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" notification_quota_auto_resume_disabled", "async": true, "timeout": 10 }] },
+      { "matcher": "auth_storage_failure",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" notification_auth_storage_failure", "async": true, "timeout": 10 }] }
     ],
 
     "Stop": [
@@ -63,7 +65,11 @@
       { "matcher": "unknown",
         "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" stop_failure_unknown", "async": true, "timeout": 10 }] },
       { "matcher": "max_output_tokens",
-        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" stop_failure_max_output_tokens", "async": true, "timeout": 10 }] }
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" stop_failure_max_output_tokens", "async": true, "timeout": 10 }] },
+      { "matcher": "cloud_credential_error",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" stop_failure_cloud_credential_error", "async": true, "timeout": 10 }] },
+      { "matcher": "verification_required",
+        "hooks": [{ "type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/runner/run.py\" stop_failure_verification_required", "async": true, "timeout": 10 }] }
     ],
 
     "SessionStart": [

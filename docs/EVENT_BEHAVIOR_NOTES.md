@@ -132,6 +132,8 @@ bucketing of these types is a useful guide for choosing sounds: auth
 (`billing_error`), model-unavailable (`model_not_found`), and the rest
 transient.
 
+*Update, v6.7.0:* the binary's union has since grown to 13 values and echook registers all 13 (`cloud_credential_error` and `verification_required` added); see [Matcher values: three registered in v6.7.0](#matcher-values-three-registered-in-v670-one-deliberately-not).
+
 ### `"async": true` discards the hook's stdout — `terminalSequence` never fires
 
 **Measured on Claude Code 2.1.251, Windows 11, 2026-09-01.** This is the
@@ -456,7 +458,7 @@ The v6.6.0 sync moved the project's reference point from Claude Code 2.1.251 to 
 | **[LIVE]** | Measured by running 2.1.288 on one machine (Windows 11), with the conditions and limits stated beside it. |
 | **[INFER]** | Read from minified control flow. A reading, not an observation. |
 
-Entries above this one stand for the versions they name (2.1.215–2.1.251) unless an entry below says otherwise. Nothing in the 2.1.288 entries was measured on macOS or Linux, and none of the [LIVE] runs was an interactive session.
+Entries above this one stand for the versions they name (2.1.215–2.1.251) unless an entry below says otherwise. Nothing in the 2.1.288 entries was measured on macOS or Linux, and none of the [LIVE] runs in the entries from the v6.6.0 sync was an interactive session. The two v6.7.0 entries after "Plugin tooling changes in the range" ([plugin `subagentStatusLine`](#a-plugin-level-subagentstatusline-default-evaluated-not-shipped-v670) and [`sensitive` options](#a-sensitive-userconfig-option-still-reaches-a-shell-form-hook-v670)) are [LIVE] too and say where each ran; the first was an interactive session.
 
 ### No new hook events between 2.1.251 and 2.1.288
 
@@ -471,13 +473,22 @@ The closed unions, re-read in the 2.1.288 binary and compared with the 2.1.251 t
 | Contract | 2.1.251 | 2.1.288 **[BIN]** | Verdict |
 |---|---|---|---|
 | `SessionStart.source` | `startup`, `resume`, `clear`, `compact`, `fork` | same five | unchanged |
-| `Notification.notification_type` | 14 values | 16: the same 14 plus `model_refusal_fallback` and `auth_storage_failure` | two added, neither registered |
-| `StopFailure.error_type` | 11 values | 13: the same 11 plus `cloud_credential_error` and `verification_required` | two added, neither registered |
+| `Notification.notification_type` | 14 values | 16: the same 14 plus `model_refusal_fallback` and `auth_storage_failure` | two added; `auth_storage_failure` registered in v6.7.0, `model_refusal_fallback` deliberately not |
+| `StopFailure.error_type` | 11 values | 13: the same 11 plus `cloud_credential_error` and `verification_required` | two added; both registered in v6.7.0 |
 | `SessionEnd.reason` | — | `clear`, `resume`, `logout`, `prompt_input_exit`, `other` | `bypass_permissions_disabled` is absent (0 occurrences) |
 
-### Matcher values with no variant yet
+### Matcher values: three registered in v6.7.0, one deliberately not
 
-Four matcher values exist upstream that echook has no variant for. Nothing is registered for them, so each is currently **completely silent**: `plugins/audio-hooks/hooks/hooks.json` carries no catch-all (`""`) entry under `Notification` (16 named matchers) or `StopFailure` (11 named matchers), so a value outside those lists matches no handler.
+Four matcher values exist upstream that echook had no variant for at v6.6.0. Nothing was registered for them, so each was **completely silent**: `plugins/audio-hooks/hooks/hooks.json` carries no catch-all (`""`) entry under `Notification` or `StopFailure`, so a value outside the named matchers matches no handler. **v6.7.0 registers the first three** (`Notification` now has 17 named matchers, `StopFailure` 13), each with its own sound in both themes; the fourth stays unregistered.
+
+| Registered as | Event | Value | Default |
+|---|---|---|---|
+| `stop_failure_cloud_credential_error` | `StopFailure` | `cloud_credential_error` | follows `stop_failure` (off unless enabled), like the other eleven |
+| `stop_failure_verification_required` | `StopFailure` | `verification_required` | follows `stop_failure` |
+| `notification_auth_storage_failure` | `Notification` | `auth_storage_failure` | **off** (explicit per-variant default, because `notification` is on by default); label "Login needs attention" |
+| *(not registered)* | `Notification` | `model_refusal_fallback` | no emitter found, so a handler would be dead code |
+
+The evidence for each value, as recorded at v6.6.0:
 
 | Event | Value | Evidence |
 |---|---|---|
@@ -486,9 +497,9 @@ Four matcher values exist upstream that echook has no variant for. Nothing is re
 | `Notification` | `auth_storage_failure` | **[BIN]** in the `notification_type` list (near 204254955) and a live emitter (near 228124621), sent with the message `Claude Code login needs attention: credentials could not be saved` — or, in the other branch of the same expression, `…credentials may not have been saved`. Not in the documented table. |
 | `Notification` | `model_refusal_fallback` | **[BIN]** declared in the `notification_type` list (near 204254955). **No emitter was found** — the other places the string appears in a search of the binary are SDK message-schema text, not a `Notification` call — so it is **not confirmed to fire as a hook**. |
 
-`cloud_credential_error` is the one with a consequence. By the **[DOC]** sentence above, on 2.1.267 and later a credential-load failure that used to arrive as `server_error` or `unknown` — both of which echook has a variant and a sound for — now arrives as `cloud_credential_error`, which echook does not. That follows from the documentation plus the registration table; it was not reproduced.
+`cloud_credential_error` was the one with a consequence. By the **[DOC]** sentence above, on 2.1.267 and later a credential-load failure that used to arrive as `server_error` or `unknown` — both of which echook has a variant and a sound for — arrives as `cloud_credential_error`, which echook did not handle until v6.7.0. That follows from the documentation plus the registration table; it was not reproduced.
 
-The `StopFailure` union in the binary now has 13 values (the 11 echook registers plus these two), and `account_on_hold` is conditional in the per-event metadata table (`…KSt()?["account_on_hold"]:[]…`) but unconditional in the zod union. Adding the variants is **pending**: each needs its own sound in both themes (see the audio-uniqueness rule in `CLAUDE.md`), and no ElevenLabs key was available for the v6.6.0 release.
+The `StopFailure` union in the binary now has 13 values (the 11 echook registers plus these two), and `account_on_hold` is conditional in the per-event metadata table (`…KSt()?["account_on_hold"]:[]…`) but unconditional in the zod union. Adding the variants was deferred in v6.6.0 because each needs its own sound in both themes (see the audio-uniqueness rule in `AGENTS.md`) and no ElevenLabs key was available for that release; v6.7.0 added the three sounds.
 
 ### `idle_prompt` and the notification timing gates
 
@@ -611,14 +622,39 @@ All **[CHANGELOG]**, verbatim:
 - 2.1.285: *"Added `claude plugin configure <plugin>` to show a plugin's options and which are unset, or save new values read from stdin with `--values-stdin`"*.
 - 2.1.257: *"Fixed plugins being able to read files outside their own directory through a declared command, agent, skill, hooks or other component path that is a symlink; such paths are now refused with an error"*.
 - 2.1.260: *"Fixed model switching staying blocked for the rest of the session after a plugin hook load failure; each switch now re-checks and the refusal names the cause"*.
-- 2.1.259: *"Added `--json` to `claude plugin validate` for a machine-readable validation report"*; 2.1.281: *"…added a `claude plugin validate` warning when a shell-form hook leaves `${CLAUDE_PLUGIN_ROOT}` unquoted (it breaks on plugin paths with spaces)"*. Both bear on the v6.6.0 `plugin-validate` CI job, which has not yet run on a real runner.
+- 2.1.259: *"Added `--json` to `claude plugin validate` for a machine-readable validation report"*; 2.1.281: *"…added a `claude plugin validate` warning when a shell-form hook leaves `${CLAUDE_PLUGIN_ROOT}` unquoted (it breaks on plugin paths with spaces)"*. Both bear on the v6.6.0 `plugin-validate` CI job, which has since run on a real runner and passed on 6.6.0 (the full test matrix passed there too).
 - **Orphaned plugin-cache directories** (observed on disk, one machine; not in [DOC] or [CHANGELOG]): after an uninstall, Claude Code leaves `cache/<marketplace>/<plugin>/<version>/` behind and drops an `.orphaned_at` file (a millisecond epoch) in it; the live version directory has none (it has `.in_use/`). Seen on a real install: 7 of 8 version directories of one plugin carried the marker, the one in use did not. The meaning of the marker is **inferred** from that, not documented. v6.6.0's plugin detection (`install --scripts` → `DUAL_INSTALL_DETECTED`) skips marked directories, because counting an orphan as "installed" refused the install with a remedy that could not help.
+
+### A plugin-level `subagentStatusLine` default: evaluated, not shipped (v6.7.0)
+
+A plugin can ship a `settings.json`. The idea was a default `subagentStatusLine` so that installing the plugin gives every user the per-subagent row without running `audio-hooks statusline subagent install`. It was tested and **not shipped**.
+
+Findings, **[LIVE, Claude Code 2.1.288, Windows, an interactive session driven through a pseudo-terminal]**:
+
+- Claude Code loads a plugin's `settings.json` and **keeps only `subagentStatusLine`**; other keys are dropped.
+- It does **not** substitute `${CLAUDE_PLUGIN_ROOT}` in that setting's command: the variable arrived empty. The plugin therefore cannot point the command at its own script.
+- The plugin's `bin/` directory is **not on PATH** for that command (exit 127, command not found), so naming the script by its bare name does not work either.
+- A marketplace-installed plugin therefore has no way to name its own script, which defeats the point of a default.
+- There is **no CLI-only way to turn a plugin default off**: `audio-hooks statusline subagent uninstall` removes only the user's own `settings.json` entry, not a plugin's.
+
+Limits: the row was seen to **execute** (the command ran); it was **not seen on screen**. One machine, one Claude Code version. The first three bullets are the reason the default was dropped; the user's own setting, written by `statusline subagent install`, remains the only supported route.
+
+### A `sensitive` `userConfig` option still reaches a shell-form hook (v6.7.0)
+
+v6.7.0 marks `userConfig.webhook_url` as `sensitive`. **[LIVE, Claude Code 2.1.288, in a throwaway config directory]**:
+
+- A sensitive option's value is stored in the **credentials file**, not in `settings.json`.
+- It is still exported to a shell-form hook as `CLAUDE_PLUGIN_OPTION_WEBHOOK_URL`, which is the only place the runner reads it.
+- A value stored **before** the flag was added is still reported as configured after the update.
+- **[DOC]** Only `options`, not `sensitive`, carries a minimum-version floor, which is why `options` is never added to a `userConfig` field (a Claude Code older than 2.1.271 would refuse to load the plugin).
+
+Not measured: behaviour on a Claude Code older than 2.1.288, on macOS or Linux, or with an unavailable credential store.
 
 ---
 
 ## Matcher coverage as of v6.4.1
 
-44 variants across 8 matcher-scoped events.
+47 variants across 8 matcher-scoped events as of v6.7.0. The table below is the v6.4.1 snapshot; corrections follow it.
 
 | Event | Matchers registered | Notes |
 |---|---|---|
@@ -631,4 +667,4 @@ All **[CHANGELOG]**, verbatim:
 
 `Notification` and `PermissionRequest` have no Cursor or Codex equivalent; the runner hard-skips them for those invokers regardless of registration.
 
-**Since v6.4.1.** The `Notification` row above is a v6.4.1 snapshot: v6.5.0 registered the missing types, so all 16 matchers up to Claude Code 2.1.251 now have a variant, and `plugins/audio-hooks/hooks/hooks.json` has no catch-all `Notification` or `StopFailure` entry — which means the "still reach the catch-all" remark no longer describes what ships. A value outside the named matchers matches no handler and is silent; the four such values known at 2.1.288 are listed in [Matcher values with no variant yet](#matcher-values-with-no-variant-yet). The `SessionEnd` row was reworded in v6.6.0 to record the upstream removal; the registration itself is unchanged.
+**Since v6.4.1.** The `Notification` row above is a v6.4.1 snapshot: v6.5.0 registered the missing types, so all 16 matchers up to Claude Code 2.1.251 now have a variant, and `plugins/audio-hooks/hooks/hooks.json` has no catch-all `Notification` or `StopFailure` entry — which means the "still reach the catch-all" remark no longer describes what ships. A value outside the named matchers matches no handler and is silent; the four such values known at 2.1.288 are listed in [Matcher values: three registered in v6.7.0, one deliberately not](#matcher-values-three-registered-in-v670-one-deliberately-not) — three have a variant since v6.7.0, `model_refusal_fallback` does not. `StopFailure` is now "all 13 upstream types, one handler each" and `Notification` has 17 named matchers. The `SessionEnd` row was reworded in v6.6.0 to record the upstream removal; the registration itself is unchanged.

@@ -41,7 +41,7 @@ from invoker import detect_invoker, get_invoker as _get_invoker, strip_invoker_a
 
 # Version used for auto-sync: when the installed copy in ~/.claude/hooks/
 # detects a newer version in the project directory, it self-updates.
-HOOK_RUNNER_VERSION = "6.6.0"
+HOOK_RUNNER_VERSION = "6.7.0"
 
 # =============================================================================
 # STRUCTURED LOGGING (NDJSON)
@@ -777,6 +777,13 @@ SYNTHETIC_EVENT_MAP: Dict[str, Tuple[str, Optional[str]]] = {
     "stop_failure_overloaded":            ("stop_failure", "fail-overloaded.mp3"),
     "stop_failure_max_output_tokens":     ("stop_failure", "fail-max-tokens.mp3"),
     "stop_failure_unknown":               ("stop_failure", "fail-unknown.mp3"),
+    # v6.7 -- two more error_type values Claude Code sends. cloud_credential_error
+    # is documented (v2.1.267+); verification_required is in the 2.1.288 binary's
+    # error union but not the docs table. Neither had a registered matcher, so
+    # both were silent. StopFailure is off by default, so -- like its eleven
+    # siblings -- they need no SYNTHETIC_VARIANT_DEFAULTS entry.
+    "stop_failure_cloud_credential_error": ("stop_failure", "fail-cloud-credential.mp3"),
+    "stop_failure_verification_required":  ("stop_failure", "fail-verification.mp3"),
 
     # notification subtypes (matcher: notification_type)
     "notification_permission_prompt":  ("notification", "notif-permission-prompt.mp3"),
@@ -803,6 +810,10 @@ SYNTHETIC_EVENT_MAP: Dict[str, Tuple[str, Optional[str]]] = {
     "notification_quota_auto_resume_fired":   ("notification", "notif-quota-resumed.mp3"),
     "notification_quota_auto_resume_stale":   ("notification", "notif-quota-stale.mp3"),
     "notification_quota_auto_resume_disabled": ("notification", "notif-quota-disabled.mp3"),
+    # v6.7 -- emitted when Claude Code cannot save its login credentials
+    # ("Claude Code login needs attention: credentials could not be saved").
+    # Seen in the 2.1.288 binary, not in the documented notification_type list.
+    "notification_auth_storage_failure":      ("notification", "notif-auth-storage.mp3"),
 
     # precompact / postcompact subtypes (matcher: trigger)
     "precompact_manual": ("precompact", "precompact-manual.mp3"),
@@ -845,6 +856,8 @@ NOTIFICATION_TYPE_LABELS: Dict[str, str] = {
     "quota_auto_resume_fired":    "Session auto-resumed after quota reset",
     "quota_auto_resume_stale":    "Auto-resume expired",
     "quota_auto_resume_disabled": "Auto-resume disabled",
+    # v6.7 addition.
+    "auth_storage_failure":       "Login needs attention",
 }
 
 
@@ -881,6 +894,8 @@ SYNTHETIC_VARIANT_DEFAULTS: Dict[str, bool] = {
     "notification_quota_auto_resume_fired": False,
     "notification_quota_auto_resume_stale": False,
     "notification_quota_auto_resume_disabled": False,
+    # v6.7: same rule -- `notification` is on by default.
+    "notification_auth_storage_failure": False,
 }
 
 
@@ -2732,8 +2747,9 @@ def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = N
               synthetic_variant=_current_synthetic_variant)
 
     # v5.1.6: Cursor bridge invariants. Cursor's third-party-hooks bridge maps
-    # 8 of 10 Claude Code events to Cursor events; ``Notification`` and
-    # ``PermissionRequest`` have no Cursor equivalent (per
+    # 8 Claude Code events (PreToolUse, PostToolUse, UserPromptSubmit, Stop,
+    # SubagentStop, SessionStart, SessionEnd, PreCompact) to Cursor events;
+    # ``Notification`` and ``PermissionRequest`` have no Cursor equivalent (per
     # cursor.com/docs/reference/third-party-hooks). Cursor never invokes them
     # under the auto-bridge, but a hand-edited ``~/.cursor/hooks.json`` could,
     # and a future Cursor release might add equivalents. Skip cleanly so the
@@ -2849,18 +2865,23 @@ def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = N
     # PreToolUse stream doesn't suppress the alert.
     check_rate_limits(stdin_data or {}, config)
 
-    # Check debounce
-    if should_debounce(hook_type):
-        log_trigger(hook_type, "DEBOUNCED")
-        return 0
-
-    # Check user-defined filters
+    # Check user-defined filters. This must run before the debounce check:
+    # should_debounce() stamps the debounce file whenever it lets an event
+    # through, so an event discarded here afterwards would still have opened the
+    # window and suppressed the next genuine event of its kind (v6.7).
     if should_filter(hook_type, stdin_data or {}, config):
         log_trigger(hook_type, "FILTERED")
         return 0
 
+    # Check debounce -- last gate, so only an event that will be delivered
+    # stamps the window.
+    if should_debounce(hook_type):
+        log_trigger(hook_type, "DEBOUNCED")
+        return 0
+
     # Auto-update from project directory if a newer version exists
-    # (deferred to after enabled/snoozed/debounced/filtered checks for performance)
+    # (deferred until every gate has passed -- enabled, snoozed, filtered, then
+    # debounced, in that order -- so a suppressed event never pays for the check)
     check_and_self_update()
 
     # Determine notification mode with per-hook override support

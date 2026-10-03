@@ -1,6 +1,6 @@
 # Troubleshooting
 
-> **Version:** 6.4.0 | **Last Updated:** 2026-07-20
+> **Version:** 6.7.0 | **Last Updated:** 2026-10-03
 
 The troubleshooting story is one command:
 
@@ -17,7 +17,7 @@ It returns a JSON document listing the platform, audio player binary, the state 
 | `AUDIO_FILE_MISSING` | An audio file referenced by the active theme is missing | `audio-hooks diagnose` reports which files; restore them or `audio-hooks theme set default` |
 | `AUDIO_PLAYER_NOT_FOUND` | No audio player binary in PATH | Linux: `sudo apt install mpg123`. macOS: `afplay` is built-in. Windows: ensure PowerShell is available |
 | `AUDIO_PLAY_FAILED` | Player exited with an error | `audio-hooks test <hook>` to reproduce; check `audio-hooks logs tail --level error` |
-| `INVALID_CONFIG` | `user_preferences.json` is missing or malformed | `audio-hooks manifest --schema` for the schema; or just run any `audio-hooks set` command — it auto-initialises from the default template |
+| `INVALID_CONFIG` | `user_preferences.json` is missing or malformed | `audio-hooks manifest --schema` for the schema; or run any state-changing `audio-hooks` command such as `audio-hooks set` — it auto-initialises from the default template (the reporting commands, `status` and `diagnose` among them, do not create it since 6.7.0) |
 | `WEBHOOK_HTTP_ERROR` / `WEBHOOK_TIMEOUT` | Webhook unreachable | `audio-hooks webhook test`; check the URL and network |
 | `TTS_FAILED` | TTS engine failed or missing. **Before 6.5.1 this was never emitted**, and on Windows/WSL any spoken text containing a `"` produced an unparseable PowerShell script, so TTS went silent with no error | `audio-hooks tts set --enabled false` or install: macOS `say` (built-in), Linux `apt install espeak`, Windows SAPI (built-in) |
 | `SETTINGS_DISABLE_ALL_HOOKS` | `~/.claude/settings.json` has `"disableAllHooks": true` | Edit the settings file to remove or set `false` |
@@ -34,7 +34,7 @@ It returns a JSON document listing the platform, audio player binary, the state 
 | `CODEX_MANAGED_HOOKS_ONLY` | *(warning)* A managed Codex config sets `allow_managed_hooks_only`, so `$CODEX_HOME/hooks.json` is silently ignored — `install --codex` reports success and then never fires | Ask the owner of the named `requirements.toml` to permit user hooks, or install via the Codex plugin marketplace instead |
 | `NO_COMPLETION_SIGNAL` | *(warning)* None of `stop`, `subagent_stop` or `notification` is enabled, so nothing can tell you a turn finished. echook is healthy and stays silent for the thing most people install it for | `audio-hooks hooks enable stop && audio-hooks set filters.stop.skip_if_background_tasks_running true` — or enable `notification` and rely on its `idle_prompt` variant |
 | `NOTIFICATION_FAILED` | Every desktop-notification backend for this platform failed. The NDJSON line names which one was tried and why it failed | Windows: check that notifications are on for the machine and not suppressed by Do Not Disturb. Linux: `sudo apt install libnotify-bin` for `notify-send`. The audio track is unaffected |
-| `PREFS_SCHEMA_STALE` | *(warning)* `user_preferences.json` is stamped at an older version than the install, or still carries a key this version removed — so keys added since are absent and silently defaulted | Loading the config once on 6.5.1+ migrates it. Any `audio-hooks` command does that; `audio-hooks status` is the cheapest |
+| `PREFS_SCHEMA_STALE` | *(warning)* `user_preferences.json` is stamped at an older version than the install, or still carries a key this version removed — so keys added since are absent and silently defaulted | The next hook event migrates it, as does any state-changing `audio-hooks` command. Read-only commands (`status`, `diagnose`, `get`, `hooks list`, …) deliberately do not. To migrate now run `audio-hooks migrate` (v6.7: no flags, idempotent, never creates a missing file; it reports `changed`, `from_version`, `to_version`, `added[]`, `removed[]`, `stale[]` and `backup`) |
 | `STALE_PLUGIN_CACHE` | *(warning)* `installed_plugins.json` records a version or install path that is not the code now running. Harmless for a `directory`-source marketplace; **not** harmless when the recorded path is gone | Reload plugins or restart Claude Code to re-pin. See [#90135](https://github.com/anthropics/claude-code/issues/90135) — a re-materialised marketplace deletes the path live sessions are pinned to and their plugin hooks stop firing silently |
 | `WINDOWS_NO_GIT_BASH` | *(warning)* Windows with no Git Bash on PATH. Claude Code runs command hooks through bash by default and refuses them outright when it is missing, so every handler fails at once | Install [Git for Windows](https://git-scm.com/downloads/win). Claude Code reports this itself as *"requires bash but Git Bash was not found"* |
 | `TERMINAL_SEQUENCE_INERT` | *(warning)* `notification_settings.terminal_sequence.enabled` is true, but Claude Code only writes a hook's `terminalSequence` from a **synchronous** completion path and every echook handler is registered `async` — so no escape is ever emitted | Use the desktop-notification channel instead: `audio-hooks set notification_settings.mode audio_and_notification`. Background in [EVENT_BEHAVIOR_NOTES.md](EVENT_BEHAVIOR_NOTES.md) |
@@ -62,7 +62,7 @@ audio-hooks hooks enable-only notification permission_request
 audio-hooks set filters.stop.skip_if_background_tasks_running true
 ```
 
-On a session driving ten teammates this is the difference between a chime per turn and a chime when the batch finishes. Since 6.6.0 a task still `pending` counts as in flight as well as one `running`, and Claude Code's own maintenance tasks (`dream`, `auto-mode scan`, `memory import`) are ignored, so they cannot hold the chime back forever.
+On a session driving ten teammates this is the difference between a chime per turn and a chime when the batch finishes. Since 6.7.0 an event the filter discards no longer starts the debounce window (filters run before debounce); before, a skipped `stop` could still suppress the next genuine one for up to `debounce_ms` although nothing had played. In `audio-hooks logs tail`, a filtered event inside an open window now reads `FILTERED`, not `DEBOUNCED`. Since 6.6.0 a task still `pending` counts as in flight as well as one `running`, and Claude Code's own maintenance tasks (`dream`, `auto-mode scan`, `memory import`) are ignored, so they cannot hold the chime back forever.
 
 **"Keep the completion sound, but not while a `/loop` or scheduled wakeup is pending."** A session with a pending `CronCreate` / `ScheduleWakeup` / `/loop` entry carries it in `session_crons` on the `Stop` payload. That is a separate opt-in, because a recurring cron stays there for the whole session and would silence every turn for someone who only asked about running work:
 
@@ -281,6 +281,12 @@ Since v6.1.0 each line auto-reflows into as many rows as your terminal width nee
 - **Too many rows instead?** That's the no-truncation trade-off — trim segments to taste, e.g. `audio-hooks set statusline_settings.hidden_segments '["burn_rate","api_time","duration"]'` (drop a few) or `audio-hooks set statusline_settings.visible_segments '["model","cwd","context","weekly_quota"]'` (whitelist only these).
 - **Re-running `audio-hooks statusline install`** re-registers the line with `padding: 0` (full terminal width), which maximises usable space.
 
+### A status-line segment is missing: `prompt_cache`, `remote`, `spend_limit`, `fast_mode` (v6.7.0)
+
+- **`prompt_cache` and `remote` are opt-in** and never appear by default (so upgrading changed no existing status line). Check `audio-hooks statusline segments` for `"default": false`, then `audio-hooks set statusline_settings.extra_segments '["prompt_cache"]'`. `hidden_segments` still wins, and `extra_segments` is ignored when `visible_segments` is non-empty (name the segment there instead).
+- **`fast_mode` draws only while fast mode is on, and `spend_limit` only behind a Claude apps gateway that sets a spend limit.** Nothing on a plain subscription session is correct, not a fault. `prompt_cache` is also absent until the session's first API response, and when caching is off.
+- Segments are Claude Code only; Codex cannot render them. Restart Claude Code after `statusline install`, as for any status line change.
+
 ### Codex status bar is truncated, redundant, or shows too little
 
 Codex's status line is **not** command-backed — echook can't render it, only **curate** the fixed `[tui].status_line` / `terminal_title` item lists in `~/.codex/config.toml`. Common cases:
@@ -295,7 +301,7 @@ Run `audio-hooks status` and look at `editor_targets.cursor.state`:
 
 | State | Meaning | Fix |
 |---|---|---|
-| `bridged-via-claude-code` | Cursor is auto-bridging the Claude Code plugin (8 of 10 hooks). | Working as designed — confirm Cursor Settings → "Third-party skills" is enabled. |
+| `bridged-via-claude-code` | Cursor is auto-bridging the Claude Code plugin (8 coarse events: see `supported_editors.cursor.bridged_events_subset`). | Working as designed — confirm Cursor Settings → "Third-party skills" is enabled. |
 | `native` | You ran `audio-hooks install --cursor`; Cursor reads `~/.cursor/hooks.json`. | Restart Cursor, then `audio-hooks test all`. |
 | `inactive` | No integration. Either Cursor's "Third-party skills" is off, or no hooks file exists. | Either run `audio-hooks install --cursor`, or install the Claude Code plugin and toggle Cursor's setting on. |
 | `double-registered` | Both bridge AND native install present — see "fires twice" below. | `audio-hooks uninstall --cursor`. |
@@ -417,9 +423,17 @@ Issues: https://github.com/ChanMeng666/echook/issues
 
 - [README.md](../README.md) — public introduction (features, value, mermaid diagrams)
 - [docs/CLI_REFERENCE.md](CLI_REFERENCE.md) — the full `audio-hooks` CLI + config + error-code reference
-- [CLAUDE.md](../CLAUDE.md) — canonical AI-facing operating guide
+- [AGENTS.md](../AGENTS.md) — canonical AI-facing operating guide
 - [docs/ARCHITECTURE.md](ARCHITECTURE.md) — developer-facing architecture deep dive
 - `audio-hooks manifest` — live machine description of every subcommand and config key (always up to date)
+
+### No sound for a login or credentials failure (v6.7.0)
+
+Three matcher values Claude Code sends had no handler before 6.7.0, so each was a permanent silent event: `StopFailure` `cloud_credential_error` and `verification_required`, and `Notification` `auth_storage_failure` ("Claude Code login needs attention: credentials could not be saved"). 6.7.0 registers all three as variants with their own sound in both themes.
+
+- **`stop_failure_cloud_credential_error` / `stop_failure_verification_required`** follow the `stop_failure` switch like their eleven siblings: silent unless you enabled `stop_failure`. If you enabled the whole parent (`hooks enable stop_failure`), you will now hear two error types that were silent before. If you had instead enumerated variants (`hooks enable-only <variant>`: parent on, every existing sibling an explicit true/false), the migration wrote the two new ones explicitly `false`, so nothing new became audible; `hooks enable <variant>` turns either on. (A config whose enumeration predates an earlier variant it never answered keeps inheriting.) To have only these, not every API error: `audio-hooks hooks enable-only stop_failure_cloud_credential_error stop_failure_verification_required`.
+- **`notification_auth_storage_failure` is off by default**, because `notification` is on by default and a new variant must not make noise on every existing install. A login-storage failure is therefore silent until you run `audio-hooks hooks enable notification_auth_storage_failure`. Confirm with `audio-hooks hooks list --variants`.
+- `model_refusal_fallback`, another `StopFailure` value declared in the Claude Code 2.1.288 binary, is deliberately not registered: no emitter for it was found.
 
 ### Forked sessions made no sound (fixed in v6.4.1)
 

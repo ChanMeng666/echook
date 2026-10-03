@@ -1,10 +1,10 @@
 {
   "$schema": "./user_preferences.schema.json",
-  "_comment": "echook - Default Configuration Template (v6.6.0)",
-  "_version": "6.6.0",
+  "_comment": "echook - Default Configuration Template (v6.7.0)",
+  "_version": "6.7.0",
   "_description": "This file is the default template for user_preferences.json. Plugin installs auto-copy this to ${CLAUDE_PLUGIN_DATA}/user_preferences.json on first read. AI agents should NOT edit this file directly — use 'audio-hooks set <key> <value>' instead.",
 
-  "version": "6.6.0",
+  "version": "6.7.0",
 
   "_comment_audio_theme": "Audio theme: 'default' for voice recordings, 'custom' for non-voice chimes. Change this one line to switch all audio.",
   "audio_theme": "default",
@@ -169,11 +169,13 @@
   },
 
   "statusline_settings": {
-    "_comment": "Controls which segments appear in the Claude Code status line. Available — line 1 (identity/config): model, session_name, agent, effort, thinking, vim, output_style, cc_version, cwd, repo, version, sounds, webhook, theme. Line 2 (live state/metrics): snooze, branch, git_dirty, worktree, pr, added_dirs, api_quota, weekly_quota, context, tokens, exceeds_200k, cost, duration, api_time, burn_rate. Most richer segments render only when their data is present. Run 'audio-hooks statusline segments' for the full catalog.",
+    "_comment": "Controls which segments appear in the Claude Code status line. Available — line 1 (identity/config): model, session_name, agent, remote, effort, fast_mode, thinking, vim, output_style, cc_version, cwd, repo, version, sounds, webhook, theme. Line 2 (live state/metrics): snooze, branch, git_dirty, worktree, pr, added_dirs, api_quota, weekly_quota, spend_limit, context, tokens, prompt_cache, exceeds_200k, cost, duration, api_time, burn_rate. Most richer segments render only when their data is present. remote and prompt_cache are opt-in (see extra_segments). Run 'audio-hooks statusline segments' for the full catalog.",
     "_comment_visible": "Whitelist: when non-empty, ONLY these segments show. Empty = show everything (minus hidden_segments). Back-compat: existing configs keep working.",
     "visible_segments": [],
     "_comment_hidden": "Blacklist applied only when visible_segments is empty: show everything EXCEPT these. Lets you drop a few segments without enumerating all the keepers.",
     "hidden_segments": [],
+    "_comment_extra": "Opt-in additions applied when visible_segments is empty: segments left out of the default (remote, prompt_cache) appear only when named here. hidden_segments still wins. Example: audio-hooks set statusline_settings.extra_segments '[\"prompt_cache\"]'.",
+    "extra_segments": [],
     "_comment_max_width": "Each line auto-reflows into as many rows as the terminal width needs so nothing is truncated; max_width pins that width (0 = auto-detect via the COLUMNS env var Claude Code provides).",
     "max_width": 0
   },

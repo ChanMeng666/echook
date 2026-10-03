@@ -214,7 +214,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "6.6.0"
+PROJECT_VERSION = "6.7.0"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -632,12 +632,22 @@ def _config_path() -> Path:
     return _prefs().config_path
 
 
+# v6.7: set by main() for invocations that only report (see
+# _is_read_only_invocation). Such a command works from the in-memory defaults
+# merged with whatever is on disk and creates, migrates and re-stamps nothing.
+_READ_ONLY = False
+
+
 def _load_config_raw() -> Dict[str, Any]:
-    """Load user_preferences.json (auto-init from template + plugin-option overlay)."""
+    """Load user_preferences.json (auto-init from template + plugin-option overlay).
+
+    In a read-only invocation nothing is created or migrated on disk; the same
+    merged result is computed in memory instead.
+    """
     if PROJECT_ROOT is None:
         return {}
     try:
-        return _prefs().load()
+        return _prefs().load(read_only=_READ_ONLY)
     except Exception:
         return {}
 
@@ -646,6 +656,8 @@ def _save_config_raw(cfg: Dict[str, Any]) -> Tuple[bool, str]:
     """Save user_preferences.json (atomic write + auto-backup snapshot)."""
     if PROJECT_ROOT is None:
         return False, "PROJECT_ROOT not detected"
+    if _READ_ONLY:
+        return False, "refusing to write during a read-only invocation"
     try:
         _prefs().save(cfg)
         return True, ""
@@ -703,6 +715,14 @@ def _queue_dir() -> Path:
 
 def _snooze_file() -> Path:
     return _queue_dir() / "snooze_until"
+
+
+def _log_dir() -> Path:
+    """Directory holding events.ndjson. HR.get_log_dir() creates it; a read-only
+    invocation must not, so it takes the path without the mkdir."""
+    if _READ_ONLY and PROJECT_ROOT is not None:
+        return _prefs().log_dir
+    return HR.get_log_dir() if HR else Path("/tmp")
 
 
 def _snooze_status() -> Dict[str, Any]:
@@ -782,7 +802,7 @@ def cmd_status(_args: List[str]) -> int:
 
     customizations: Dict[str, Any] = {}
     try:
-        customizations = _prefs().diff_from_default()
+        customizations = _prefs().diff_from_default(read_only=_READ_ONLY)
     except Exception:
         pass
 
@@ -811,7 +831,7 @@ def cmd_status(_args: List[str]) -> int:
         "project_dir": str(PROJECT_ROOT),
         "plugin_data_dir": plugin_data_dir,
         "queue_dir": str(_queue_dir()),
-        "log_dir": str(HR.get_log_dir()) if HR else None,
+        "log_dir": str(_log_dir()) if HR else None,
         "theme": cfg.get("audio_theme", "default"),
         "enabled_hooks": enabled,
         "enabled_hook_count": len(enabled),
@@ -840,6 +860,7 @@ def cmd_status(_args: List[str]) -> int:
         "statusline": {
             "visible_segments": sl.get("visible_segments", []),
             "hidden_segments": sl.get("hidden_segments", []),
+            "extra_segments": sl.get("extra_segments", []),
             "max_width": sl.get("max_width", 0),
         },
         "customizations": customizations,
@@ -1115,6 +1136,9 @@ def cmd_snooze(args: List[str]) -> int:
         return rc
     arg = args[0] if args else "30m"
     sf = _snooze_file()
+    if arg == "status":
+        emit({"ok": True, **_snooze_status()})
+        return 0
     sf.parent.mkdir(parents=True, exist_ok=True)
     if arg in ("off", "resume", "cancel"):
         try:
@@ -1124,9 +1148,6 @@ def cmd_snooze(args: List[str]) -> int:
         except OSError as e:
             return emit_error("INTERNAL_ERROR", str(e))
         emit({"ok": True, "active": False})
-        return 0
-    if arg == "status":
-        emit({"ok": True, **_snooze_status()})
         return 0
     secs = _parse_duration(arg)
     if secs is None or secs <= 0:
@@ -1384,9 +1405,15 @@ def _run_one_test(hook_name: str) -> Dict[str, Any]:
 def cmd_test(args: List[str]) -> int:
     if require_project_root() != 0:
         return 1
+    # v6.7: `test stop --dry-run` used to be accepted and then played the sound
+    # (the flag was never read); like every other subcommand, an argument the
+    # grammar does not define is an error and nothing runs.
+    rc = _check_args("test", args, max_positionals=1)
+    if rc is not None:
+        return rc
     if not args:
-        emit({"ok": False, "error": {"code": "INVALID_USAGE", "message": "Usage: audio-hooks test <hook_name|all>"}})
-        return 1
+        return emit_error("INVALID_USAGE", "Usage: audio-hooks test <hook_name|all>",
+                          suggested_command="audio-hooks hooks list")
     target = args[0]
     if target == "all":
         results = [_run_one_test(h["name"]) for h in HOOK_CATALOG]
@@ -1803,9 +1830,12 @@ def cmd_diagnose(_args: List[str]) -> int:
                 "Before 6.5.1 migration ran only when the config's _version "
                 "differed from the template's, and the template's was left at "
                 "5.1.5 for four releases — so equal strings meant no migration "
-                "ever ran. Loading the config once on this version migrates it."
+                "ever ran. The next hook event migrates it (the hook runner and "
+                "every state-changing command do); read-only commands such as "
+                "status and diagnose deliberately do not. To do it now, run "
+                "`audio-hooks migrate`."
             ),
-            "suggested_command": "audio-hooks status",
+            "suggested_command": "audio-hooks migrate",
             "retired_keys": prefs_schema.get("retired_keys", []),
         })
 
@@ -1885,12 +1915,19 @@ def cmd_logs(args: List[str]) -> int:
     if not args:
         return emit_error("INVALID_USAGE", "Usage: audio-hooks logs <tail|clear>")
     sub = args[0]
-    log_dir = HR.get_log_dir() if HR else Path("/tmp")
-    log_file = log_dir / "events.ndjson"
+    if sub not in ("tail", "clear"):
+        return emit_error("INVALID_USAGE", f"Unknown logs subcommand: {sub}")
     if sub == "clear":
+        # Validate before touching anything: a rejected call says "Nothing was
+        # changed" and must not have created the data or log directory.
         rc = _check_args("logs clear", args[1:], max_positionals=0)
         if rc is not None:
             return rc
+    # Neither subcommand needs the log directory to exist (tail of a missing log
+    # is empty, clear of a missing log is a no-op), so take the path without
+    # the mkdir that HR.get_log_dir() performs.
+    log_file = (_prefs().log_dir if PROJECT_ROOT is not None else _log_dir()) / "events.ndjson"
+    if sub == "clear":
         try:
             if log_file.exists():
                 log_file.unlink()
@@ -3346,35 +3383,39 @@ def _uninstall_cursor(*, purge: bool) -> int:
 # when their data is present. Keep this in lock-step with the script's
 # LINE1_SEGMENTS / LINE2_SEGMENTS so `statusline segments` is authoritative.
 STATUSLINE_SEGMENTS: List[Dict[str, Any]] = [
-    {"name": "model", "line": 1, "source": "model.display_name", "conditional": False, "description": "Active model display name"},
-    {"name": "session_name", "line": 1, "source": "session_name", "conditional": True, "description": "Custom session name set via --name or /rename"},
-    {"name": "agent", "line": 1, "source": "agent.name", "conditional": True, "description": "Agent name when running with --agent"},
-    {"name": "effort", "line": 1, "source": "effort.level", "conditional": True, "description": "Reasoning effort (low/medium/high/xhigh/max)"},
-    {"name": "thinking", "line": 1, "source": "thinking.enabled", "conditional": True, "description": "Shown when extended thinking is enabled"},
-    {"name": "vim", "line": 1, "source": "vim.mode", "conditional": True, "description": "Vim editing mode (when vim mode is on)"},
-    {"name": "output_style", "line": 1, "source": "output_style.name", "conditional": True, "description": "Active output style (hidden when 'default')"},
-    {"name": "cc_version", "line": 1, "source": "version", "conditional": True, "description": "Claude Code's own version"},
-    {"name": "cwd", "line": 1, "source": "cwd", "conditional": True, "description": "Working directory (abbreviated)"},
-    {"name": "repo", "line": 1, "source": "workspace.repo", "conditional": True, "description": "Git remote owner/name"},
-    {"name": "version", "line": 1, "source": "audio-hooks status", "conditional": False, "description": "echook version"},
-    {"name": "sounds", "line": 1, "source": "audio-hooks status", "conditional": False, "description": "Enabled / total sound hooks"},
-    {"name": "webhook", "line": 1, "source": "audio-hooks status", "conditional": False, "description": "Webhook on/off + format"},
-    {"name": "theme", "line": 1, "source": "audio-hooks status", "conditional": False, "description": "Audio theme (Voice/Chimes)"},
-    {"name": "snooze", "line": 2, "source": "audio-hooks status", "conditional": True, "description": "Mute countdown when snoozed"},
-    {"name": "branch", "line": 2, "source": "workspace.git_worktree", "conditional": True, "description": "Git branch / worktree"},
-    {"name": "git_dirty", "line": 2, "source": "git status --porcelain", "conditional": True, "description": "Uncommitted-change count (shells out to git; cached)"},
-    {"name": "worktree", "line": 2, "source": "worktree.name", "conditional": True, "description": "Managed worktree name"},
-    {"name": "pr", "line": 2, "source": "pr.number", "conditional": True, "description": "Pull request number + review state"},
-    {"name": "added_dirs", "line": 2, "source": "workspace.added_dirs", "conditional": True, "description": "Count of /add-dir directories"},
-    {"name": "api_quota", "line": 2, "source": "rate_limits.five_hour", "conditional": True, "description": "5-hour rate-limit usage + reset clock (date shown if not today)"},
-    {"name": "weekly_quota", "line": 2, "source": "rate_limits.seven_day", "conditional": True, "description": "7-day rate-limit usage + reset clock (date + time, e.g. 'Jul 4 5am')"},
-    {"name": "context", "line": 2, "source": "context_window", "conditional": True, "description": "Context-window usage % + token counts"},
-    {"name": "tokens", "line": 2, "source": "context_window.current_usage", "conditional": True, "description": "Cache-hit ratio (cache reads ÷ input)"},
-    {"name": "exceeds_200k", "line": 2, "source": "exceeds_200k_tokens", "conditional": True, "description": "Warning flag when tokens exceed 200K"},
-    {"name": "cost", "line": 2, "source": "cost.total_cost_usd", "conditional": True, "description": "Session cost + lines added/removed"},
-    {"name": "duration", "line": 2, "source": "cost.total_duration_ms", "conditional": True, "description": "Wall-clock session duration"},
-    {"name": "api_time", "line": 2, "source": "cost.total_api_duration_ms", "conditional": True, "description": "Share of wall-clock spent waiting on the API"},
-    {"name": "burn_rate", "line": 2, "source": "derived", "conditional": True, "description": "Cost velocity ($/hour)"},
+    {"name": "model", "line": 1, "source": "model.display_name", "conditional": False, "description": "Active model display name", "default": True},
+    {"name": "session_name", "line": 1, "source": "session_name", "conditional": True, "description": "Custom session name set via --name or /rename", "default": True},
+    {"name": "agent", "line": 1, "source": "agent.name", "conditional": True, "description": "Agent name when running with --agent", "default": True},
+    {"name": "remote", "line": 1, "source": "remote.session_id", "conditional": True, "description": "Remote/cloud-session indicator (undocumented upstream field). Opt-in: add to statusline_settings.extra_segments", "default": False},
+    {"name": "effort", "line": 1, "source": "effort.level", "conditional": True, "description": "Reasoning effort (low/medium/high/xhigh/max)", "default": True},
+    {"name": "fast_mode", "line": 1, "source": "fast_mode", "conditional": True, "description": "Fast-mode indicator; drawn only while fast mode is on", "default": True},
+    {"name": "thinking", "line": 1, "source": "thinking.enabled", "conditional": True, "description": "Shown when extended thinking is enabled", "default": True},
+    {"name": "vim", "line": 1, "source": "vim.mode", "conditional": True, "description": "Vim editing mode (when vim mode is on)", "default": True},
+    {"name": "output_style", "line": 1, "source": "output_style.name", "conditional": True, "description": "Active output style (hidden when 'default')", "default": True},
+    {"name": "cc_version", "line": 1, "source": "version", "conditional": True, "description": "Claude Code's own version", "default": True},
+    {"name": "cwd", "line": 1, "source": "cwd", "conditional": True, "description": "Working directory (abbreviated)", "default": True},
+    {"name": "repo", "line": 1, "source": "workspace.repo", "conditional": True, "description": "Git remote owner/name", "default": True},
+    {"name": "version", "line": 1, "source": "audio-hooks status", "conditional": False, "description": "echook version", "default": True},
+    {"name": "sounds", "line": 1, "source": "audio-hooks status", "conditional": False, "description": "Enabled / total sound hooks", "default": True},
+    {"name": "webhook", "line": 1, "source": "audio-hooks status", "conditional": False, "description": "Webhook on/off + format", "default": True},
+    {"name": "theme", "line": 1, "source": "audio-hooks status", "conditional": False, "description": "Audio theme (Voice/Chimes)", "default": True},
+    {"name": "snooze", "line": 2, "source": "audio-hooks status", "conditional": True, "description": "Mute countdown when snoozed", "default": True},
+    {"name": "branch", "line": 2, "source": "workspace.git_worktree", "conditional": True, "description": "Git branch / worktree", "default": True},
+    {"name": "git_dirty", "line": 2, "source": "git status --porcelain", "conditional": True, "description": "Uncommitted-change count (shells out to git; cached)", "default": True},
+    {"name": "worktree", "line": 2, "source": "worktree.name", "conditional": True, "description": "Managed worktree name", "default": True},
+    {"name": "pr", "line": 2, "source": "pr.number", "conditional": True, "description": "Pull request number + review state", "default": True},
+    {"name": "added_dirs", "line": 2, "source": "workspace.added_dirs", "conditional": True, "description": "Count of /add-dir directories", "default": True},
+    {"name": "api_quota", "line": 2, "source": "rate_limits.five_hour", "conditional": True, "description": "5-hour rate-limit usage + reset clock (date shown if not today)", "default": True},
+    {"name": "weekly_quota", "line": 2, "source": "rate_limits.seven_day", "conditional": True, "description": "7-day rate-limit usage + reset clock (date + time, e.g. 'Jul 4 5am')", "default": True},
+    {"name": "spend_limit", "line": 2, "source": "rate_limits.spend_limit", "conditional": True, "description": "Claude apps gateway spend limit: usage %, $used/$limit + period when sent, reset clock", "default": True},
+    {"name": "context", "line": 2, "source": "context_window", "conditional": True, "description": "Context-window usage % + token counts", "default": True},
+    {"name": "tokens", "line": 2, "source": "context_window.current_usage", "conditional": True, "description": "Cache-hit ratio (cache reads ÷ input)", "default": True},
+    {"name": "prompt_cache", "line": 2, "source": "prompt_cache", "conditional": True, "description": "Prompt-cache state: warm + time to expiry, or cold; the cause of a recent miss. Opt-in: add to statusline_settings.extra_segments", "default": False},
+    {"name": "exceeds_200k", "line": 2, "source": "exceeds_200k_tokens", "conditional": True, "description": "Warning flag when tokens exceed 200K", "default": True},
+    {"name": "cost", "line": 2, "source": "cost.total_cost_usd", "conditional": True, "description": "Session cost + lines added/removed", "default": True},
+    {"name": "duration", "line": 2, "source": "cost.total_duration_ms", "conditional": True, "description": "Wall-clock session duration", "default": True},
+    {"name": "api_time", "line": 2, "source": "cost.total_api_duration_ms", "conditional": True, "description": "Share of wall-clock spent waiting on the API", "default": True},
+    {"name": "burn_rate", "line": 2, "source": "derived", "conditional": True, "description": "Cost velocity ($/hour)", "default": True},
 ]
 
 # Codex's status line is NOT command-backed: it accepts only a fixed, ordered
@@ -3859,6 +3900,8 @@ def cmd_statusline(args: List[str]) -> int:
             "config": {
                 "visible_segments": "Whitelist — when non-empty, only these show.",
                 "hidden_segments": "Blacklist — applied when visible_segments is empty; show all except these.",
+                "extra_segments": "Opt-in additions — segments whose catalog entry has \"default\": false appear only when named here (or in a non-empty visible_segments). hidden_segments still wins.",
+                "opt_in_example": "audio-hooks set statusline_settings.extra_segments '[\"prompt_cache\"]'",
                 "set_example": "audio-hooks set statusline_settings.hidden_segments '[\"burn_rate\",\"api_time\"]'",
             },
         })
@@ -3930,6 +3973,30 @@ def cmd_statusline(args: List[str]) -> int:
         return 0
 
     return emit_error("INVALID_USAGE", f"Unknown statusline subcommand: {sub}")
+
+
+def cmd_migrate(args: List[str]) -> int:
+    """Bring the stored user_preferences.json up to the current template.
+
+    State-changing, idempotent, and never creates the file: the explicit form of
+    what the hook runner and every write already do on first load. It is the
+    remedy for PREFS_SCHEMA_STALE, which the read-only commands deliberately do
+    not apply.
+    """
+    if require_project_root() != 0:
+        return 1
+    rc = _check_args("migrate", args, max_positionals=0)
+    if rc is not None:
+        return rc
+    try:
+        report = _prefs().migrate()
+    except ValueError as e:
+        return emit_error("CONFIG_READ_ERROR", f"{_prefs().config_path} is {e}. Nothing was changed.",
+                          suggested_command="audio-hooks backup list")
+    except OSError as e:
+        return emit_error("INTERNAL_ERROR", str(e))
+    emit({"ok": True, **report})
+    return 0
 
 
 def cmd_update(args: List[str]) -> int:
@@ -4362,6 +4429,133 @@ def _claude_code_registered_events() -> List[str]:
     return [h["name"] for h in HOOK_CATALOG if h["name"] in registered]
 
 
+# ---------------------------------------------------------------------------
+# CLI-level error codes
+# ---------------------------------------------------------------------------
+
+# v6.7: codes the CLI emits that hook_runner.ErrorCode does not define -- the
+# runner's catalogue covers what a *hook* can report, so the manifest used to
+# omit INVALID_USAGE, DUPLICATE_BRIDGE, UNINSTALL_INCOMPLETE and the rest, which
+# CLAUDE.md names as the place an agent looks codes up. _build_manifest() merges
+# this over HR.ErrorCode. "appears_in" says where the code shows up: "error"
+# (the {"ok": false, "error": {"code": ...}} a command returns) or "diagnose"
+# (an entry in `audio-hooks diagnose` errors/warnings).
+# tests/test_cli_error_codes.py scans this file for every code it can emit and
+# fails when one is in neither this table nor HR.ErrorCode.
+CLI_ERROR_CODES: Dict[str, Dict[str, str]] = {
+    "INVALID_USAGE": {
+        "appears_in": "error",
+        "hint": "The command was called with an unknown flag, a missing value, a stray argument or a help-like value. Nothing was changed.",
+        "suggested_command": "audio-hooks manifest",
+    },
+    "DUAL_INSTALL_DETECTED": {
+        "appears_in": "error, diagnose",
+        "hint": "The script install and the Claude Code plugin are both active, so every hook fires twice; or a script install was refused because the plugin is present.",
+        "suggested_command": "audio-hooks uninstall",
+    },
+    "DUPLICATE_BRIDGE": {
+        "appears_in": "error, diagnose",
+        "hint": "Cursor receives echook both through Claude Code's auto-bridge and through a native ~/.cursor/hooks.json, so events fire twice. `install --cursor` refuses unless --force.",
+        "suggested_command": "audio-hooks uninstall --cursor",
+    },
+    "CURSOR_NOT_FOUND": {
+        "appears_in": "error",
+        "hint": "~/.cursor/ does not exist, so there is nothing to install the native Cursor hooks into. Install Cursor first.",
+        "suggested_command": "audio-hooks status",
+    },
+    "UNINSTALL_INCOMPLETE": {
+        "appears_in": "error",
+        "hint": "Uninstall removed what it could but left entries it did not recognise or could not delete; the response lists them. Read unmatched_references before --remove-unmatched.",
+        "suggested_command": "audio-hooks uninstall",
+    },
+    "BACKUP_NOT_FOUND": {
+        "appears_in": "error",
+        "hint": "No preferences backup has that id.",
+        "suggested_command": "audio-hooks backup list",
+    },
+    "RESTORE_FAILED": {
+        "appears_in": "error",
+        "hint": "The chosen backup could not be read or restored.",
+        "suggested_command": "audio-hooks backup list",
+    },
+    "NOT_INSTALLED": {
+        "appears_in": "error",
+        "hint": "upgrade found the audio-hooks plugin in no scope; there is nothing to upgrade.",
+        "suggested_command": "audio-hooks install --plugin",
+    },
+    "PRIOR_UPGRADE_INCOMPLETE": {
+        "appears_in": "error",
+        "hint": "A previous `upgrade` left its in-progress marker behind; the response carries it. Check state, then retry with --force.",
+        "suggested_command": "audio-hooks status",
+    },
+    "UPGRADE_UNINSTALL_FAILED": {
+        "appears_in": "error",
+        "hint": "The `claude plugin uninstall` step of upgrade failed; the installed plugin was not replaced.",
+        "suggested_command": "audio-hooks upgrade --check-only",
+    },
+    "UPGRADE_REINSTALL_FAILED": {
+        "appears_in": "error",
+        "hint": "The `claude plugin install` step of upgrade failed after the uninstall, so the plugin may be absent now. Run the suggested install command.",
+        "suggested_command": "audio-hooks install --plugin",
+    },
+    "UPGRADE_VERIFY_FAILED": {
+        "appears_in": "error",
+        "hint": "The upgrade ran but the final `claude plugin list` check failed; it may well have completed.",
+        "suggested_command": "audio-hooks upgrade --check-only",
+    },
+    "HOOKS_NOT_REGISTERED": {
+        "appears_in": "diagnose",
+        "hint": "No hooks block in ~/.claude/settings.json and no plugin install found, so nothing triggers echook.",
+        "suggested_command": "audio-hooks install --plugin",
+    },
+    "NATIVE_NOTIFICATIONS_ACTIVE": {
+        "appears_in": "diagnose",
+        "hint": "Claude Code's own notification channel is on and signals the same events, so expect a doubled bell or toast. Turn one of the two off.",
+        "suggested_command": "audio-hooks diagnose",
+    },
+    "NO_COMPLETION_SIGNAL": {
+        "appears_in": "diagnose",
+        "hint": "None of stop, subagent_stop or notification is enabled, so no hook can say a turn finished. echook is healthy but silent for that.",
+        "suggested_command": "audio-hooks hooks enable stop",
+    },
+    "TERMINAL_SEQUENCE_INERT": {
+        "appears_in": "diagnose",
+        "hint": "notification_settings.terminal_sequence is enabled but Claude Code never emits it from an async hook. Use notification_settings.mode audio_and_notification for a desktop toast.",
+        "suggested_command": "audio-hooks set notification_settings.mode audio_and_notification",
+    },
+    "PREFS_SCHEMA_STALE": {
+        "appears_in": "diagnose",
+        "hint": "user_preferences.json is stamped with an older version or carries keys this version removed. The next hook event or any state-changing command migrates it; read-only commands (status, diagnose, get) do not. `audio-hooks migrate` does it on demand.",
+        "suggested_command": "audio-hooks migrate",
+    },
+    "STALE_PLUGIN_CACHE": {
+        "appears_in": "diagnose",
+        "hint": "installed_plugins.json records a version or install path that is not the code now running.",
+        "suggested_command": "audio-hooks upgrade",
+    },
+    "WINDOWS_NO_GIT_BASH": {
+        "appears_in": "diagnose",
+        "hint": "Windows without Git Bash on PATH: Claude Code runs command hooks through bash and refuses them when it is missing, so every handler fails.",
+        "suggested_command": "audio-hooks diagnose",
+    },
+    "CODEX_HOOKS_DISABLED": {
+        "appears_in": "diagnose",
+        "hint": "Codex hooks are installed but [features].hooks is false in config.toml, so Codex invokes none of them.",
+        "suggested_command": "audio-hooks install --codex",
+    },
+    "CODEX_CONFIG_PARSE_ERROR": {
+        "appears_in": "diagnose",
+        "hint": "Codex hooks are installed but config.toml could not be read or parsed. Fix the TOML; hooks are on unless [features].hooks = false.",
+        "suggested_command": "audio-hooks diagnose",
+    },
+    "CODEX_MANAGED_HOOKS_ONLY": {
+        "appears_in": "diagnose",
+        "hint": "Codex allows managed hooks only, so $CODEX_HOME/hooks.json is ignored and a native --codex install never fires. Ask whoever owns the Codex policy.",
+        "suggested_command": "audio-hooks diagnose",
+    },
+}
+
+
 def _build_manifest() -> Dict[str, Any]:
     error_codes: Dict[str, Dict[str, str]] = {}
     if HR is not None:
@@ -4374,6 +4568,9 @@ def _build_manifest() -> Dict[str, Any]:
                 "hint": meta.get("hint", ""),
                 "suggested_command": meta.get("suggested_command", ""),
             }
+    # CLI-level codes; the runner's text wins where both define a code.
+    for code, meta in CLI_ERROR_CODES.items():
+        error_codes.setdefault(code, dict(meta))
     return {
         "ok": True,
         "name": "audio-hooks",
@@ -4415,6 +4612,7 @@ def _build_manifest() -> Dict[str, Any]:
             {"name": "statusline codex show", "args": [], "description": "Show the current Codex [tui].status_line + terminal_title and whether they likely overflow"},
             {"name": "statusline codex preview", "args": ["[--preset minimal|balanced|full]", "[--items a,b,c]", "[--target status_line|terminal_title|both]"], "description": "Print the curated Codex status_line / terminal_title that would be written (no write)"},
             {"name": "statusline codex apply", "args": ["[--preset minimal|balanced|full]", "[--items a,b,c]", "[--target status_line|terminal_title|both]"], "description": "Curate Codex [tui].status_line and/or terminal_title in config.toml (backs up first) so they stop truncating. Codex accepts only fixed item IDs — echook curates, it cannot render custom text."},
+            {"name": "migrate", "args": [], "description": "Bring the stored user_preferences.json up to this version's template (new keys added, dropped keys removed, a sibling .bak kept). Idempotent; no-op when current or absent. Never creates the file."},
             {"name": "update", "args": ["[--check]"], "description": "Show current version (real updates go through /plugin update)"},
             {"name": "upgrade", "args": ["[--check-only]", "[--force]"], "description": "Refresh the plugin code (and ~/.claude/plugins/cache/) without losing config. Tries `claude plugin update` first; falls back to uninstall --keep-data + install."},
             {"name": "backup list", "args": [], "description": "JSON array of available backups, newest first"},
@@ -4470,6 +4668,7 @@ def _build_manifest() -> Dict[str, Any]:
             "rate_limit_alerts.seven_day_thresholds",
             "statusline_settings.visible_segments",
             "statusline_settings.hidden_segments",
+            "statusline_settings.extra_segments",
             "statusline_settings.max_width",
         ],
         "themes": ["default", "custom"],
@@ -4581,6 +4780,7 @@ def _build_manifest() -> Dict[str, Any]:
             "CODEX_HOME": "Codex CLI home directory (defaults to ~/.codex). Used by audio-hooks install --codex to locate hooks.json and config.toml, and by the runner to resolve the Codex-native data dir.",
         },
         "pointers": {
+            "agents_md": "AGENTS.md",
             "claude_md": "CLAUDE.md",
             "skill": "plugins/audio-hooks/skills/audio-hooks/SKILL.md",
             "readme": "README.md",
@@ -4593,7 +4793,7 @@ def _build_manifest() -> Dict[str, Any]:
                 "hooks/", "bin/", "audio/", "config/",
                 "cursor-hooks/", "codex-hooks/",
             ],
-            "_note": "All paths are relative to the project root reported in `audio-hooks status.project_dir`.",
+            "_note": "All paths are relative to the project root reported in `audio-hooks status.project_dir`. agents_md is the full operating guide; claude_md only imports it (Claude Code ignores AGENTS.md when a CLAUDE.md exists).",
         },
     }
 
@@ -4633,11 +4833,63 @@ DISPATCH = {
     "statusline": cmd_statusline,
     "backup": cmd_backup,
     "upgrade": cmd_upgrade,
+    "migrate": cmd_migrate,
 }
 
 
 # Subcommands whose handler answers --help itself, with a richer payload.
 _SELF_DOCUMENTING = frozenset({"install", "uninstall", "upgrade"})
+
+
+# v6.7: invocations that only report. main() marks them read-only so they leave
+# the home and data directories byte-identical -- no auto-initialised
+# user_preferences.json, no migration save, no logs/ or queue/ directory. Each
+# entry maps a subcommand to the first-argument forms that are read-only;
+# None means "no arguments" (a bare `webhook` displays), "*" means any form.
+# Everything else (set, hooks enable, snooze 30m, install, test, ...) keeps
+# initialising and migrating as before, and so does the hook runner.
+# tests/test_read_only_commands.py walks every manifest subcommand against this.
+_READ_ONLY_FORMS: Dict[str, Tuple[Optional[str], ...]] = {
+    "manifest": ("*",),
+    "version": ("*",),
+    "status": ("*",),
+    "diagnose": ("*",),
+    "get": ("*",),
+    "update": ("*",),
+    "hooks": ("list",),
+    "theme": (None, "list"),
+    "snooze": ("status",),
+    # Bare form and the flagless `set` both only display (v6.6).
+    "webhook": (None,),
+    "tts": (None,),
+    "rate-limits": (None,),
+    "logs": ("tail",),
+    "backup": ("list", "show"),
+}
+
+
+def _is_read_only_invocation(cmd: str, args: List[str]) -> bool:
+    """True when ``cmd args`` only reports and must not touch disk state."""
+    if any(_is_help_flag(a) for a in (args[:1] if cmd == "set" else args)):
+        return True  # usage is printed, nothing runs
+    if cmd == "statusline":
+        sub = args[0] if args else "show"
+        if sub in ("show", "segments"):
+            return True
+        if sub in ("subagent", "codex"):
+            action = args[1] if len(args) > 1 else "show"
+            return action in (("show",) if sub == "subagent" else ("show", "preview"))
+        return False
+    forms = _READ_ONLY_FORMS.get(cmd)
+    if forms is None:
+        return False
+    if "*" in forms:
+        return True
+    first = args[0] if args else None
+    if first in forms:
+        return True
+    # `webhook set` / `tts set` / `rate-limits set` with no flags only display.
+    return cmd in ("webhook", "tts", "rate-limits") and args == ["set"]
 
 
 def _emit_subcommand_usage(cmd: str) -> int:
@@ -4659,6 +4911,8 @@ def _emit_subcommand_usage(cmd: str) -> int:
 
 
 def main(argv: List[str]) -> int:
+    global _READ_ONLY
+    _READ_ONLY = False
     if len(argv) < 2:
         # No-arg invocation returns the manifest as the canonical introspection target
         return cmd_manifest([])
@@ -4678,11 +4932,18 @@ def main(argv: List[str]) -> int:
     # the key is rejected by cmd_set (it must never be stored as a value).
     help_args = argv[2:3] if cmd == "set" else argv[2:]
     if cmd not in _SELF_DOCUMENTING and any(_is_help_flag(a) for a in help_args):
-        return _emit_subcommand_usage(cmd)
+        _READ_ONLY = True
+        try:
+            return _emit_subcommand_usage(cmd)
+        finally:
+            _READ_ONLY = False
+    _READ_ONLY = _is_read_only_invocation(cmd, argv[2:])
     try:
         return fn(argv[2:])
     except Exception as e:
         return emit_error("INTERNAL_ERROR", str(e))
+    finally:
+        _READ_ONLY = False
 
 
 if __name__ == "__main__":

@@ -536,7 +536,7 @@ class TestIncompleteIsDistinguishable(_Base):
     def test_unrecognised_home_spelling_keeps_the_script_and_reports_incomplete(self) -> None:
         self.install_files()
         doc = {"hooks": {
-            "Stop": [{"hooks": [_cmd('powershell -c "& $env:USERPROFILE\.claude\hooks\hook_runner.py stop"')]}],
+            "Stop": [{"hooks": [_cmd(r'powershell -c "& $env:USERPROFILE\.claude\hooks\hook_runner.py stop"')]}],
             "Notification": [{"hooks": [_cmd(self.windows_command("notification"))]}],
         }}
         self.write_settings(doc)
@@ -761,7 +761,7 @@ class TestUnmatchedForms(_Base):
 class TestRemoveUnmatched(_Base):
     def _doc(self):
         return {"hooks": {
-            "Stop": [{"hooks": [_cmd('powershell -c "& $env:USERPROFILE\.claude\hooks\hook_runner.py stop"'),
+            "Stop": [{"hooks": [_cmd(r'powershell -c "& $env:USERPROFILE\.claude\hooks\hook_runner.py stop"'),
                                 _cmd("keep me")]}],
             "Notification": [{"hooks": [_cmd(self.windows_command("notification"))]}],
             "CustomEvent": [{"hooks": [_cmd("true;~/.claude/hooks/hook_runner.py x")]}],
