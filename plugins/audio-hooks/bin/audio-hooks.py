@@ -214,7 +214,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "6.7.0"
+PROJECT_VERSION = "6.7.1"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -2083,14 +2083,17 @@ def cmd_install(args: List[str]) -> int:
     if mode == "plugin":
         # v6.6: Claude Code ships CLI equivalents (with --json) for the
         # marketplace and install steps, so an agent can run them directly.
-        # /reload-plugins is the one step with no CLI form.
+        # /reload-plugins is the one step with no CLI form: Claude Code 2.1.288
+        # has no `claude plugin reload`, and the command reloads only the
+        # session it is typed into. A session started after the install loads
+        # the plugin by itself.
         emit({
             "ok": True,
             "mode": "plugin",
             "next_steps": [
                 "claude plugin marketplace add ChanMeng666/echook --json",
                 "claude plugin install audio-hooks@chanmeng-audio-hooks --json",
-                "Ask the user to type /reload-plugins inside Claude Code (REPL-only, no CLI equivalent)",
+                "Ask the user to type /reload-plugins in any Claude Code session that is already open (no CLI equivalent; a new session needs no reload)",
                 "Verify: audio-hooks status",
             ],
             "hint": "Plugin installation is performed by Claude Code itself; this command only lists the commands to run.",
@@ -4789,6 +4792,7 @@ def _build_manifest() -> Dict[str, Any]:
             "architecture": "docs/ARCHITECTURE.md",
             "troubleshooting": "docs/TROUBLESHOOTING.md",
             "status_line": "docs/STATUS_LINE.md",
+            "privacy_policy": "PRIVACY.md",
             "canonical_sources": [
                 "hooks/", "bin/", "audio/", "config/",
                 "cursor-hooks/", "codex-hooks/",

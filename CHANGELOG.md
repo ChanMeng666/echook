@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [6.7.1] - 2026-10-04
+
+A packaging and documentation release. No behaviour of the hooks, the status
+line or the CLI's commands changes.
+
+### Added
+
+- **`PRIVACY.md`.** A privacy policy for the plugin, written from the code: what
+  echook processes on the machine, what it stores and where, and the one case in
+  which data leaves the machine (a webhook the user configures, sent to that URL
+  and nowhere else). No telemetry, analytics or update checks exist to disclose.
+  Anthropic's directory policy asks for a privacy-policy link for software that
+  can connect to a remote service.
+- **Directory listing links in `plugin.json`**: `privacyPolicyUrl`, `supportUrl`
+  and `documentationUrl`. Claude Code ignores these at load time; only
+  Anthropic's plugin directory reads them. `claude plugin validate` accepts them
+  without a warning on Claude Code 2.1.281 or later [DOC]; earlier versions
+  print an `Unknown field` warning for each.
+- `manifest.pointers.privacy_policy`.
+
+### Changed
+
+- **What the docs say about `/reload-plugins`**, re-checked against Claude Code
+  2.1.288. There is still no `claude plugin reload` subcommand [LIVE: `claude
+  plugin --help`], so the step cannot be run from a shell on the user's behalf.
+  Per the docs, a shell-installed plugin loads "the next time you start Claude
+  Code, or when you run `/reload-plugins` in a session that's already open"
+  [DOC], so the request to type it applies only to sessions that are already
+  open. `/reload-plugins` can also be typed into a session without an
+  interactive terminal since 2.1.260 [DOC], but it reloads only that session.
+  The `install --plugin` `next_steps` text and `AGENTS.md` now say this.
+
+### Verified / not verified
+
+`python -m unittest discover tests` and `claude plugin validate --strict` pass.
+The privacy policy's statements were checked against the source: the only
+network calls in `bin/` and `hooks/` are the webhook POST and `webhook test`.
+One headless run of `claude -p "/reload-plugins"` on 2.1.288 printed no reload
+summary, so that documented route is unconfirmed here. The plugin has not been
+accepted by Anthropic's directory; a submission is a separate step.
+
 ## [6.7.0] - 2026-10-03
 
 Three gaps closed, one ordering bug fixed, and one habit corrected. The gaps:

@@ -1,7 +1,7 @@
 {
   "name": "audio-hooks",
   "displayName": "echook",
-  "version": "6.7.0",
+  "version": "6.7.1",
   "description": "Audio notifications + AI-controlled config for Claude Code, Cursor IDE, and Codex CLI events. 39 hook events + 47 matcher variants, each with its own sound. Desktop toasts, TTS, webhooks, status line + per-subagent rows, rate-limit alerts. Auto-bridges to Cursor IDE 3.2.16+; native install via 'audio-hooks install --cursor' or 'audio-hooks install --codex'.",
   "author": {
     "name": "Chan Meng",
@@ -10,6 +10,9 @@
   "homepage": "https://github.com/ChanMeng666/echook",
   "repository": "https://github.com/ChanMeng666/echook",
   "license": "MIT",
+  "documentationUrl": "https://github.com/ChanMeng666/echook#readme",
+  "supportUrl": "https://github.com/ChanMeng666/echook/blob/master/SUPPORT.md",
+  "privacyPolicyUrl": "https://github.com/ChanMeng666/echook/blob/master/PRIVACY.md",
   "keywords": ["audio", "notifications", "hooks", "tts", "webhook", "ai-operated", "rate-limits", "cursor", "cursor-ide", "codex", "codex-cli", "openai-codex"],
   "userConfig": {
     "audio_theme": {
