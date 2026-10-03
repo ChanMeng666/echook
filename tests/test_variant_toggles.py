@@ -195,6 +195,48 @@ class TestBackwardCompatibility(unittest.TestCase):
                           f"SYNTHETIC_EVENT_MAP")
 
 
+class TestV670VariantGating(unittest.TestCase):
+    """Gating of the three v6.7 variants, through ``is_hook_enabled``."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.hr = _load_hook_runner()
+
+    def _enabled(self, enabled_hooks, hook, variant):
+        with _ConfigPatch(self.hr, enabled_hooks):
+            return self.hr.is_hook_enabled(hook, variant)
+
+    def test_auth_storage_failure_is_opt_in_on_a_fresh_install(self) -> None:
+        for cfg in ({}, {"notification": True}):
+            self.assertFalse(self._enabled(cfg, "notification", "notification_auth_storage_failure"))
+
+    def test_auth_storage_failure_can_be_enabled_alone(self) -> None:
+        self.assertTrue(self._enabled(
+            {"notification": True, "notification_auth_storage_failure": True},
+            "notification", "notification_auth_storage_failure"))
+        # ...and enabling it does not wake a sibling.
+        self.assertFalse(self._enabled(
+            {"notification": True, "notification_auth_storage_failure": True},
+            "notification", "notification_push_notification"))
+
+    def test_auth_storage_failure_survives_a_muted_parent_only_when_explicit(self) -> None:
+        self.assertFalse(self._enabled(
+            {"notification": False}, "notification", "notification_auth_storage_failure"))
+        self.assertTrue(self._enabled(
+            {"notification": False, "notification_auth_storage_failure": True},
+            "notification", "notification_auth_storage_failure"))
+
+    def test_new_stop_failure_variants_inherit_the_parent(self) -> None:
+        for variant in ("stop_failure_cloud_credential_error", "stop_failure_verification_required"):
+            with self.subTest(variant=variant):
+                self.assertFalse(self._enabled({}, "stop_failure", variant))
+                self.assertTrue(self._enabled({"stop_failure": True}, "stop_failure", variant))
+                self.assertFalse(self._enabled(
+                    {"stop_failure": True, variant: False}, "stop_failure", variant))
+                self.assertTrue(self._enabled(
+                    {"stop_failure": False, variant: True}, "stop_failure", variant))
+
+
 class TestRunHookThreadsVariant(unittest.TestCase):
     """``run_hook`` must take the variant as a parameter, not read module state,
     so direct callers such as ``audio-hooks test`` gate correctly."""

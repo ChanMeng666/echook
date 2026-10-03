@@ -366,6 +366,9 @@ class TestManifestEditorSurface(unittest.TestCase):
             "authentication_failed", "oauth_org_not_allowed", "account_on_hold",
             "billing_error", "rate_limit", "overloaded", "invalid_request",
             "model_not_found", "server_error", "unknown", "max_output_tokens",
+            # v6.7: cloud_credential_error is documented (v2.1.267+);
+            # verification_required is in the 2.1.288 binary's error union.
+            "cloud_credential_error", "verification_required",
         }
         template: Dict[str, Any] = json.loads(CC_TEMPLATE.read_text(encoding="utf-8"))
         registered = set()
@@ -378,10 +381,75 @@ class TestManifestEditorSurface(unittest.TestCase):
         )
 
 
+class TestV670Variants(unittest.TestCase):
+    """The three matcher values Claude Code sent that had no handler.
+
+    ``hooks.json`` has no catch-all under ``Notification`` or ``StopFailure``, so
+    a matcher value with no entry is a permanently silent event. ``cloud_credential_error``
+    is documented (Claude Code v2.1.267+); ``verification_required`` and
+    ``auth_storage_failure`` come from the 2.1.288 binary.
+    """
+
+    NEW = {
+        ("StopFailure", "cloud_credential_error"):
+            ("stop_failure_cloud_credential_error", "stop_failure", "fail-cloud-credential.mp3"),
+        ("StopFailure", "verification_required"):
+            ("stop_failure_verification_required", "stop_failure", "fail-verification.mp3"),
+        ("Notification", "auth_storage_failure"):
+            ("notification_auth_storage_failure", "notification", "notif-auth-storage.mp3"),
+    }
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.template: Dict[str, Any] = json.loads(CC_TEMPLATE.read_text(encoding="utf-8"))
+        cls.runner = _load_hook_runner()
+
+    def test_each_matcher_is_registered_and_resolves(self) -> None:
+        for (event, matcher), (arg, parent, audio) in self.NEW.items():
+            with self.subTest(event=event, matcher=matcher):
+                groups = [g for g in self.template["hooks"][event] if g.get("matcher") == matcher]
+                self.assertEqual(len(groups), 1, f"{event} matcher {matcher!r} not registered once")
+                commands = [h["command"] for h in groups[0]["hooks"]]
+                self.assertEqual(len(commands), 1)
+                self.assertEqual(_ARG_RE.search(commands[0]).group(1), arg)
+                self.assertEqual(
+                    self.runner._resolve_synthetic_event(arg), (parent, audio, arg))
+
+    def test_handler_shape_matches_siblings(self) -> None:
+        for (event, matcher) in self.NEW:
+            sibling = next(
+                g for g in self.template["hooks"][event]
+                if g.get("matcher") not in (matcher, "", None)
+            )
+            group = next(g for g in self.template["hooks"][event] if g.get("matcher") == matcher)
+            mine, theirs = group["hooks"][0], sibling["hooks"][0]
+            for key in ("type", "async", "timeout"):
+                self.assertEqual(mine[key], theirs[key], f"{matcher}: {key} differs from siblings")
+
+    def test_notification_variant_defaults_off_and_stop_failure_inherits(self) -> None:
+        defaults = self.runner.SYNTHETIC_VARIANT_DEFAULTS
+        # `notification` is on by default, so its new variant must be opt-in.
+        self.assertIs(defaults.get("notification_auth_storage_failure"), False)
+        # `stop_failure` is off by default; its eleven existing variants carry no
+        # entry and inherit it, so the new ones must not either.
+        self.assertNotIn("stop_failure_cloud_credential_error", defaults)
+        self.assertNotIn("stop_failure_verification_required", defaults)
+
+    def test_notification_label(self) -> None:
+        self.assertEqual(
+            self.runner.NOTIFICATION_TYPE_LABELS["auth_storage_failure"],
+            "Login needs attention")
+
+    def test_model_refusal_fallback_is_not_registered(self) -> None:
+        """Declared in the 2.1.288 type list, but no emitter was found."""
+        self.assertNotIn("stop_failure_model_refusal_fallback", self.runner.SYNTHETIC_EVENT_MAP)
+        self.assertNotIn("model_refusal_fallback", json.dumps(self.template))
+
+
 class TestAudioUniqueness(unittest.TestCase):
     """No two events or variants may share a sound.
 
-    The point of 39 events and 44 independently switchable variants is that you
+    The point of 39 events and 47 independently switchable variants is that you
     can tell them apart by ear. Before v6.5.1 eleven files were shared by up to
     seven slots each — `notification-urgent.mp3` covered `notification` plus six
     variants, so four different rate-limit and auth failures were audibly the

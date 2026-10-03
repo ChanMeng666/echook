@@ -593,6 +593,22 @@
       "_v651": true
     },
     {
+      "filename": "notif-auth-storage.mp3",
+      "theme": "default",
+      "type": "voice",
+      "text": "Login needs attention",
+      "_v670": true
+    },
+    {
+      "filename": "chime-notif-auth-storage.mp3",
+      "theme": "custom",
+      "type": "sound_effect",
+      "text": "soft lock latch click then a low wobbling hum, credentials not saved, uneasy, 1 second",
+      "duration_seconds": 1.2,
+      "prompt_influence": 0.4,
+      "_v670": true
+    },
+    {
       "filename": "fail-rate-limit.mp3",
       "theme": "default",
       "type": "voice",
@@ -767,6 +783,38 @@
       "duration_seconds": 1.2,
       "prompt_influence": 0.4,
       "_v651": true
+    },
+    {
+      "filename": "fail-cloud-credential.mp3",
+      "theme": "default",
+      "type": "voice",
+      "text": "Cloud credentials error",
+      "_v670": true
+    },
+    {
+      "filename": "chime-fail-cloud-credential.mp3",
+      "theme": "custom",
+      "type": "sound_effect",
+      "text": "two descending notes with a hollow metallic key turn click, cloud login rejected, muted, 1 second",
+      "duration_seconds": 1.2,
+      "prompt_influence": 0.4,
+      "_v670": true
+    },
+    {
+      "filename": "fail-verification.mp3",
+      "theme": "default",
+      "type": "voice",
+      "text": "Verification required",
+      "_v670": true
+    },
+    {
+      "filename": "chime-fail-verification.mp3",
+      "theme": "custom",
+      "type": "sound_effect",
+      "text": "three rapid sharp pings then a questioning rising tone, identity check, urgent, 1 second",
+      "duration_seconds": 1.2,
+      "prompt_influence": 0.4,
+      "_v670": true
     },
     {
       "filename": "session-startup.mp3",
