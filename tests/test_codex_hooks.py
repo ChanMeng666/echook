@@ -25,6 +25,11 @@ This file pins those contracts.
 
 from __future__ import annotations
 
+try:
+    import _isolation  # noqa: F401  (suite-level isolation, tests/_isolation.py)
+except ImportError:  # python -m unittest tests.test_x from the repo root
+    from tests import _isolation  # noqa: F401
+
 import importlib
 import importlib.util
 import json
@@ -83,6 +88,9 @@ def _run_hook(
         env.pop(k, None)
     if state_dir is not None:
         env["CLAUDE_AUDIO_HOOKS_DATA"] = str(state_dir)
+        # The runner is real: snooze it so it stops before starting an audio
+        # player or a toast (see _isolation.seed_snooze).
+        _isolation.seed_snooze(state_dir)
     if env_extra:
         env.update(env_extra)
     env.setdefault("PYTHONIOENCODING", "utf-8")

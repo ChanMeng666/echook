@@ -1,6 +1,6 @@
 # Observed event behaviour
 
-What Claude Code's hook events **actually do**, measured against a running install — as distinct from what [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks) documents. Everything here was captured from real sessions, not inferred.
+What Claude Code's hook events **actually do**, measured against a running install — as distinct from what [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks) documents. Findings up to and including the 2.1.251 sync were captured from real sessions or read out of the binary. From the 2.1.288 sync onward every fact carries an evidence tag (see [Evidence tags](#evidence-tags-used-from-the-21288-sync-onward)) so a reader can tell a measurement from a reading of the docs or of minified code.
 
 This file exists because of v6.3.4. That release was an emergency rollback: echook registered a sound on `WorktreeCreate`, but `WorktreeCreate` is a *provider* hook — registering any command hook on it makes Claude Code delegate worktree creation to that hook and demand a path back. The audio hook returned exit 0 with no path, so every worktree-isolated subagent failed. The event's name said "notify me when a worktree is created"; its contract said "you are now responsible for creating worktrees".
 
@@ -46,6 +46,8 @@ Not in the upstream field list. Observed on Claude Code 2.1.215:
 
 Treat the field as best-effort: it is undocumented, so it may change shape or disappear. The filter reads it defensively and no-ops when it is absent, which is also what happens under Cursor and Codex.
 
+*Update, 2.1.288:* the field has since been documented, and the capture above under-described it. `status` can also be `pending`, `type` is a friendly label drawn from a larger set, and three of those labels are Claude Code's own maintenance work. v6.6.0 changed the filter accordingly — see [The `Stop` / `SubagentStop` payload at 2.1.288](#the-stop--subagentstop-payload-at-21288).
+
 ### `agent_completed` and `agent_needs_input` do not fire for local subagents
 
 `Notification` documents eight `notification_type` values. Two of them — `agent_needs_input` and `agent_completed`, both added in Claude Code v2.1.198 — did not fire at all during capture.
@@ -70,6 +72,8 @@ Captured via a catch-all matcher, with `inputNeededNotifEnabled` and `agentPushN
 Fires with `message: "Claude is waiting for your input"` when a session is genuinely parked on the user — not on every turn boundary. Payload keys observed: `session_id`, `transcript_path`, `cwd`, `prompt_id`, `hook_event_name`, `notification_type`, `message`.
 
 This, not `Stop`, is what users mean when they ask for a "task done" sound.
+
+*Update, 2.1.288:* upstream has since fixed it firing while background agents are still running, which strengthens it as this signal. It is documented to arrive about 60 seconds after Claude finishes and only if the user has not typed since, so it is a "parked" signal, not an instant one. None of this was re-measured here — see [`idle_prompt` and the notification timing gates](#idle_prompt-and-the-notification-timing-gates).
 
 ### `Stop` is per-turn and has no finality marker
 
@@ -196,6 +200,13 @@ correct for terminal purposes and slightly overstated in general.
 `TERMINAL_SEQUENCE_INERT` when the flag is on and points at the desktop-toast
 channel instead. The code is unchanged and the feature is not silently removed.
 
+**Status at 2.1.288 (2026-10-03):** unchanged. [BIN] the writer is still called
+only from four synchronous result paths and first checks that the handler is not
+`async: true`; the async path returns before stdout is read. Upstream issue
+#90997 was still open, with no maintainer reply, when checked on 2026-10-03.
+This is a reading of the 2.1.288 binary, not a re-run of the A/B above. Claude
+Code mods cannot emit it either (see [Mods](#mods-investigated-not-adopted)).
+
 **Fix shape, if it is ever built.** The emitting handler must be synchronous.
 [`claude-plugins-official#351`](https://github.com/anthropics/claude-plugins-official/issues/351)'s
 Windows startup-hang argument does **not** cover these events — none of the 9
@@ -267,10 +278,24 @@ When `PostModelSwitch` is added, `PreModelSwitch` must go into
 `Elicitation` pair, for the same reason they are there: its stdout is read as an
 answer on the user's behalf.
 
-### The `args` exec form is broken on Windows — keep the shell form
+**Addendum, 2.1.288** [BIN]. `PreModelSwitch` is still blocking and gained one
+more error string, returned as a block when the model changed underneath the hook:
+`the session model changed while a PreModelSwitch hook was running; pick again`.
+Both model-switch payloads gained four fields (schema near offset 205438424):
+`prompt_cache_warm` (bool), `cache_ttl` (`"5m"` | `"1h"`),
+`estimated_cache_write_usd` (number) and `pricing`
+(`"configured"` | `"catalog"` | `"default"`). The per-event contract table says,
+for `PostModelSwitch`: *"Exit code 0 - stdout shown to Claude on the next
+request"* — so a runner registered there **must print nothing** on stdout.
+Nothing is registered; this is the checklist for whoever adds it. [DOC] The hooks
+reference additionally says *"A PreModelSwitch hook that doesn't respond before
+its timeout blocks the switch"* and gives the event a 30-second default timeout.
 
-2.1.251's command-hook schema offers an exec form that would remove echook's
-entire Windows quoting risk class in one move:
+### The `args` exec form: keep the shell form
+
+The decision is unchanged since 2.1.251; the *reason* changed at 2.1.288 (see
+the re-test below). 2.1.251's command-hook schema offers an exec form that would
+remove echook's entire Windows quoting risk class in one move:
 
 > `args` — *"Argument list for exec form. When present, `command` is resolved as
 > an executable and spawned directly with these arguments — no shell. Path
@@ -283,7 +308,46 @@ Do not adopt it yet. [anthropics/claude-code#90495](https://github.com/anthropic
 (open, `platform:windows`) reports the exec form being dropped on Windows and
 still routed through `bash.exe` with no argv, breaking all 48 of a reporter's
 converted hooks. Windows is this project's primary development platform, so the
-shell form stays until that issue closes.
+shell form stays. (At 2.1.251 the stated condition was "until that issue
+closes"; the issue was still open on 2026-10-03 — but see below, the report did
+not reproduce.)
+
+**Re-tested on 2.1.288 (2026-10-03), single machine.**
+
+- [INFER] Read from minified control flow, not executed: 2.1.288 spawns
+  exec-form hooks directly, ahead of the PowerShell and bash branches (spawn
+  site near offset 214075616, branch `yt=e.args!==void 0` near 214072351).
+- [LIVE, 2.1.288, Windows 11, headless `claude -p`, plugin loaded with
+  `--plugin-dir`, 3 runs × 2 events (`SessionStart`, `Stop`), exec-form
+  `command` = absolute path to `python.exe`]:
+  - the exec-form hook was invoked **6/6** with `claude.exe` as its direct
+    parent. The shell-form hook beside it ran `claude.exe` → Git `bash.exe` →
+    `bash.exe` → `python`;
+  - every argument arrived intact — a path containing a space, a
+    backslash path, and, in 2 of the 3 runs, a trailing backslash, embedded
+    double quotes, an empty string and `;&|` (the first run used a shorter
+    argument list);
+  - `$HOME` was **not** expanded (it arrived as the literal `$HOME`; the shell
+    form expanded it);
+  - `${CLAUDE_PLUGIN_ROOT}` was substituted in both forms — backslash-separated
+    in the exec form, forward-slash-separated in the shell form.
+- **Not tested:** a *bare* command name resolved through `PATH` — which is what
+  every echook hook uses (`python`); `.cmd` / `.bat` shims; any Claude Code
+  version other than 2.1.288; interactive sessions; macOS and Linux.
+- [DOC] *"On Windows, exec form requires `command` to resolve to a real
+  executable such as a `.exe`. The `.cmd` and `.bat` shims that npm, npx,
+  eslint, and other tools install in `node_modules/.bin` are not executables and
+  can't be spawned without a shell."*
+
+**Why the rule stands.** It is no longer "`args` is dropped on Windows" — that
+did not reproduce on 2.1.288. It is: the one form echook would actually use (a
+bare `python`) is untested; the docs themselves restrict exec form on Windows to
+a real executable; and the plugin has no way to require a minimum Claude Code
+version (no such field was found in a search of the 2.1.288 binary for the
+obvious names, which is absence of evidence, not proof), so a template that
+works on 2.1.288 could silently fail on whichever older build a user is still
+running. Revisit with a test of the bare-`python` case on the oldest Claude Code
+build the project intends to support.
 
 Two neighbouring fields, for the record. `shell` accepts `"bash"` or
 `"powershell"` and *"Defaults to bash, or to powershell on Windows when Git Bash
@@ -341,7 +405,10 @@ Worth knowing, because each produces total silence with no error in the plugin:
 - **`SessionEnd` hooks share a 1.5-second budget**, raised only to match a longer
   per-hook `timeout` up to 60 s. Combined with Windows killing an async hook's
   **process tree** at session end, a `session_end` sound can be cut off or never
-  start. Do not present `session_end` as a reliable cue on Windows.
+  start. Do not present `session_end` as a reliable cue on Windows. (Re-measured
+  on 2.1.288 for a *headless* exit only, where the async handler was **not**
+  truncated — see [`async` and the SessionEnd budget](#async-hooks-and-the-sessionend-budget-at-21288).
+  Closing an interactive session was not tested, so the advice above stands.)
 
 ### Cursor's `stop` *does* carry finality; Claude Code's does not
 
@@ -377,6 +444,176 @@ imported from Claude Code are composed as PowerShell but executed with bash,
 which silently blocks every tool call. Relevant to this project specifically,
 since Windows is its primary development platform.
 
+### Evidence tags used from the 2.1.288 sync onward
+
+The v6.6.0 sync moved the project's reference point from Claude Code 2.1.251 to 2.1.288. Every fact in the entries below carries one of these tags, and none is stated with more certainty than its tag allows.
+
+| Tag | Meaning |
+|---|---|
+| **[DOC]** | The official hooks reference, read from the raw page saved on 2026-10-03. Not from a summarising fetch of it — those were found to misreport fields. |
+| **[CHANGELOG]** | Official changelog text for 2.1.252–2.1.288, quoted verbatim. |
+| **[BIN]** | A literal read in the 2.1.288 binary (offsets are into the native executable). It says what the code *contains*, not that the path runs. |
+| **[LIVE]** | Measured by running 2.1.288 on one machine (Windows 11), with the conditions and limits stated beside it. |
+| **[INFER]** | Read from minified control flow. A reading, not an observation. |
+
+Entries above this one stand for the versions they name (2.1.215–2.1.251) unless an entry below says otherwise. Nothing in the 2.1.288 entries was measured on macOS or Linux, and none of the [LIVE] runs was an interactive session.
+
+### No new hook events between 2.1.251 and 2.1.288
+
+- **[BIN]** 33 event names in the event array (near offset 204512306).
+- **[DOC]** 33 rows in the hooks reference's event table.
+- **[CHANGELOG]** No entry for 2.1.252–2.1.288 adds a hook event.
+
+echook registers 30 of the 33 on Claude Code. The three it does not are unchanged: `PreModelSwitch` (a blocking decision hook — never register), `WorktreeCreate` (a provider hook — never register, v6.3.4) and `PostModelSwitch` (observational; cleared for a later release, see above).
+
+The closed unions, re-read in the 2.1.288 binary and compared with the 2.1.251 table above:
+
+| Contract | 2.1.251 | 2.1.288 **[BIN]** | Verdict |
+|---|---|---|---|
+| `SessionStart.source` | `startup`, `resume`, `clear`, `compact`, `fork` | same five | unchanged |
+| `Notification.notification_type` | 14 values | 16: the same 14 plus `model_refusal_fallback` and `auth_storage_failure` | two added, neither registered |
+| `StopFailure.error_type` | 11 values | 13: the same 11 plus `cloud_credential_error` and `verification_required` | two added, neither registered |
+| `SessionEnd.reason` | — | `clear`, `resume`, `logout`, `prompt_input_exit`, `other` | `bypass_permissions_disabled` is absent (0 occurrences) |
+
+### Matcher values with no variant yet
+
+Four matcher values exist upstream that echook has no variant for. Nothing is registered for them, so each is currently **completely silent**: `plugins/audio-hooks/hooks/hooks.json` carries no catch-all (`""`) entry under `Notification` (16 named matchers) or `StopFailure` (11 named matchers), so a value outside those lists matches no handler.
+
+| Event | Value | Evidence |
+|---|---|---|
+| `StopFailure` | `cloud_credential_error` | **[DOC]** listed in the error-type table; *"Matching `StopFailure` on `cloud_credential_error` requires Claude Code v2.1.267 or later, the first version that reports credential-load failures under that value rather than `server_error` or `unknown`."* |
+| `StopFailure` | `verification_required` | **[BIN]** in the closed error-type union (near offset 205458838); **not** in the documented table. |
+| `Notification` | `auth_storage_failure` | **[BIN]** in the `notification_type` list (near 204254955) and a live emitter (near 228124621), sent with the message `Claude Code login needs attention: credentials could not be saved` — or, in the other branch of the same expression, `…credentials may not have been saved`. Not in the documented table. |
+| `Notification` | `model_refusal_fallback` | **[BIN]** declared in the `notification_type` list (near 204254955). **No emitter was found** — the other places the string appears in a search of the binary are SDK message-schema text, not a `Notification` call — so it is **not confirmed to fire as a hook**. |
+
+`cloud_credential_error` is the one with a consequence. By the **[DOC]** sentence above, on 2.1.267 and later a credential-load failure that used to arrive as `server_error` or `unknown` — both of which echook has a variant and a sound for — now arrives as `cloud_credential_error`, which echook does not. That follows from the documentation plus the registration table; it was not reproduced.
+
+The `StopFailure` union in the binary now has 13 values (the 11 echook registers plus these two), and `account_on_hold` is conditional in the per-event metadata table (`…KSt()?["account_on_hold"]:[]…`) but unconditional in the zod union. Adding the variants is **pending**: each needs its own sound in both themes (see the audio-uniqueness rule in `CLAUDE.md`), and no ElevenLabs key was available for the v6.6.0 release.
+
+### `idle_prompt` and the notification timing gates
+
+- **[CHANGELOG 2.1.288]** *"Fixed `idle_prompt` notification hooks firing while background agents are still running (anthropics/claude-code#93672)"*
+- **[CHANGELOG 2.1.269]** *"Fixed remote and headless sessions reporting "waiting for your input" while background agents were still running (set `CLAUDE_CODE_BG_TASKS_REPORT_RUNNING=0` to restore the old behavior)"* — this one names the report, not the hook, so it is an adjacent fix rather than the same one.
+- **[DOC]** *"The `permission_prompt`, `idle_prompt`, `elicitation_dialog`, and `elicitation_url_dialog` types share their timing with desktop notifications, so in terminal sessions you only see them when you appear to be away from the terminal"*, with these specifics:
+  - *"Expect `permission_prompt` once you haven't typed for about six seconds. The timer starts when the permission prompt appears, and each keystroke defers it. To run a hook immediately when Claude asks for permission to use a tool, use PermissionRequest instead."*
+  - *"Expect `idle_prompt` about 60 seconds after Claude finishes responding, and only if you haven't typed since and no background agent, such as a background subagent, is still running. Claude Code doesn't send `idle_prompt` while it waits for a claude.ai usage limit to reset."*
+  - `agent_completed`: *"A background session finishes or fails. Fires only while agent view is open in a terminal"* — which fits the zero captured in the 2.1.215 table above, without proving it.
+- **[BIN]** The `permission_prompt` `Notification` is scheduled behind a 6000 ms timer (`FLt=6000`, defined near offset 214020036 and used near 229974135), and the scheduling function returns a no-op when the environment variable `CLAUDE_CODE_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS` is set.
+
+So `idle_prompt` is better as the "waiting for you" signal than it was, but it is a *parked* signal: late by design and conditional on the user not having typed. `permission_request` is the immediate one. **Not re-measured** — neither the fix, the 60-second figure nor the six-second gate was observed on this machine.
+
+### The `Stop` / `SubagentStop` payload at 2.1.288
+
+- **[BIN]** (builder near offset 214048143) The payload is the common fields plus `stop_hook_active`, `last_assistant_message`, `background_tasks[]` and `session_crons[]`. There is still **no field** marking a final turn, queued messages or turn duration. **[DOC]** lists the same four fields.
+- **[BIN]** `background_tasks` is built only from tasks passing Claude Code's own in-flight predicate (`function mg`, near 209747898): `status` is `running` **or `pending`**, and the task is not marked `isBackgrounded === false`.
+- **[BIN]** Each entry's `type` is a friendly label from a map near offset 209746976, falling back to the raw discriminant for an unmapped type:
+
+  | Internal discriminant | `type` label |
+  |---|---|
+  | `local_agent` | `subagent` |
+  | `local_workflow` | `workflow` |
+  | `local_bash` | `shell` |
+  | `monitor_mcp`, `monitor_ws` | `monitor` |
+  | `mcp_task` | `MCP task` |
+  | `in_process_teammate` | `teammate` |
+  | `dream` | `dream` |
+  | `auto_mode_scan` | `auto-mode scan` |
+  | `local_memory_import` | `memory import` |
+  | `remote_agent` | `cloud session` |
+
+  **[DOC]** lists seven of these (`shell`, `subagent`, `monitor`, `workflow`, `teammate`, `cloud session`, `MCP task`); `dream`, `auto-mode scan` and `memory import` are in the binary's map and not in the documented list. **[INFER]** From their names they are maintenance work Claude Code runs for itself rather than anything the user started.
+- **[DOC]** `session_crons` entries are `{id, schedule, recurring, prompt}`, *"sourced from `CronCreate`, `ScheduleWakeup`, and `/loop`"*.
+- **[DOC]** *"The `background_tasks` and `session_crons` arrays let hooks distinguish "session is done" from "session is paused waiting for background work to wake it back up". Both arrays are present when the task registry is reachable and are empty when nothing is in flight or scheduled."* On `SubagentStop`: *"Both arrays are scoped to the parent session, not the subagent."*
+
+**What v6.6.0 does with it.** `filters.<hook>.skip_if_background_tasks_running` now counts `pending` as well as `running` and ignores the three maintenance labels. A new opt-in key, `filters.<hook>.skip_if_session_crons_scheduled`, skips when `session_crons` is non-empty. It is deliberately **separate**: a session with a recurring cron carries that entry for its whole life, so folding it into the existing key would silence every turn of such a session for users who only asked about running work. **Limits:** no live capture of a `pending` entry or of a maintenance-type entry was made; the behaviour rests on the reads above.
+
+### `SubagentStop` fires for Claude Code's own internal agents
+
+**[DOC]** *"Not every SubagentStop event comes from a subagent Claude spawned. Claude Code also runs internal agents for some of its own features, such as prompt suggestions and `/btw` side questions, and SubagentStop fires when one of those finishes too. For those events, `agent_type` is the agent name the session itself runs as, such as one set with `--agent` or the `agent` setting, and an empty string when the session runs without one."*
+
+The next paragraph matters for matchers: *"A `matcher` that names agent types doesn't match an empty `agent_type`. A hook whose matcher is omitted, `""`, or `"*"`, or is a regular expression that matches an empty string, runs for events with an empty `agent_type` too."* echook's `SubagentStop` registration has no matcher, so it runs for them. **[CHANGELOG 2.1.275]** *"Fixed `SubagentStop` hooks with a specific `matcher` firing for every stopping subagent whose agent type was empty"* — the same area, fixed for the matcher case only.
+
+Without a guard, echook would announce "background task finished" for work the user never started. v6.6.0 skips a `SubagentStop` whose `agent_type` is exactly `""` (debug NDJSON action `skipped_internal_subagent`). Conditions and limits:
+
+- **Claude Code invoker only.** Not applied under Cursor, Codex, or an `unknown` invoker — which includes the legacy script install — because nothing establishes what an empty `agent_type` means in those payloads, and guessing could silence a real subagent.
+- **An absent key is not the marker**; only the empty string is. Older builds omit the field.
+- **Not detectable in a session started with `--agent`** (or the `agent` setting): there the internal agents carry that agent's name and still announce.
+- **A forked subagent is not an internal agent.** **[BIN]** The built-in fork agent's `agentType` is the literal `"fork"` (near offset 213219709), so a fork arrives with `agent_type` `"fork"`, not `""`, and still announces.
+- **Not measured live.** That a real internal agent produces an empty `agent_type` is taken from **[DOC]**; no capture of one was made.
+
+### `async` hooks and the SessionEnd budget at 2.1.288
+
+- **[DOC]** *"Once an async hook is running in the background, Claude Code doesn't enforce `timeout` on it. Claude Code still enforces `timeout` on a hook you run with `asyncRewake`."*
+- **[DOC]** *"`SessionEnd` hooks have a default timeout of 1.5 seconds. It applies when you exit, run `/clear`, or switch sessions with interactive `/resume`."* A longer per-hook `timeout` raises the budget, up to 60 s — but *"Timeouts set on plugin-provided hooks don't raise the budget"*, which covers every echook handler — or `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` sets it explicitly.
+- **[BIN]** The default is a literal `1500` (`jMo=1500`, near offset 214057834), the ceiling `60000`, and the environment variable overrides both.
+- **[DOC]** *"In non-interactive mode with the `-p` flag, Claude Code kills any async hook still running at teardown and finalizes it with outcome `cancelled`"*, and *"If your hook's work must outlive a `claude -p` session, start a fully detached process from it."*
+
+**[LIVE, 2.1.288, Windows 11]** Headless `claude -p "Reply with the single word ok."` (`--model haiku`, `--no-session-persistence`), with a probe plugin loaded by `--plugin-dir` and echook itself disabled for the run. The probe writes a timestamp when the hook starts and another when its 4-second job ends. 3 runs per variant:
+
+| Variant | Result |
+|---|---|
+| `async: true`; the hook process itself works for 4 s | **Completed 3/3.** The end line was written 3.1–3.3 s *after* `claude` had returned. |
+| `async: true`; the hook starts a fully detached child that works for 4 s | **Completed 3/3**, 3.3–3.4 s after `claude` returned. |
+| synchronous (no `async`); works for 4 s | **Cut off 3/3** — no end line. `claude` returned about 1.8 s after the hook started (1.78–1.89 s). |
+| synchronous, `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS=6000` | Completed (1 run). An async hook with the variable set also completed (1 run). |
+
+**Limits.** Headless exit only — closing an interactive session, `/clear` and `/resume` were not tested. Only a 4-second job was tested, not longer. The probe wrote timestamps; the real audio player was not involved. The probe observed the *operating-system process* finishing, not the outcome label Claude Code assigns it, so this neither confirms nor refutes the **[DOC]** statement that such a hook is finalised as `cancelled`. It does contradict the reading that a headless exit kills the process: here it survived.
+
+**Consequence.** In this condition the project's async `SessionEnd` handler is **not truncated**, and a synchronous 4-second one is, at about the documented 1.5 s. That is one more reason the handlers must stay `async: true`. It also bounds the recorded `terminalSequence` design above: a synchronous `SessionEnd` handler would have to finish inside the 1.5 s budget.
+
+### Exit code 2 has a different effect on every event
+
+Relevant to any future **synchronous** handler (today every echook handler is `async: true`, and **[DOC]** *"Async hooks can't block or control Claude's behavior"*; an `asyncRewake` hook that exits 2 wakes Claude). **[BIN]** Verbatim from the per-event description table in the binary (`function pot`, near offset 230447080), the `Exit code 2` line of each event that has one:
+
+| Event | `Exit code 2` |
+|---|---|
+| `PreToolUse` | show stderr to model and block tool call |
+| `PostToolUse`, `PostToolUseFailure` | show stderr to model immediately |
+| `PostToolBatch` | stop the agentic loop (stderr shown to user only) |
+| `UserPromptSubmit` | block processing, erase original prompt, and show stderr to user only |
+| `UserPromptExpansion` | block expansion and show stderr to user only |
+| `SessionStart`, `SubagentStart`, `Setup` | show stderr to user only |
+| `Stop` | show stderr to model and continue conversation |
+| `SubagentStop` | show stderr to subagent and continue having it run |
+| `PreCompact` | block compaction |
+| `PreModelSwitch` | block the switch and show stderr to user |
+| `TeammateIdle` | show stderr to teammate and prevent idle (teammate continues working) |
+| `TaskCreated` | show stderr to model and prevent task creation |
+| `TaskCompleted` | show stderr to model and prevent task completion |
+| `Elicitation` | deny the elicitation |
+| `ElicitationResult` | block the response (action becomes decline) |
+| `ConfigChange` | block the change from being applied to the session |
+
+Two events say so in other words: `StopFailure` is *"Fire-and-forget — hook output and exit codes are ignored"*, and `InstructionsLoaded` *"is observability-only and does not support blocking"*. Events with **no** `Exit code 2` line, where 2 falls under that event's `Other exit codes` text: `Notification`, `PermissionRequest`, `PermissionDenied`, `PostCompact`, `PostModelSwitch`, `SessionEnd`, `WorktreeCreate` (*"worktree creation failed"*), `WorktreeRemove`, `CwdChanged`, `FileChanged`, `DirectoryAdded`, `MessageDisplay` (*"display the original delta"*); most say *"show stderr to user only"*.
+
+These are descriptions in a metadata table, which appears to be what the `/hooks` menu is built from; they are Claude Code's own statement of each contract, not a trace of the dispatch code. Two further contract notes from the same table: `PostModelSwitch` exit 0 — *"stdout shown to Claude on the next request"*; `PreCompact` exit 0 — *"stdout appended as custom compact instructions"*. A handler on either must not print.
+
+### Mods: investigated, not adopted
+
+**[CHANGELOG 2.1.287]** *"Added Claude Mods: plugins may now modify deeper behavior"*. A mod is declared by a top-level `"modules"` array in `hooks/hooks.json` — **[BIN]** at most one entry (schema near offset 204564686). Investigated against both of echook's tracks and adopted for neither:
+
+- **Audio.** **[LIVE, headless `-p`, Windows 11]** `$.audio.play` resolved in 3 ms and played **no sound**; `$.audio.speak` rejected with *"no speech synthesizer on windows"*. **[BIN]** `$.audio.play` uses `afplay` on macOS and otherwise logs `$.audio.play (<plugin>): no audio player on <os>; not played` (near offset 213100999); `$.audio.speak` rejects with `no speech synthesizer on <os>` (near 213104175).
+- **Out-of-band notification.** **[BIN]** `$.ui.toast` is documented in the schema as *"what the REPL shows on the notification bar under the prompt for a few seconds"* (near 205599642) — an in-app bar, not an operating-system notification, so it does not serve the "tell me when I am in another app" purpose. A mod has no terminal-write call and no `terminalSequence` field in its `classic.*` result, so it **cannot fix** the inert `terminalSequence` either.
+- **Status line.** None of the 13 render sites is the status line, so a mod can neither draw nor replace `statusLine`.
+- **Events.** `turn.complete` carries `reason` and `durationMs` but **no finality marker**; `classic.Stop` has the same payload as the command hook. A mod therefore cannot make `Stop` mean "done" either.
+- **Coexistence.** **[LIVE]** Classic command hooks and a module coexist in one `hooks.json` on 2.1.288, and the classic hooks still fire if the module fails to load. On 2.1.251 the module is skipped, but `claude plugin validate` rejects the plugin because the event vocabulary changed.
+- **Codex.** Codex's hooks-file parser rejects unknown keys (`deny_unknown_fields` in openai/codex `hook_config.rs`), so a `modules` key must never appear in a hooks file Codex reads. echook is insulated only because `.codex-plugin/plugin.json` points at `codex-hooks/plugin-hooks.json`, not at the Claude Code `hooks/hooks.json`.
+- **Not tested:** interactive sessions and the Claude Desktop app, where `$.audio.play` may behave differently.
+
+*Provenance:* the `$.audio.*` timings, the coexistence runs, the Codex parser fact, the "no terminal-write call" and "13 render sites" statements and the `turn.complete` / `classic.Stop` payload descriptions come from the investigation behind this release; their raw logs are not archived in this repository and were not re-checked when these notes were written. Re-read in the 2.1.288 binary: the `modules` schema (an array of at most one path, refused beyond that), the `$.audio.*` fallbacks and the `$.ui.toast` description.
+
+### Plugin tooling changes in the range
+
+All **[CHANGELOG]**, verbatim:
+
+- 2.1.268: *"Improved `/plugin`: installing, enabling or disabling a plugin now takes effect when you close the menu; `/reload-plugins` is no longer needed afterwards"*. This is about the **menu**. Whether a `claude plugin install` run from a shell reaches an already-running session without `/reload-plugins` is **not established**, so the install instructions keep that step.
+- 2.1.268: *"Added `--json` to `claude plugin install`, `uninstall`, `update`, `enable` and `disable`, and `errorDetails`/`noteDetails` to each row of `claude plugin list --json`"* — the reason `install --plugin` can now emit runnable `claude plugin … --json` commands.
+- 2.1.285: *"Added `claude plugin configure <plugin>` to show a plugin's options and which are unset, or save new values read from stdin with `--values-stdin`"*.
+- 2.1.257: *"Fixed plugins being able to read files outside their own directory through a declared command, agent, skill, hooks or other component path that is a symlink; such paths are now refused with an error"*.
+- 2.1.260: *"Fixed model switching staying blocked for the rest of the session after a plugin hook load failure; each switch now re-checks and the refusal names the cause"*.
+- 2.1.259: *"Added `--json` to `claude plugin validate` for a machine-readable validation report"*; 2.1.281: *"…added a `claude plugin validate` warning when a shell-form hook leaves `${CLAUDE_PLUGIN_ROOT}` unquoted (it breaks on plugin paths with spaces)"*. Both bear on the v6.6.0 `plugin-validate` CI job, which has not yet run on a real runner.
+- **Orphaned plugin-cache directories** (observed on disk, one machine; not in [DOC] or [CHANGELOG]): after an uninstall, Claude Code leaves `cache/<marketplace>/<plugin>/<version>/` behind and drops an `.orphaned_at` file (a millisecond epoch) in it; the live version directory has none (it has `.in_use/`). Seen on a real install: 7 of 8 version directories of one plugin carried the marker, the one in use did not. The meaning of the marker is **inferred** from that, not documented. v6.6.0's plugin detection (`install --scripts` → `DUAL_INSTALL_DETECTED`) skips marked directories, because counting an orphan as "installed" refused the install with a remedy that could not help.
+
 ---
 
 ## Matcher coverage as of v6.4.1
@@ -386,10 +623,12 @@ since Windows is its primary development platform.
 | Event | Matchers registered | Notes |
 |---|---|---|
 | `Notification` | 8 of the 14 typed values | 4 added in v6.4; `agent_*` pair unverified (above). The six unregistered types — `elicitation_url_dialog`, `worker_permission_prompt`, `push_notification`, `computer_use_enter`/`_exit`, `quota_auto_resume_fired`/`_stale`/`_disabled` — still reach the catch-all, but share one sound with no per-variant toggle. `notification_type` is a bare string in the payload, not an enum, so unknown values are expected |
-| `SessionEnd` | `clear`, `resume`, `logout`, `prompt_input_exit`, `bypass_permissions_disabled\|other` | first four were dead code until v6.4 — defined in `SYNTHETIC_EVENT_MAP` but the event was registered with no matcher, so nothing invoked them. `bypass_permissions_disabled` is not a real upstream value; it is a harmless dead alternation kept only so the group still matches `other` |
+| `SessionEnd` | `clear`, `resume`, `logout`, `prompt_input_exit`, `bypass_permissions_disabled\|other` | first four were dead code until v6.4 — defined in `SYNTHETIC_EVENT_MAP` but the event was registered with no matcher, so nothing invoked them. `bypass_permissions_disabled` is not sent by Claude Code ≥ 2.1.234 (upstream [DOC]: *"Removed in v2.1.234; Claude Code doesn't send it"*; 0 occurrences in the 2.1.288 binary, whose reasons are exactly `clear`, `resume`, `logout`, `prompt_input_exit`, `other`). It is **deliberately retained** as a harmless alternation: it costs nothing, and dropping it would lose the `other` SessionEnd sound on older Claude Code builds that still send it, which a plugin cannot exclude (it has no minimum-version gate). Nothing changed here in v6.6.0 |
 | `SessionStart` | `startup`, `resume`, `clear`, `compact`, **`fork`** | `fork` added in v6.4.1 — see above; forked sessions were silent from Claude Code 2.1.213 until then |
 | `StopFailure` | **all 11 upstream types, one handler each** | v6.4.1 unwound the five-way collapse onto `stop_failure_other` and dropped `other`, which was never a Claude Code value. Every variant toggle now actually works; the contract-test allowlist is empty as a result |
 | `PreCompact` / `PostCompact` / `Setup` | both/both/both | |
 | `PermissionRequest` | `""` (catch-all) | |
 
 `Notification` and `PermissionRequest` have no Cursor or Codex equivalent; the runner hard-skips them for those invokers regardless of registration.
+
+**Since v6.4.1.** The `Notification` row above is a v6.4.1 snapshot: v6.5.0 registered the missing types, so all 16 matchers up to Claude Code 2.1.251 now have a variant, and `plugins/audio-hooks/hooks/hooks.json` has no catch-all `Notification` or `StopFailure` entry — which means the "still reach the catch-all" remark no longer describes what ships. A value outside the named matchers matches no handler and is silent; the four such values known at 2.1.288 are listed in [Matcher values with no variant yet](#matcher-values-with-no-variant-yet). The `SessionEnd` row was reworded in v6.6.0 to record the upstream removal; the registration itself is unchanged.

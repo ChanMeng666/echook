@@ -13,12 +13,14 @@ This plugin is the AI control surface for the echook project. The user does NOT 
 
 **Install / set up the project**
 
-The plugin install (which you are using right now) is the recommended path for Claude Code users. If a user is not yet on the plugin, tell them to run `/plugin marketplace add ChanMeng666/echook` and `/plugin install audio-hooks@chanmeng-audio-hooks` inside Claude Code. **Cursor IDE 3.2.16+ users get audio-hooks for free via Cursor's built-in third-party hooks bridge** — no separate Cursor install needed. For users who run Cursor *without* Claude Code, use `audio-hooks install --cursor` (see "Install for Cursor-only users" below). **Codex users** should use the Codex plugin path when available, or `audio-hooks install --codex` as the native hooks.json fallback — Codex does NOT auto-bridge Claude Code plugins (see "Install for Codex users" below). Once installed, verify with:
+The plugin install (which you are using right now) is the recommended path for Claude Code users. If a user is not yet on the plugin, run `claude plugin marketplace add ChanMeng666/echook --json` and `claude plugin install audio-hooks@chanmeng-audio-hooks --json` yourself (`audio-hooks install --plugin` prints exactly these commands and changes nothing), then ask the user to type `/reload-plugins` inside Claude Code — it is REPL-only and has no CLI equivalent. **Cursor IDE 3.2.16+ users get audio-hooks for free via Cursor's built-in third-party hooks bridge** — no separate Cursor install needed. For users who run Cursor *without* Claude Code, use `audio-hooks install --cursor` (see "Install for Cursor-only users" below). **Codex users** should use the Codex plugin path when available, or `audio-hooks install --codex` as the native hooks.json fallback — Codex does NOT auto-bridge Claude Code plugins (see "Install for Codex users" below). Once installed, verify with:
 
 ```bash
 audio-hooks status
 audio-hooks test all
 ```
+
+`audio-hooks install` has **no default mode** (v6.6.0): it needs exactly one of `--plugin`, `--scripts`, `--cursor`, `--codex`. A bare `install`, an unknown argument, or two modes returns `INVALID_USAGE` and changes nothing. `install --scripts` is the legacy installer and is refused with `DUAL_INSTALL_DETECTED` while the plugin is installed (it would register every hook twice) — do not add `--force` unless the user explicitly wants both. `--help` / `-h` (also `-?`, `/?`, `--help=<x>`) on any subcommand is safe: it prints usage and does nothing else. State-changing subcommands reject unknown flags and stray positionals with `INVALID_USAGE` and change nothing; `--flag=value` forms are not supported.
 
 **Snooze / mute / quiet hours**
 
@@ -42,7 +44,7 @@ Duration syntax: `30m`, `1h`, `90s`, `2d`, or a bare integer (interpreted as min
 | "is there a new version?" | `audio-hooks upgrade --check-only` |
 | "the upgrade got stuck" | `audio-hooks upgrade --force` (only after confirming via `audio-hooks status`) |
 
-`upgrade` auto-detects scope via `claude plugin list --json`, tries `claude plugin update` first (data-preserving), falls back to `uninstall --keep-data + install` if needed. On success, the user's `~/.claude/plugins/data/audio-hooks-chanmeng-audio-hooks/user_preferences.json` is preserved verbatim, then loaded through auto-migration so new keys from the new template are merged in non-destructively.
+`upgrade` rejects unknown arguments (only `--check-only` and `--force` exist). It auto-detects scope via `claude plugin list --json`, tries `claude plugin update` first (data-preserving), falls back to `uninstall --keep-data + install` if needed. On success, the user's `~/.claude/plugins/data/audio-hooks-chanmeng-audio-hooks/user_preferences.json` is preserved verbatim, then loaded through auto-migration so new keys from the new template are merged in non-destructively.
 
 **Restore from a backup**
 
@@ -71,14 +73,15 @@ Run `audio-hooks hooks list` to see all 39 hooks with their current state (add `
 
 Almost every "it's too noisy" report is the `stop` hook, and the user's mental model of it is wrong in a specific way. `stop` fires at the **end of every turn**, not at task completion, and Claude Code exposes **no field** distinguishing a final turn from an intermediate one — so there is no setting that makes `stop` mean "the task is done". Say this plainly rather than tuning debounce and hoping.
 
-Four real fixes, in the order you should offer them:
+Five real fixes, in the order you should offer them:
 
 | User says | Run | Why |
 |---|---|---|
-| "only tell me when you need me" | `audio-hooks hooks enable-only notification permission_request` | Fires only when the user must act. `notification`/`idle_prompt` is the genuine "Claude is waiting for you" signal |
-| "stop chiming while background work is running" | `audio-hooks set filters.stop.skip_if_background_tasks_running true` | v6.4. Reads the `background_tasks` array on the `Stop` payload and stays silent until nothing is still running. Keeps `stop` but kills the chime storm from teammates/subagents |
+| "only tell me when you need me" | `audio-hooks hooks enable-only notification permission_request` | Fires only when the user must act. `notification`/`idle_prompt` is the genuine "Claude is waiting for you" signal — documented to arrive about 60 s after Claude finishes and only if the user has not typed since, and, since Claude Code 2.1.288, no longer fires while background agents are still running. `permission_request` is the immediate one |
+| "stop chiming while background work is running" | `audio-hooks set filters.stop.skip_if_background_tasks_running true` | v6.4. Reads the `background_tasks` array on the `Stop` payload and stays silent until nothing is still running or pending (v6.6.0 counts `pending` too, and ignores Claude Code's own `dream` / `auto-mode scan` / `memory import` tasks). Keeps `stop` but kills the chime storm from teammates/subagents |
+| "stop chiming while a /loop or scheduled wakeup is pending" | `audio-hooks set filters.stop.skip_if_session_crons_scheduled true` | v6.6.0, opt-in. Stays silent while the payload's `session_crons` array is non-empty. Separate from the key above on purpose: a recurring cron stays in the array for the whole session, so it would silence every turn for someone who only asked about running work |
 | "stop chiming for every little command" | `audio-hooks set filters.posttooluse.min_duration_ms 30000` | v6.5. Only sound once a tool actually took that long. Reach for this before debounce — debounce suppresses by time window, so it cannot tell a burst of fast tools from one long build |
-| "I have several sessions open and they all chime" | `audio-hooks set playback_settings.debounce_ms 60000` | Blunt instrument — use only after the three above |
+| "I have several sessions open and they all chime" | `audio-hooks set playback_settings.debounce_ms 60000` | Blunt instrument — use only after the four above |
 
 **Per-variant control (v6.4)**
 
@@ -95,7 +98,7 @@ Precedence when both a variant and its parent are set: an explicit variant key w
 
 `notification_agent_needs_input` and `notification_agent_completed` need Claude Code v2.1.198+ and ship **off**. They could not be observed firing during v6.4's pre-release capture (5 subagent completions produced none), and appear to belong to the push-notification path for background agents rather than local `Task` subagents. Do not present them to a user as a working "task finished" cue — recommend `notification`/`idle_prompt` or the `background_tasks` filter instead.
 
-If the complaint is really *"I miss it when I'm not looking at the terminal"* rather than *"it's too loud"*, the fix is a different **channel**, not fewer events — see **Desktop notifications, bells and window titles** below, or the webhook for a phone.
+If the complaint is really *"I miss it when I'm not looking at the terminal"* rather than *"it's too loud"*, the fix is a different **channel**, not fewer events — see **Desktop notifications when the user is away from the screen** below, or the webhook for a phone.
 
 **Check project status**
 
@@ -165,7 +168,7 @@ The status line displays real-time audio-hooks state and context window usage at
 
 After installing, the status line updates every 60 seconds and shows two lines:
 ```
-[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | 🔊 echook v6.5.0 | 3/39 Sounds | Webhook: off | Theme: Voice
+[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | 🔊 echook v6.6.0 | 3/39 Sounds | Webhook: off | Theme: Voice
 🌿 main  ████░░░░ API Quota: 60% · resets 2pm  ███████░ Weekly: 82% · resets Jul 4 9pm  █████░░░ Context: 65% (130K/200K) ⚠️ /compact  💲 $0.42 +156/-23
 ```
 The status line pins the key facts from Claude Code's **startup banner** so they stay visible after the banner scrolls off the top of the terminal: the model + reasoning **effort** (`🧠`), Claude Code's own **version** (`⚡ CC v…`, distinct from echook's `🔊 echook v…`), the **cwd**, the **5-hour API quota** and the headline **weekly (7-day) limit + reset date & time** (`Weekly: 82% · resets Jul 4 9pm` — the weekly reset is days out, so it shows the date; the always-soon 5-hour reset stays a bare time), and session **cost + diff** (`💲 $0.42 +156/-23`). The `📁` segment (`cwd`) is abbreviated (home → `~`, long paths shortened to `<root>…<last folder>`) so the user can tell at a glance which project the session is in.
@@ -255,24 +258,21 @@ Control how notifications are delivered — audio only, desktop notification onl
 | "minimal notifications" | `audio-hooks set notification_settings.detail_level minimal` |
 | "only use desktop notification for the stop hook" | `audio-hooks set notification_settings.per_hook.stop notification_only` |
 
-**Desktop notifications, bells and window titles (v6.5) — for when the user is away from the screen**
+**Desktop notifications when the user is away from the screen**
 
-This is usually what someone means by *"notify me when it's done"* if they are not sitting in front of the terminal. Claude Code emits the escape sequence on echook's behalf, so it needs **no OS-specific dependency and works even though a hook has no controlling terminal** — the case where a plain `notify-send`/`osascript` hook silently does nothing.
+This is usually what someone means by *"notify me when it's done"* if they are not sitting in front of the terminal. The supported route is echook's own desktop notification, controlled by `notification_settings.mode` (it ships as `audio_and_notification`, so it is normally already on):
 
 | User says | You run |
 |---|---|
-| "send me a desktop notification", "pop a toast when it needs me" | `audio-hooks set notification_settings.terminal_sequence.enabled true` |
-| "just ring the terminal bell" | `audio-hooks set notification_settings.terminal_sequence.enabled true` then `audio-hooks set notification_settings.terminal_sequence.style bell` |
-| "show it in the window title" | `... .style title` |
-| "use OSC 777 / my terminal wants 777" | `... .style osc777` |
-| "turn the desktop notifications off" | `audio-hooks set notification_settings.terminal_sequence.enabled false` |
-| "only toast when it's waiting for me" | `audio-hooks set notification_settings.terminal_sequence.hook_types '["notification"]'` |
+| "send me a desktop notification", "pop a toast when it needs me" | `audio-hooks set notification_settings.mode audio_and_notification` |
+| "notifications only, no sound" | `audio-hooks set notification_settings.mode notification_only` |
+| "turn the desktop notifications off" | `audio-hooks set notification_settings.mode audio_only` |
+| "only toast when it's waiting for me" | `audio-hooks set notification_settings.mode audio_only`, then `audio-hooks set notification_settings.per_hook.notification audio_and_notification` and `audio-hooks set notification_settings.per_hook.permission_request audio_and_notification` |
+| "I want it on my phone", "I'm away from the desk" | the webhook: `audio-hooks webhook set --url … --format ntfy` |
 
-Styles: `osc9` (default — iTerm2, kitty, WezTerm, Ghostty), `osc777`, `title`, `bell`.
+On Windows the toast is a real WinRT toast; `audio-hooks diagnose` reports `NOTIFICATION_FAILED` (naming the backend and the reason) if every backend fails.
 
-**Claude Code only.** Cursor and Codex have no equivalent; the runner never emits there. If the user is on Cursor or Codex and wants an away-from-desk signal, point them at the **webhook** instead (`webhook set --url … --format ntfy` reaches a phone).
-
-**It is deliberately restricted to a safe subset of events.** Several events echook registers consume a hook's stdout JSON to change what Claude Code *does* — `MessageDisplay` replaces Claude's visible output, and `Elicitation`/`ElicitationResult` answer an MCP prompt with accept/decline/cancel on the user's behalf. Those are hard-excluded. If a user asks for a toast on one of them, explain why it is refused rather than trying to force it; there is no config that turns it on.
+**Do not recommend `notification_settings.terminal_sequence.*`, and do not claim a terminal bell or window title is available.** v6.5.0 shipped that block as "Claude Code emits an OSC escape for echook", and v6.5.1 found it **inert**: Claude Code writes a hook's `terminalSequence` only from a synchronous completion path, and all 67 echook handlers are registered `async: true`, so no escape is ever emitted. It was still inert at Claude Code 2.1.288. Setting the flag does nothing, and `audio-hooks diagnose` reports `TERMINAL_SEQUENCE_INERT` when it is on. Do not "fix" it by making the existing handlers synchronous. If a user already has it enabled, say so and use the table above instead. (Details: `docs/EVENT_BEHAVIOR_NOTES.md`.)
 
 **Per-subagent status line (v6.5)**
 
@@ -324,9 +324,9 @@ for such a feature, say it's intentionally not part of echook rather than trying
 
 | User says | Run |
 |---|---|
-| "uninstall audio hooks" (plugin install) | Tell the user to type `/plugin uninstall audio-hooks@chanmeng-audio-hooks` in Claude Code |
-| "uninstall audio hooks" (script install) | `bash scripts/uninstall.sh --yes` |
-| "remove everything including config and audio files" | `bash scripts/uninstall.sh --yes --purge` |
+| "uninstall audio hooks" (plugin install) | `claude plugin uninstall audio-hooks@chanmeng-audio-hooks --keep-data --json` (what `audio-hooks uninstall --plugin` prints; `--keep-data` preserves the user's preferences and backups); then ask the user to type `/reload-plugins` |
+| "uninstall audio hooks" (script install) | `audio-hooks uninstall` — works on Windows, macOS and Linux and from the plugin layout (v6.6.0; on native Windows it used to do nothing). Backs up to `~/.claude/backups/audio-hooks-uninstall-<ts>/` first, removes echook's own entries and only files that carry echook's content marker, preserves config and audio. A user's own `stop_hook.sh` / `shared/` is left alone and listed in `skipped_not_ours`. `nothing_to_remove: true` means there was nothing to do. **If it returns `UNINSTALL_INCOMPLETE` (`ok: false`)**: read `unmatched_references` (registrations that spell the home directory in a form it does not recognise — `$env:USERPROFILE\…`, `%HOMEDRIVE%%HOMEPATH%\…`, an MSYS `/c/Users/…` path, `"$HOME"/…`), show them to the user, and only then run `audio-hooks uninstall --remove-unmatched` (scripts mode only), because the loose rule can catch another tool's variable such as `$XDG_CONFIG_HOME` or `%ANDROID_HOME%`. A file that could not be deleted: close what holds it and re-run |
+| "remove everything including config and audio files" | `bash scripts/uninstall.sh --yes --purge` (source checkout only: a wrapper around `uninstall --scripts` whose `--purge` also removes that checkout's `config/user_preferences.json` and `audio/default/*`, backed up first; the CLI's own `--purge` is for `--cursor` / `--codex`) |
 
 **Read or write any config key**
 
@@ -359,6 +359,9 @@ Common error codes you may see:
 | `AUDIO_PLAYER_NOT_FOUND` | No mpg123/ffplay/aplay on Linux, or PowerShell missing on Windows | `sudo apt install mpg123` (Linux) |
 | `AUDIO_FILE_MISSING` | Audio files for the active theme are missing | `audio-hooks theme set default` to fall back |
 | `WEBHOOK_HTTP_ERROR` / `WEBHOOK_TIMEOUT` | Webhook unreachable | `audio-hooks webhook test` and inspect the URL |
+| `INVALID_USAGE` | An unknown subcommand, flag or stray positional on a state-changing subcommand, a missing or conflicting `install` mode, `--purge` with `uninstall --scripts` / `--plugin`, `--remove-unmatched` outside scripts mode, or a help-like token as the value of `set`. Nothing was changed | The error's `suggested_command` — usually `audio-hooks install --help` or `audio-hooks manifest` |
+| `UNINSTALL_INCOMPLETE` | `audio-hooks uninstall` removed what it could but left registrations in an unrecognised home spelling (`unmatched_references`) or a file it could not delete | Read the list, show it to the user, then `audio-hooks uninstall --remove-unmatched` |
+| `DUAL_INSTALL_DETECTED` | The script install and the plugin install are both active (hooks fire twice), or `install --scripts` was refused for that reason | Both active: `audio-hooks uninstall` (removes the script install on every platform; keeps config and audio). `install --scripts` refused: do not force it; only if the user wants to switch to the script install, run `audio-hooks uninstall --plugin` first |
 
 After running any fix, verify with `audio-hooks logs tail --n 20` to see the recent NDJSON event stream.
 
@@ -421,7 +424,7 @@ There is **no `audio-hooks upgrade --cursor` subcommand** — `audio-hooks upgra
 
 - `Notification` and `PermissionRequest` hooks have no Cursor equivalent — those audio cues never fire under Cursor.
 - `Glob` / `WebFetch` / `WebSearch` matchers don't trigger under Cursor (no equivalent tools).
-- The only Cursor-side opt-out is the **global** "Third-party skills" toggle in Cursor Settings — disabling it kills auto-bridging for *all* Claude Code plugins.
+- Cursor's bridge toggle (Settings → Rules, Skills, Subagents → "Include third-party Plugins, Skills, and other configs") is **global** — it affects *all* Claude Code plugins — and it has **no effect on `cursor-agent`**, where bridging is hardcoded. Cursor also runs every matching hook from every source without de-duplicating, which is why `install --cursor` aborts with `DUPLICATE_BRIDGE` when the plugin is installed; on the CLI that abort is the only defence.
 
 **Refreshing the cached plugin code Cursor's bridge invokes**: Cursor reads from `~/.claude/plugins/cache/chanmeng-audio-hooks/audio-hooks/<ver>/`, so the user must refresh that cache to pick up new releases. **Use `audio-hooks upgrade`** — it wraps `claude plugin update` (data-preserving) with a fallback to `uninstall --keep-data + install`, so the user's `user_preferences.json` survives. The legacy 5.1.3-era recipe (`/plugin uninstall + /plugin install`) destroys config and should not be recommended.
 
@@ -485,7 +488,7 @@ The uninstall **never touches `~/.codex/config.toml`**.
 
 **Codex limitations** (these are Codex's, not ours, per [developers.openai.com/codex/hooks](https://developers.openai.com/codex/hooks)):
 
-- Codex supports 10 hook events: `SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`. Other audio-hooks canonical events have no Codex equivalent and the runner no-ops them with a `skipped_no_codex_equivalent` debug NDJSON event.
+- Codex supports 11 hook events in echook's mapping: `SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`, and `SessionEnd` — the last registered by `install --codex` **only** when the installed Codex is 0.145.0 or newer. Other audio-hooks canonical events have no Codex equivalent and the runner no-ops them with a `skipped_no_codex_equivalent` debug NDJSON event.
 - Codex plugin invokes with `PLUGIN_DATA`; native hooks.json install lands at `$CODEX_HOME/audio-hooks-data/` when `detect_invoker() == "codex"`.
 
 **Stdin field mapping**: Codex's stdin uses **the same snake_case schema** as Claude Code (`session_id`, `tool_name`, `hook_event_name`, `transcript_path`, `turn_id`, `tool_use_id`, `tool_response`, `stop_hook_active`, `last_assistant_message`, `source`). No translation layer needed. Codex-specific fields (`turn_id`, `tool_use_id`, `permission_mode`, `tool_response`, `stop_hook_active`) are surfaced under a `codex: {...}` sub-object in webhook payloads (parallel to `cursor: {...}`).
@@ -510,8 +513,8 @@ If any user request feels like it might involve a project capability you don't i
 
 - Do NOT edit `user_preferences.json` directly. Use `audio-hooks set` and the typed setters (`hooks enable`, `theme set`, `webhook set`, `tts set`, `rate-limits set`). They round-trip through validation and emit structured success/error JSON.
 - Do NOT prompt the user with a [y/N]. Defaults are sensible. If the user gave you a specific instruction, just run the command.
-- Do NOT try to install via `bash scripts/install-complete.sh` when the plugin install path is available — the plugin path is the recommended one.
-- Do NOT modify the four hook files in `~/.claude/settings.json` by hand. Use `audio-hooks install --plugin` to register/deregister, or rely on `/plugin install` to do it.
+- Do NOT try to install via `bash scripts/install-complete.sh` or `audio-hooks install --scripts` when the plugin install path is available — the plugin path is the recommended one, and the script path on top of it makes every hook fire twice (`DUAL_INSTALL_DETECTED`).
+- Do NOT edit hook registrations in `~/.claude/settings.json` by hand. The plugin registers its own hooks; `audio-hooks install --plugin` / `uninstall --plugin` print the `claude plugin … --json` commands that add and remove it.
 - Do NOT translate any of the JSON output. The keys and values are stable interface contracts.
 
 ## Quick reference

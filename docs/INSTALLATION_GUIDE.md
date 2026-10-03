@@ -1,6 +1,6 @@
 # Installation Guide
 
-> **Version:** 6.4.0 | **Last Updated:** 2026-07-20
+> **Version:** 6.6.0 | **Last Updated:** 2026-10-03
 
 **echook is AI-agent-first.** A human doesn't follow these steps — your AI agent (Claude Code, Cursor, or Codex) does. Point it at this repo and ask it to install/configure/uninstall; it runs every command below and reports back. This page documents the full pull → install → configure → verify → uninstall flow so the agent (and a curious human) can see exactly what happens. There are no interactive prompts and no human-only steps — the one exception is Claude Code's `/reload-plugins`, which has no CLI equivalent.
 
@@ -8,12 +8,14 @@
 
 ## Recommended: plugin install
 
-Inside Claude Code, run:
+Your agent runs these two commands (`audio-hooks install --plugin` prints exactly them and changes nothing itself):
 
-```text
-/plugin marketplace add ChanMeng666/echook
-/plugin install audio-hooks@chanmeng-audio-hooks
+```bash
+claude plugin marketplace add ChanMeng666/echook --json
+claude plugin install audio-hooks@chanmeng-audio-hooks --json
 ```
+
+Then it asks you to type `/reload-plugins` inside Claude Code — the one step with no CLI equivalent. (Claude Code 2.1.268 made the `/plugin` *menu* take effect when it closes, but whether a shell `claude plugin install` reaches an already-running session without `/reload-plugins` is not established, so the step stays.)
 
 Then verify and smoke-test:
 
@@ -34,7 +36,7 @@ cd echook
 bash scripts/install-complete.sh
 ```
 
-The installer is **always non-interactive** — it never prompts, so AI agents and CI run it unattended. It registers `hook_runner.py` in `~/.claude/settings.json`. For Windows native (PowerShell), use `.\scripts\install-windows.ps1`. Uninstall with `audio-hooks uninstall` (add `--purge` to also remove config + audio).
+The installer is **always non-interactive** — it never prompts, so AI agents and CI run it unattended. It registers `hook_runner.py` in `~/.claude/settings.json`. For Windows native (PowerShell), use `.\scripts\install-windows.ps1`. `audio-hooks install --scripts` runs the same installer through the CLI — it must be given that explicit flag, because since v6.6.0 `audio-hooks install` has **no default mode** (a bare `install`, an unknown argument, or two modes returns `INVALID_USAGE` and changes nothing), and it is refused with `DUAL_INSTALL_DETECTED` while the plugin is installed unless you pass `--force`. Uninstall with `audio-hooks uninstall` (bare = `--scripts`). Since v6.6.0 it removes the script install natively on Windows, macOS and Linux: it backs up to `~/.claude/backups/audio-hooks-uninstall-<timestamp>/`, removes only echook's own hook and permission entries from `settings.json` / `settings.local.json` and only files in `~/.claude/hooks/` that carry echook's content marker (your own `stop_hook.sh` or `shared/` is left alone and reported), and preserves your config and audio (before v6.6.0 it did nothing on Windows). If it reports `UNINSTALL_INCOMPLETE`, read `unmatched_references` and then run `audio-hooks uninstall --remove-unmatched`. Its `--purge` applies to `--cursor` / `--codex` only; in a source checkout, `bash scripts/uninstall.sh --yes --purge` (a wrapper around `uninstall --scripts`) also removes that checkout's config and audio defaults after backing them up.
 
 **Don't enable both paths** — they fire on every event independently and you'll hear double audio. `audio-hooks diagnose` reports `DUAL_INSTALL_DETECTED` if it finds both and tells you exactly how to fix it.
 

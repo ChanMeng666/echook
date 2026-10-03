@@ -14,7 +14,7 @@ convention alone, with nothing validating it end to end::
     hooks.json matcher "idle_prompt"
       → command arg "notification_idle_prompt"
       → SYNTHETIC_EVENT_MAP["notification_idle_prompt"]
-      → ("notification", "notification-info.mp3")
+      → ("notification", "notif-idle-prompt.mp3")
 
 A typo anywhere in that chain fails silently: ``_resolve_synthetic_event``
 passes an unknown arg straight through, ``run_hook`` receives a hook type
@@ -43,6 +43,11 @@ Run with::
 """
 
 from __future__ import annotations
+
+try:
+    import _isolation  # noqa: F401  (suite-level isolation, tests/_isolation.py)
+except ImportError:  # python -m unittest tests.test_x from the repo root
+    from tests import _isolation  # noqa: F401
 
 import importlib.util
 import json

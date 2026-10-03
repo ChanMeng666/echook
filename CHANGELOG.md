@@ -7,6 +7,409 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [6.6.0] - 2026-10-03
+
+A safety release with an upstream sync attached. The safety half repairs a CLI
+that could silently do the opposite of what it was asked, and it was found the
+hard way: on 2026-10-03 an AI agent probing for usage ran
+`audio-hooks install --help` on a machine that already had the Claude Code
+plugin. The command ignored the flag, ran the legacy script installer, wrote 20
+hook registrations into `~/.claude/settings.json` beside the plugin's, and
+reported `ok: true`. Every event fired twice until the file was restored from the
+installer's own backup about three minutes later. Nothing was wrong with the
+plugin; the command had no concept of "no mode given" or of an argument it did
+not recognise.
+
+The sync half moves the reference point from Claude Code 2.1.251 to **2.1.288**.
+It found **no new hook events** (33 in the binary, 33 in the docs, none added in
+the changelog), four matcher values echook has no variant for, and a handful of
+facts that change what the docs may claim. Each is recorded with the evidence it
+rests on in `docs/EVENT_BEHAVIOR_NOTES.md`.
+
+### Fixed
+
+- **`audio-hooks install` no longer has a default mode.** Before this release a
+  bare `install`, `install --help`, `install --bogus` and any other unrecognised
+  argument all fell through to the script installer, rewrote
+  `~/.claude/settings.json` and returned `ok: true`. A mode flag is now required
+  — exactly one of `--plugin`, `--scripts`, `--cursor`, `--codex`. A bare
+  `install`, an unknown argument, or two modes at once returns `INVALID_USAGE`
+  and changes nothing.
+- **`install --scripts` is refused with `DUAL_INSTALL_DETECTED` when the Claude
+  Code plugin install is detected**, unless `--force`. On top of the plugin it
+  registers every hook twice. Plugin detection ignores **orphaned** cache
+  directories — version directories carrying Claude Code's `.orphaned_at`
+  marker, left behind after an uninstall — which would otherwise have made the
+  command refuse with a remedy that could not help. That marker's meaning is
+  **inferred** from what is on disk (7 of 8 version directories of one plugin
+  carried it, the one in use did not); it is not documented upstream.
+- **`--help` is side-effect-free for every subcommand**, in every spelling
+  agents reach for: `--help`, `-h`, `-?`, `/?`, `--help=<x>`. A guard at dispatch
+  prints `{ok, command, usage, note}` and exits 0 without calling the handler;
+  `install`, `uninstall` and `upgrade` return their own usage JSON. For `set`, a
+  help-like token in *first* position prints usage, but anywhere after the key it
+  is `INVALID_USAGE` with nothing written — never stored as a value (a stored
+  `notification_settings.mode` of `"--help"` would make the runner play nothing).
+  Before this, `upgrade --help` ran a real upgrade (which can uninstall and
+  reinstall the plugin), and `tts set --help`, `rate-limits set --help`,
+  `webhook set --help` and `set <key> --help` parsed the flag as an ordinary
+  argument and wrote config. An agent probing a subcommand for usage was changing
+  real state.
+- **State-changing subcommands reject arguments they do not define** with
+  `INVALID_USAGE` and change nothing: `set` (extra tokens after the value — the
+  value itself may start with `-`), `hooks enable|disable|enable-only`,
+  `theme set`, `snooze`, `webhook set|clear|test`, `tts set`, `rate-limits set`,
+  `logs clear`, `backup restore|prune`, `statusline install|uninstall`,
+  `statusline subagent install|uninstall`, `statusline codex preview|apply`,
+  and `uninstall` and `upgrade`. A valued flag with no value is an error.
+  `tts set` and `rate-limits set` now accept dash and underscore flag spellings.
+  `--flag=value` forms are **not** supported (they were silently ignored
+  before). Previously `statusline install --dry-run` rewrote `settings.json` and
+  `tts set --bogus x` wrote a `bogus` key.
+- **`audio-hooks uninstall` did nothing on native Windows.** Bare `uninstall`
+  (= `--scripts`) shelled out to `scripts/uninstall.sh`; on Windows it returned
+  `ok: true` with a hint and removed nothing, and on every platform it needed a
+  `scripts/` directory that the plugin layout — exactly the layout
+  `DUAL_INSTALL_DETECTED` is reported from — does not ship. It is also the
+  documented remedy for `DUAL_INSTALL_DETECTED`. It now removes a script install
+  **natively on Windows, macOS and Linux**:
+  - backs up everything it will change or delete to
+    `~/.claude/backups/audio-hooks-uninstall-<ts>/` first; both settings documents
+    are serialised before anything is written or backed up, so content that cannot
+    be serialised fails with nothing changed; writes go through a symlinked
+    settings file to its target and preserve the file mode on POSIX;
+  - removes echook's own hook entries from `settings.json` and its own permission
+    entries from `settings.local.json`, then only files that are echook's;
+    nothing is deleted until the settings edits have succeeded;
+  - **decides ownership by content as well as name.** A file in `~/.claude/hooks/`
+    is removed only if its content carries the echook marker for that file
+    (markers were derived from, and tested against, every historical revision of
+    each file); `.project_path` has no marker and is judged by a heuristic (a
+    single path line beside echook's runner, or naming an echook checkout). A
+    same-named file without the marker — a user's own `stop_hook.sh`, their own
+    `shared/` directory — is left alone, listed in `skipped_not_ours` with a
+    reason, and its registration is kept. A registration is removed only when the
+    file it names is echook's or no longer exists. `shared/` loses only echook's
+    four libraries and is removed only if that leaves it empty;
+  - leaves the temp queue directory and lock in place (`left_in_place`);
+  - returns `ok: true` with `nothing_to_remove` and creates **no** backup when
+    there is nothing to remove (idempotent), and an error with nothing changed
+    when a settings file cannot be parsed (`CONFIG_READ_ERROR`) or serialised;
+  - result fields: `mode`, `incomplete`, `removed_hook_entries`,
+    `removed_permissions`, `removed_files[]`, `backup_dir`,
+    `skipped_not_ours[]` (`{path, reason}`), `unmatched_references[]`
+    (`{file, value, scripts}`), `left_in_place[]`, and optionally
+    `nothing_to_remove` / `next_steps[]`;
+  - **incomplete removal is `ok: false`, `UNINSTALL_INCOMPLETE`, exit 1.** It
+    happens when a file cannot be deleted, or when a registration refers to an
+    echook script through a home spelling the strict rule does not recognise
+    (`$env:USERPROFILE\…`, `%HOMEDRIVE%%HOMEPATH%\…`, an MSYS `/c/Users/…`
+    path, an 8.3 short path, `"$HOME"/…`, `;~/…`). Those are listed in
+    `unmatched_references`; the script they point at is kept, together with the
+    modules it needs (`invoker.py`, `user_preferences.py`, `.project_path`;
+    `shared/` libraries for a wrapper), so the surviving hook still runs, and
+    everything else of echook's is removed;
+  - **`audio-hooks uninstall --remove-unmatched`** (scripts mode only;
+    `INVALID_USAGE` otherwise) also strips the entries listed in
+    `unmatched_references` and removes the scripts they pointed at. It is opt-in
+    because the loose rule can catch another tool's variable
+    (`$XDG_CONFIG_HOME/.claude/hooks/hook_runner.py`, `%ANDROID_HOME%/…`) —
+    the caller should read the list first;
+  - `--purge` with `--scripts` or `--plugin` is `INVALID_USAGE` (it applies to
+    `--cursor` / `--codex`);
+  - `uninstall --plugin` emits
+    `claude plugin uninstall audio-hooks@chanmeng-audio-hooks --keep-data --json`
+    with a note that `--keep-data` preserves the preferences and backups.
+
+  A registration is matched as a whole path `<home>/.claude/hooks/<one of eleven
+  known script names>` after backslashes become forward slashes (`<home>` is `~`,
+  `$HOME`, `${HOME}`, `%USERPROFILE%` or the real home directory,
+  case-insensitive on Windows). Removal is per hook entry; a group is dropped only
+  when every hook in it was echook's. **Accepted limits:** command substitution
+  (`$(echo ~)/…`), variables whose name contains neither HOME nor USERPROFILE,
+  `~user/…`, relative prefixes and a `cd … && ./hook_runner.py` form are neither
+  stripped nor reported; a user's compound command that mentions an echook script
+  is removed as a whole entry (it is in the backup); any settings file with
+  removals is rewritten in a normalised format (indentation, LF, no BOM); there is
+  no lock against a concurrent writer. The doctor message and
+  `DUAL_INSTALL_DETECTED`'s remedy are now simply `audio-hooks uninstall`.
+- **`status` / `diagnose` reported a script install on the mere existence of
+  `~/.claude/hooks/hook_runner.py`.** They now do so only when that file carries
+  the echook marker.
+- **`scripts/uninstall.sh` (for a source checkout) could destroy an install
+  without removing it, and is now a thin wrapper.** Measured before the fix
+  **[LIVE, Windows 11, Git Bash, contained fake home]**: as shipped it exited 49
+  with no message after deleting `hook_runner.py`, leaving `settings.json`
+  unchanged with every registration pointing at the deleted file, because bare
+  `python3` resolved to the Microsoft Store stub; with a working `python3` it also
+  removed a user hook whose command merely contained `stop_hook.sh`, and a user
+  hook that shared a group with echook's. The script now contains **no matching
+  rule of its own**: it selects a Python that actually runs (exiting before
+  touching anything if none does), runs `audio-hooks uninstall --scripts` from the
+  checkout, forwards `--remove-unmatched`, and keeps `--purge`, which removes only
+  that checkout's `config/user_preferences.json` and `audio/default/*` after
+  backing them up to `~/.claude/backups/audio-hooks-purge-<ts>`.
+  `tests/test_legacy_scripts_contract.py` asserts that it carries no rule of its
+  own. (An intermediate rewrite that embedded the same rule in shell was replaced
+  before release.)
+- **Display-only invocations rewrote the config.** `tts`, `tts set`,
+  `rate-limits`, `rate-limits set` and `webhook set` with no flags saved the
+  preferences file and its `.bak`; they no longer do.
+- **`hooks enable|disable <a> <b> <c>` applied only the first name** while
+  reporting success (and the docs already described the multi-name form). It now
+  applies every name, all-or-nothing.
+- **`rate-limits set --five-hour-thresholds 90` made the hook runner raise on
+  every event.** The setter stored a bare integer, and `sorted(90)` then failed
+  before any audio for every event whose payload carried rate-limit data. The
+  setter now always stores a list, an infinite or non-finite threshold is
+  `INVALID_USAGE`, and the runner tolerates a scalar, malformed or non-finite
+  thresholds value from a config written by an older version or by hand.
+- **`filters.<hook>.skip_if_background_tasks_running` under-counted.** It
+  matched `status == "running"` only; Claude Code's own in-flight predicate is
+  `running` **or `pending`**, and the `Stop` payload builder passes nothing else,
+  so a queued-but-not-started task did not hold the chime back. It now counts
+  both, ignores the three task `type` labels Claude Code uses for its own
+  maintenance work — `dream`, `auto-mode scan`, `memory import` — which no user
+  started, and cannot raise on a malformed entry (a list or dict where a string
+  was expected is unhashable).
+- **`SubagentStop` from one of Claude Code's own internal agents announced a
+  subagent the user never started.** Claude Code fires `SubagentStop` for prompt
+  suggestions and `/btw` side questions too; for those, `agent_type` is `""` when
+  the session runs without `--agent`. `run_hook` now skips a `SubagentStop` whose
+  `agent_type` is exactly `""` under the Claude Code invoker (debug NDJSON action
+  `skipped_internal_subagent`). It is **not** applied under Cursor, Codex or an
+  `unknown` invoker (which includes the legacy script install), because nothing
+  establishes what an empty `agent_type` means in those payloads; an absent key
+  is not treated as the marker; in a session started with `--agent` the internal
+  agents carry that agent's name and still announce; and a forked subagent
+  arrives with `agent_type` `"fork"` [BIN], so it is unaffected.
+- **The test suite touched the developer's real machine.** A full run on a
+  machine with the plugin installed resolved the **real** plugin data directory:
+  after a version bump it re-stamped the real `user_preferences.json`, it
+  appended two test events to the real log per run, and the hook-runner
+  subprocess tests played real sounds and raised real toasts (measured
+  2026-10-03). `tests/_isolation.py`, imported first by every `tests/test_*.py`,
+  now points the home directory and the plugin data directory at throwaway ones;
+  `tests/test_isolation_guard.py` fails if a module omits it. **Limit:** on POSIX
+  a hook-runner subprocess started by a test without an explicit data directory
+  can still fall back to `/tmp/claude_audio_hooks_queue` — by reading; that path
+  was not run on POSIX. The isolation also repairs and reports leaked
+  `CLAUDE_PLUGIN_DATA`, `PLUGIN_DATA`, `CLAUDE_PLUGIN_ROOT`, `PLUGIN_ROOT`,
+  `CLAUDE_CONFIG_DIR`, `CLAUDE_AUDIO_HOOKS_PROJECT` and `CURSOR_VERSION`.
+- **Manifest strings** (`supported_editors["claude-code"].install_via` and the
+  Cursor auto-bridge wording) corrected. `hooks.json` is unchanged in this
+  release.
+
+### Added
+
+- **`filters.<hook>.skip_if_session_crons_scheduled`** (opt-in, default off):
+  skip when the payload's `session_crons` array — `CronCreate`, `ScheduleWakeup`
+  and `/loop` wakeups — is non-empty. It is deliberately a **separate** key from
+  `skip_if_background_tasks_running`: a session with a recurring cron carries
+  that entry for its whole life, so folding it into the existing key would
+  silence every turn for users who only asked about running work.
+- **A `plugin-validate` CI job** (`.github/workflows/smoke.yml`, 10-minute
+  timeout): installs Claude Code, then runs
+  `claude plugin validate --strict plugins/audio-hooks` and
+  `claude plugin validate .`. It tracks the latest Claude Code release on
+  purpose, so a red here beside a green `import-smoke` means upstream tightened a
+  manifest rule rather than that the code regressed. **It has not yet run on a
+  real runner** — see *Note* below.
+- **141 tests (399 → 540; 2 are skipped on Windows — POSIX-only file-mode tests that have therefore never run):** `tests/test_install_arg_safety.py`,
+  `tests/test_help_is_side_effect_free.py` (walks every subcommand in the
+  manifest with `--help` and `-h` and asserts the home and data directories are
+  untouched and that no config save, subprocess, `Popen` or network call is
+  made), `tests/test_subagent_stop_internal.py`,
+  `tests/test_uninstall_scripts_native.py`, `tests/test_isolation_guard.py`,
+  `tests/test_zzz_isolation_final.py` (runs last and names any test that broke the isolation), new cases in
+  `tests/test_background_task_filter.py` and `tests/test_legacy_scripts_contract.py`,
+  and `tests/_isolation.py`.
+
+### Changed
+
+- **`install --plugin` `next_steps` are now runnable commands**:
+  `claude plugin marketplace add ChanMeng666/echook --json`, then
+  `claude plugin install audio-hooks@chanmeng-audio-hooks --json`, then a request
+  that the user type `/reload-plugins` (it has no CLI form), then
+  `audio-hooks status`. Claude Code 2.1.268 added `--json` to those subcommands.
+- **`uninstall --plugin` keeps the user's data**: its emitted command carries
+  `--keep-data`, matching what `upgrade` already did. Without it Claude Code's
+  uninstall does not preserve `~/.claude/plugins/data/<id>/`.
+- **Version 6.5.1 → 6.6.0** (all canonical stamps; `scripts/bump-version.sh`).
+
+### Docs
+
+- **`docs/EVENT_BEHAVIOR_NOTES.md`** gains the 2.1.288 sync, with every fact
+  tagged by how it is known — **[DOC]**, **[CHANGELOG]**, **[BIN]** (literal read
+  in the binary), **[LIVE]** (measured, with its conditions and limits) or
+  **[INFER]** (read from minified control flow) — and no fact carries more
+  certainty than its tag. What it records:
+  - **No new hook events**; the three echook does not register
+    (`PreModelSwitch`, `WorktreeCreate`, `PostModelSwitch`) are unchanged.
+    `PreModelSwitch` is still blocking and gained an error string and four
+    payload fields; `PostModelSwitch` stdout reaches the model.
+  - **Four matcher values with no variant**: `StopFailure` `cloud_credential_error`
+    (documented, 2.1.267+) and `verification_required` (binary only);
+    `Notification` `auth_storage_failure` (an emitter exists in the binary) and
+    `model_refusal_fallback` (declared, **no emitter found**). Each is currently
+    silent. `cloud_credential_error` matters: from 2.1.267 a credential-load
+    failure that used to arrive as `server_error` or `unknown` — both of which
+    echook sounds — arrives under it instead.
+  - **`SessionEnd` `bypass_permissions_disabled`** is removed upstream (≥ 2.1.234). The matcher `bypass_permissions_disabled|other` is deliberately **kept**: dead on current builds, free to keep, and dropping it would lose the SessionEnd sound on older builds the plugin cannot exclude. Nothing changed in this release.
+  - **`idle_prompt`**: fixed upstream (2.1.288, and an adjacent fix in 2.1.269)
+    so it no longer fires while background agents are running; documented as a
+    "parked" signal that arrives about 60 s after Claude finishes and only if the
+    user has not typed. Not re-measured here.
+  - **The `Stop` / `SubagentStop` payload**: in-flight predicate, the full task
+    `type` label map, `session_crons` entries, and the still-absent finality
+    field.
+  - **`async` hooks and the 1.5 s `SessionEnd` budget**, with the one live
+    measurement: on 2.1.288 / Windows 11 / headless `claude -p`, an `async: true`
+    `SessionEnd` hook that kept working for 4 s completed 3/3 (about 3.1–3.3 s
+    after `claude` returned), an `async` hook whose detached child worked for 4 s
+    completed 3/3, and a synchronous 4 s hook was cut off 3/3 (`claude` returned
+    about 1.8 s after it started); with
+    `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS=6000` the synchronous hook
+    completed. Headless exit only. This is one more reason the handlers stay
+    `async`.
+  - **The `args` exec form**: the stated reason for keeping the shell form
+    changed. #90495 (*"`args` dropped on Windows"*) did **not** reproduce on
+    2.1.288 — 6/6 exec-form invocations ran with `claude.exe` as their direct
+    parent and every argument arrived intact — but the issue is still open, a
+    bare `python` through `PATH` (what echook uses) is untested, the docs restrict
+    Windows exec form to a real executable, and a plugin cannot require a minimum
+    Claude Code version. The shell form stays.
+  - **`terminalSequence` is still inert** for async hooks at 2.1.288
+    (read from the binary; #90997 still open, no maintainer reply, on
+    2026-10-03).
+  - **Exit code 2** has a different effect on every event (table, reproduced from
+    the binary) — relevant to any future synchronous handler.
+  - **Claude Mods (2.1.287)** investigated and not adopted for either track:
+    `$.audio.play` is silent on Windows in a headless run, `$.ui.toast` is an
+    in-app bar, a mod cannot write to the terminal or draw the status line, and a
+    `modules` key must never reach a hooks file Codex reads (`deny_unknown_fields`).
+  - **Plugin tooling** changes in the range (`--json`, `claude plugin configure`,
+    symlinked component paths refused, `plugin validate` additions).
+- **`docs/STATUS_LINE.md`** gains *Available upstream, not yet rendered*:
+  `prompt_cache` (including `last_miss_cause`), `rate_limits.spend_limit`,
+  `fast_mode` and an undocumented `remote.session_id`. No segment reads them.
+- **Corrections to documents that had drifted from the code:**
+  - `SKILL.md` told the agent to enable `notification_settings.terminal_sequence`
+    and said it works — the opposite of `CLAUDE.md` and `TROUBLESHOOTING.md`. The
+    skill is auto-loaded on audio-related prompts, so this was the most harmful of
+    the set. It now points at `notification_settings.mode` and says the sequence
+    is inert. `docs/CLI_REFERENCE.md` carried the same claim and is corrected.
+  - `CLAUDE.md` said the `plugins/audio-hooks/…` mirrors are never edited by hand,
+    while its own gotcha list says `plugins/audio-hooks/hooks/hooks.json` is. The
+    pointer now states the exception.
+  - `CLAUDE.md`'s `stop` section introduced the "mirror image" complaint before the
+    complaint it mirrors. Reordered, and updated for the new filter behaviour and
+    for `idle_prompt`.
+  - `CLAUDE.md` claimed "83 slots, 83 files, both themes"; each theme directory
+    holds **84** mp3s — the 83 slot files plus `notification-info.mp3`, which no
+    event maps to and which is `get_audio_file()`'s last-resort fallback. Worded
+    accurately.
+  - `CLAUDE.md` said the bump script rewrites "11 canonical version locations";
+    the script's header says "9 canonical files". Both were partly right: it
+    rewrites **12 stamps in 9 files** (`marketplace.json` carries two,
+    `default_preferences.json` three). Worded unambiguously.
+  - `SKILL.md` said Codex has 10 hook events (the manifest says 11, the 11th
+    being `SessionEnd`, registered only for Codex ≥ 0.145.0), showed a sample
+    status line stamped `v6.5.0`, referred to "the four hook files", and said
+    Cursor's third-party toggle "kills auto-bridging" where `CLAUDE.md` says it has
+    no effect on `cursor-agent`. All four corrected.
+  - Every place that described a bare `audio-hooks install` as the script
+    installer, or gave `/plugin …` steps where the CLI now emits `claude plugin …`
+    (`INSTALLATION_GUIDE.md`, `ARCHITECTURE.md`, `SKILL.md`, `CLAUDE.md`).
+  - `INSTALLATION_GUIDE.md` said `audio-hooks uninstall --purge` removes config
+    and audio for the script install; the CLI's `--purge` applies to `--cursor` /
+    `--codex` only (`scripts/uninstall.sh --purge` does the script case).
+  - `CLAUDE.md` / `AGENTS.md`: header version, test count, and the `args` gotcha.
+    New gotchas for the internal-agent `SubagentStop`, for mods, for test
+    isolation (every test module imports `_isolation` first, and why), for
+    "no subcommand acts on an argument it does not understand", and for the
+    script-uninstall rule living in the CLI with `scripts/uninstall.sh` held equal
+    to it.
+- **`docs/CLI_REFERENCE.md`, `docs/TROUBLESHOOTING.md`, `docs/INSTALLATION_GUIDE.md`,
+  `docs/ARCHITECTURE.md`, `SKILL.md`, `README.md`** (and `llms.txt`, which is not Markdown but is release documentation) describe the new `install`,
+  `uninstall`, `--help` and argument-rejection behaviour, the native uninstall
+  (what it backs up, what it removes, what it leaves, the content-based ownership
+  that keeps a user's own `stop_hook.sh` / `shared/`, `UNINSTALL_INCOMPLETE` and
+  `--remove-unmatched`, and the accepted limits), and name
+  `audio-hooks uninstall` as the remedy for `DUAL_INSTALL_DETECTED` on every
+  platform.
+
+### Note
+
+**Pending — not in this release:**
+
+- **Variants for the four new matcher values.** Each needs its own sound in both
+  themes (the audio-uniqueness rule), and no ElevenLabs key was available. Until
+  then they are silent; see `docs/EVENT_BEHAVIOR_NOTES.md`.
+- **A change to the `SessionEnd` registration.** `bypass_permissions_disabled|other`
+  is **deliberately retained**: upstream removed that value in Claude Code
+  2.1.234, but keeping it costs nothing and dropping it would lose the `other`
+  SessionEnd sound on older builds, which the plugin cannot exclude (it has no
+  minimum-version gate). Nothing changed here.
+
+**Verified.** `python -m unittest discover tests`: 540 tests pass, 2 skipped
+(Windows 11, Python 3.14.6), both with `CLAUDE_PLUGIN_DATA` pointed at a scratch
+directory and with no override at all; in the no-override run the real
+`user_preferences.json`, its `.bak` and `~/.claude/settings.json` hashed the same
+before and after, and no test event reached the real log. The 2 skipped are
+POSIX-only file-mode tests, which have therefore
+never run. `bash scripts/build-plugin.sh --check`: in sync. The new CLI
+behaviours are pinned by unit tests that drive the commands in-process with
+`subprocess.run` patched — they establish that no installer, upgrade or write is
+reached, not that a real `settings.json` was left untouched by a real run.
+**[LIVE, Windows 11, contained fake home, 2026-10-03]** the native uninstall
+removed a script install shaped like the real incident (the genuine installed
+files); was idempotent; left a user's own `stop_hook.sh` and `shared/` alone;
+handled a BOM and a non-ASCII settings file; refused corrupt and unserialisable
+settings with nothing changed; cleared `DUAL_INSTALL_DETECTED`; and worked from a
+project copy with no `scripts/` directory. With registrations written as
+`$env:USERPROFILE\…` and as an MSYS path it returned `UNINSTALL_INCOMPLETE`, kept
+`hook_runner.py` with the modules it imports (the kept runner was imported
+successfully from the fake home), and `uninstall --remove-unmatched` then
+completed the removal; a user's own marker-less `hook_runner.py` beside a
+fabricated plugin install produced no `DUAL_INSTALL_DETECTED` and was left
+byte-identical. The `scripts/uninstall.sh` wrapper
+completed on that machine's real PATH and exited cleanly with no usable Python.
+The pre-fix `scripts/uninstall.sh` failures above were measured the same way.
+
+**Not verified.**
+
+- **The `plugin-validate` job has never run on a real runner**, and the CI matrix
+  (Ubuntu / Windows / macOS × Python 3.9 / 3.12 / 3.13) has not run on this
+  change. Whether `--strict` accepts the plugin as it stands is unknown until it
+  does.
+- **Parts of the uninstall are unit-tested only**: `--remove-unmatched` against
+  another tool's variable (`$XDG_CONFIG_HOME/…`), the retention of `shared/`
+  libraries for a kept wrapper, and an incomplete result caused by a file that
+  cannot be deleted. Also not verified anywhere:
+  write-failure rollback outside unit tests, symlinked settings files and
+  file-mode preservation on POSIX (the two tests for it are skipped on Windows),
+  Linux and macOS in general (nothing about uninstall was run there), a
+  non-UTF-8 locale, and a real — as opposed to fabricated — plugin install. The
+  test-isolation fallback to `/tmp/claude_audio_hooks_queue` on POSIX was read,
+  not run.
+- **`.orphaned_at`'s meaning is inferred** from one machine's cache directory.
+- **Nothing in the upstream sync was measured on macOS or Linux**, and none of
+  the live runs was an interactive session. The `SessionEnd` result is for a
+  headless exit only; closing an interactive session was not tested, nor was work
+  longer than 4 s or the real audio player.
+- **The `args` re-test used an absolute path to `python.exe`.** A bare `python`,
+  `.cmd`/`.bat` shims and older Claude Code versions were not tested.
+- **`idle_prompt`'s fix and its 60-second delay are quoted from the changelog and
+  the docs**, not observed. No live capture was made of a `pending` task entry, of
+  a maintenance-type entry, or of an internal-agent `SubagentStop` payload; those
+  behaviours rest on the documentation and the binary.
+- **Mods were run headless only** (interactive sessions and the Desktop app,
+  where `$.audio.play` may differ, were not tested); the Codex `deny_unknown_fields`
+  fact is carried from the investigation and was not re-checked here.
+- **The `[INFER]` items** (for example that 2.1.288 spawns exec-form hooks before
+  the shell branches) are readings of minified code, not observations.
+
 ## [6.5.1] - 2026-09-01
 
 Fix release. No new events, no new capability — every change here repairs

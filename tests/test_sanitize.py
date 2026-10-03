@@ -13,6 +13,11 @@ blocks and secrets must never reach speech/toast, and truncation must land on a
 word/sentence boundary rather than mid-token.
 
 NOTE ON FIXTURES: the "secret"-shaped strings below are SYNTHESISED at runtime
+try:
+    import _isolation  # noqa: F401  (suite-level isolation, tests/_isolation.py)
+except ImportError:  # python -m unittest tests.test_x from the repo root
+    from tests import _isolation  # noqa: F401
+
 from inert fragments (see ``_fake_*`` helpers). They are deliberately fake —
 there is nothing to leak — and are assembled this way so secret scanners never
 see a literal credential in this source file. They only exist to exercise the

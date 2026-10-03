@@ -26,6 +26,11 @@ Run with::
 
 from __future__ import annotations
 
+try:
+    import _isolation  # noqa: F401  (suite-level isolation, tests/_isolation.py)
+except ImportError:  # python -m unittest tests.test_x from the repo root
+    from tests import _isolation  # noqa: F401
+
 import json
 import re
 import unittest
@@ -68,44 +73,82 @@ class TestLegacyScriptEventCoverage(unittest.TestCase):
             "install-complete.sh cannot register events the plugin registers",
         )
 
-    def test_uninstall_bash_array_covers_every_event(self) -> None:
-        block = re.search(r"HOOK_EVENTS=\((.*?)\)", self.uninstall_src, re.DOTALL)
-        self.assertIsNotNone(block, "HOOK_EVENTS array not found")
-        found = set(re.findall(r'"([A-Za-z]+)"', block.group(1)))
+    def test_uninstall_covers_every_event(self) -> None:
+        """The removal lives in the CLI (scripts/uninstall.sh delegates to it), so
+        the CLI's event list is the one that must cover the plugin's events."""
+        cli = _load_cli()
         self.assertEqual(
-            self.expected - found,
+            self.expected - set(cli.LEGACY_HOOK_EVENTS),
             set(),
-            "uninstall.sh would leave orphaned hook registrations behind",
+            "audio-hooks uninstall would leave orphaned hook registrations behind",
         )
 
-    def test_uninstall_python_list_covers_every_event(self) -> None:
-        block = re.search(
-            r"hook_events\s*=\s*\[(.*?)\]", self.uninstall_src, re.DOTALL
-        )
-        self.assertIsNotNone(block, "hook_events list not found")
-        found = set(re.findall(r'"([A-Za-z]+)"', block.group(1)))
-        self.assertEqual(
-            self.expected - found,
-            set(),
-            "uninstall.sh's embedded Python would leave registrations behind",
-        )
 
-    def test_uninstall_lists_agree_with_each_other(self) -> None:
-        """The two lists are used on different code paths; a value in one but
-        not the other is how they drifted apart in the first place."""
-        bash = set(
-            re.findall(
-                r'"([A-Za-z]+)"',
-                re.search(r"HOOK_EVENTS=\((.*?)\)", self.uninstall_src, re.DOTALL).group(1),
-            )
-        )
-        py = set(
-            re.findall(
-                r'"([A-Za-z]+)"',
-                re.search(r"hook_events\s*=\s*\[(.*?)\]", self.uninstall_src, re.DOTALL).group(1),
-            )
-        )
-        self.assertEqual(bash, py, "uninstall.sh's two event lists disagree")
+def _load_cli():
+    import importlib.util
+    import sys
+    sys.modules.pop("audio_hooks_cli", None)
+    spec = importlib.util.spec_from_file_location("audio_hooks_cli", REPO_ROOT / "bin" / "audio-hooks.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["audio_hooks_cli"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestUninstallScriptIsAThinWrapper(unittest.TestCase):
+    """``scripts/uninstall.sh`` used to carry its own copy of the matching rule,
+    the name lists and the deletion logic, and the copies drifted. It is now a
+    wrapper around ``audio-hooks uninstall --scripts``: there is one
+    implementation, so equivalence holds by construction. These tests keep it
+    that way -- no embedded rule, no deletion of files other than the project's
+    own --purge targets, no deletion of the live temp queue -- and pin the CLI's
+    own lists, markers and rule."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.src = UNINSTALL_SH.read_text(encoding="utf-8")
+        cls.cli = _load_cli()
+
+    def test_it_delegates_to_the_cli(self) -> None:
+        self.assertIn('"$PYTHON_BIN" bin/audio-hooks.py uninstall --scripts', self.src)
+
+    def test_it_carries_no_rule_of_its_own(self) -> None:
+        for forbidden in ("PYTHON_SCRIPT", "hook_events", "HOOK_EVENTS", "HOOK_SCRIPTS",
+                          "REF_TEMPLATE", "HOME_SPELLINGS", "json.load", "json.dump",
+                          'rm "$HOOKS_DIR', "rm -rf \"$HOOKS_DIR"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.src)
+
+    def test_it_does_not_delete_the_temp_queue(self) -> None:
+        self.assertNotIn("rm -rf \"$_tmp_dir/claude_audio_hooks_queue\"", self.src)
+        self.assertNotIn("rm -f \"$_tmp_dir/claude_audio_hooks.lock\"", self.src)
+
+    def test_paths_are_printed_with_printf_not_echo_e(self) -> None:
+        """`echo -e` interprets \\c, \\a, \\0 inside a Windows temp path and truncates it."""
+        for line in self.src.splitlines():
+            if line.lstrip().startswith("echo -e"):
+                self.assertNotRegex(line, r"\$\{?(?:BACKUP|PURGE|_tmp|PROJECT|CLAUDE|HOME|TEMP)", line)
+
+    def test_it_does_not_advertise_a_purge_form_the_cli_rejects(self) -> None:
+        self.assertNotIn("audio-hooks uninstall [--purge]", self.src)
+        self.assertNotIn("audio-hooks uninstall --purge", self.src)
+
+    def test_help_names_the_real_backup_location(self) -> None:
+        self.assertIn("backups/audio-hooks-uninstall-<timestamp>", self.src)
+        self.assertNotIn("claude_hooks_backup", self.src)
+
+    def test_cli_names_files_and_markers_line_up(self) -> None:
+        names = set(self.cli.LEGACY_COMMAND_SCRIPTS) | set(self.cli.LEGACY_EXTRA_HOOK_FILES)
+        self.assertEqual(set(self.cli.LEGACY_FILE_MARKERS) | {".project_path"}, names)
+        self.assertEqual(set(self.cli.LEGACY_SHARED_MARKERS),
+                         {"hook_config.sh", "hook_config_with_path_utils.sh", "path_utils.sh", "hook_logger.sh"})
+
+    def test_home_anchored_rule_pieces(self) -> None:
+        self.assertEqual(self.cli._LEGACY_HOME_SPELLINGS, (r"~", r"\$HOME", r"\$\{HOME\}", r"%USERPROFILE%"))
+        self.assertEqual(
+            self.cli._LEGACY_REF_TEMPLATE,
+            r"""(?:^|[\s"'=:(])(?:%s)/\.claude/hooks/(?:%s)(?![\w.\-/])""")
+        self.assertEqual(len(self.cli.LEGACY_HOOK_EVENTS), 30)
 
 
 if __name__ == "__main__":
