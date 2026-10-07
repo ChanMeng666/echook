@@ -1,6 +1,6 @@
 # Installation Guide
 
-> **Version:** 6.7.2 | **Last Updated:** 2026-10-04
+> **Version:** 6.8.0 | **Last Updated:** 2026-10-07
 
 **echook is AI-agent-first.** A human doesn't follow these steps — your AI agent (Claude Code, Cursor, or Codex) does. Point it at this repo and ask it to install/configure/uninstall; it runs every command below and reports back. This page documents the full pull → install → configure → verify → uninstall flow so the agent (and a curious human) can see exactly what happens. There are no interactive prompts and no human-only steps — the one exception is Claude Code's `/reload-plugins`, which has no CLI equivalent.
 

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-> **Version:** 6.7.2 | **Last Updated:** 2026-10-04
+> **Version:** 6.8.0 | **Last Updated:** 2026-10-07
 
 The troubleshooting story is one command:
 
@@ -323,6 +323,21 @@ audio-hooks uninstall --plugin
 ```
 
 If you intentionally want both paths active despite the double-fire, the runtime since 5.1.6 will detect `install_marker.json` records `duplicate_bridge_forced: true` and silently skip the native firing under Cursor (logs `DUPLICATE_BRIDGE_RUNTIME_SKIP` warn-level event) so audio still plays exactly once. Verify with `audio-hooks logs tail --level warn`.
+
+### Cursor plays the finished sound when I cancel a turn, or when the agent errored (v6.8.0)
+
+Cursor documents its native `stop` payload as carrying `status`: `completed`, `aborted` or `error`. echook reads it only on request, so by default all three sound the same.
+
+```bash
+audio-hooks set filters.stop.skip_if_aborted true   # a turn you cancelled is skipped
+audio-hooks hooks enable stop_failure               # an errored turn plays the stop_failure sound instead
+```
+
+The second switch is the ordinary `stop_failure` one: under Cursor a `stop` with `status: error` is then delivered as `stop_failure` (its sound, filters, debounce window and webhook `hook_type`); in Claude Code the same switch also enables API-error alerts. Both rest on Cursor's documentation and have not been confirmed against a live payload, and it is not known whether a `Stop` bridged from the Claude Code plugin carries `status` at all. If nothing changes, run with `CLAUDE_HOOKS_DEBUG=1` and look in `audio-hooks logs tail --level debug` for `stop_rerouted_to_stop_failure` or a `FILTERED` entry — its absence means the payload carried no `status`.
+
+### Cursor IDE: I hear Cursor's own chime as well as echook's sound
+
+Cursor has a built-in completion sound (Cursor Settings → General → Notifications, off by default) that plays one chime when the agent finishes or needs attention. It is independent of hooks, so with it on you hear it alongside echook's `stop` sound. Keep whichever you want: turn Cursor's setting off, or `audio-hooks hooks disable stop`. If one undifferentiated chime is all you need in Cursor, the built-in setting is enough on its own; echook adds per-event sounds, spoken summaries, webhooks, filters and snooze. (The Cursor setting is described from its forum and documentation as of 2026-10; echook does not detect it.)
 
 ### `audio-hooks install --cursor` fails with `INTERNAL_ERROR: Template is not valid JSON after substitution`
 

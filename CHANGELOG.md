@@ -7,9 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
-## [Unreleased]
+## [6.8.0] - 2026-10-07
+
+A survey of what Claude Code, Codex and Cursor now do natively (2026-10-07),
+made to answer whether echook is still needed, and the adjustments it led to.
+No editor makes either track redundant: none has per-event sounds, spoken
+summaries, webhooks, filters or snooze, and only Cursor's CLI has gained a
+command-driven status line (recorded as a candidate, not built). The survey is
+summarised in `docs/PROJECT_STATUS.md`, "Native features surveyed".
+
+One thing to know before upgrading: **a Cursor user who already has
+`stop_failure` enabled will hear the `stop_failure` sound instead of the `stop`
+sound on a turn Cursor reports as errored.** Nothing else changes by default.
+
+### Added
+
+- **Cursor: a cancelled or failed turn no longer has to sound like a finished
+  one (opt-in).** Cursor documents its native `stop` input as
+  `{"status": "completed" | "aborted" | "error", "loop_count": 0}`; the runner
+  ignored `status`. Two additions, neither changing default behaviour.
+  (1) `filters.stop.skip_if_aborted` (default off;
+  `audio-hooks set filters.stop.skip_if_aborted true`): a `stop` whose `status`
+  is exactly `aborted` is filtered, logged `FILTERED`, and opens no debounce
+  window. The key is per hook and not tied to an editor; it does nothing where
+  the payload has no `status`. (2) Under the Cursor invoker, a `stop` whose
+  `status` is exactly `error` is delivered as `stop_failure` when the user has
+  enabled `stop_failure`: its sound, switch, filters, debounce window, per-hook
+  mode, TTS message ("Agent stopped with an error") and `hook_type` in the
+  webhook, with the original `status` kept in `event_data`. With `stop_failure`
+  off (the default) it plays as an ordinary `stop`, exactly as before. Enabling
+  only a `stop_failure_*` variant does not re-route. An absent `status`, or any
+  other value, is unchanged. The new key is not written into
+  `default_preferences.json`; like its sibling filter keys, absent means off.
+- **`audio-hooks statusline codex preview|apply --items` accepts every item ID
+  in Codex 0.160.1** (checked against the Rust source at `rust-v0.160.1`). New
+  are `hostname`, `thread-name` and `permissions` (the last was already in
+  Codex 0.143 and had been missed), plus the legacy aliases Codex still parses
+  (`model-name`, `project`, `project-root`, `status`, `context-usage`,
+  `session-id`, `thread`, `spinner`). No ID that Codex 0.143 accepted was
+  removed, and the presets are unchanged. The Codex section of
+  `docs/STATUS_LINE.md` lists the accepted IDs.
+
+### Changed
+
+- **Re-synced against Claude Code 2.1.292** (changelog 2.1.289 to 2.1.292, raw
+  documentation, and the installed binary compared with the 2.1.288 record).
+  The hook event set (33), the Notification and StopFailure value sets, the
+  per-event exit-code table, the hook input payloads, the status line stdin
+  fields and the `terminalSequence` handling are unchanged, so nothing echook
+  registers or reads moved and no code changed. The 2.1.290 fix for an endless
+  loop on a plugin's async `Stop` hook reads as confined to `asyncRewake` hooks,
+  which echook does not use.
+
+### Not done, on purpose
+
+- Codex's `Interrupt` hook event is not registered: the user caused it and is
+  at the keyboard. Cursor's `preToolUse` is not registered: it is a gating
+  hook. A status line for the Cursor CLI and a native Cursor plugin are
+  candidates that need a prototype first. All four are in
+  `docs/PROJECT_STATUS.md`.
+
+### Not verified
+
+- No live Cursor payload was captured (the Cursor CLI is not installed on the
+  development machine and the IDE cannot be driven headlessly), so both Cursor
+  behaviours rest on Cursor's documentation alone; whether a `Stop` bridged
+  from the Claude Code plugin carries `status` is unknown, and if it does not,
+  neither behaviour activates on the bridge path.
+- Codex itself was not run; the item list was read from source. The releases
+  that introduced `hostname` and `thread-name` were bracketed by sampling tags.
+- The Claude Code sync ran no live experiment (nothing echook relies on had
+  changed), was not checked on macOS or Linux or in an interactive session,
+  and compared against a saved extract of the 2.1.288 binary.
+- The survey of native features was read largely through a summarising fetch
+  tool. Two of its claims were wrong when checked (see
+  `docs/PROJECT_STATUS.md`); only what was re-read from raw sources was acted
+  on.
 
 ### Docs
+
+- **`docs/TROUBLESHOOTING.md`**: the two Cursor `status` switches, and Cursor's
+  built-in completion chime sounding alongside echook's `stop`.
+- **`docs/CLI_REFERENCE.md`**: `filters.<hook>.skip_if_aborted`.
+- **`docs/PROJECT_STATUS.md`**: the survey table, three more "deliberately not
+  done" rows, two candidates, and the new unverified claims.
+- **`docs/EVENT_BEHAVIOR_NOTES.md`**: the 2.1.292 sync findings.
 
 - **`docs/PROJECT_STATUS.md`** (new): a dated snapshot of where the project
   stands — what shipped in 6.6.0 to 6.7.2, what is waiting on someone, what is
