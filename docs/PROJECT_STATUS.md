@@ -17,7 +17,7 @@ Take these from the CLI, not from this table: `audio-hooks manifest`, `audio-hoo
 | Status line segments | 33, of which 31 are in the default set; `prompt_cache` and `remote` are opt-in |
 | CLI subcommands | 21 top-level, 41 forms |
 | Error codes in the manifest | 37 |
-| Tests | 726 (2 skipped on Windows) |
+| Tests | 747 (2 skipped on Windows) |
 | Synced against Claude Code | 2.1.292 |
 | Codex status-line item list verified against | 0.160.1 (Rust source) |
 
@@ -29,7 +29,7 @@ Take these from the CLI, not from this table: `audio-hooks manifest`, `audio-hoo
 | 6.7.0 | 2026-10-03 | Three new matcher variants with their own sounds; four status line segments; reporting commands became read-only; `audio-hooks migrate`; plugin README, sensitive webhook option, skill evals; `AGENTS.md` became the single guide. |
 | 6.7.1 | 2026-10-04 | `PRIVACY.md` and the directory listing links in `plugin.json`. No behaviour change. |
 | 6.7.2 | 2026-10-04 | Listing icon. No behaviour change. |
-| 6.8.0 | 2026-10-07 | Upstream survey of all three editors: Cursor `stop` `status` read on request (`filters.stop.skip_if_aborted`, `error` re-routed to `stop_failure` when that is enabled); Codex status-line item IDs refreshed to 0.160.1; re-synced to Claude Code 2.1.292 with no change needed. |
+| 6.8.0 | 2026-10-07 | Upstream survey of all three editors: Cursor `stop` `status` read through two opt-in keys (`filters.stop.skip_if_aborted`, `filters.stop.error_as_stop_failure`); Codex status-line item IDs refreshed to 0.160.1; re-synced to Claude Code 2.1.292 with no change needed. |
 
 The cycle began with an incident, and most of 6.6.0 follows from it. On 2026-10-03 an AI agent probing for usage ran `audio-hooks install --help` on a machine that already had the plugin. The command ignored the flag, ran the legacy script installer and registered every hook a second time in `~/.claude/settings.json`. Following that thread found that `upgrade --help` ran a real upgrade, that several `set`-style commands wrote config when probed, that `uninstall` did nothing on Windows while reporting success, that the uninstall script could delete a user's own hooks, and that the test suite wrote to the real plugin data directory. All of those are fixed; the reasoning is in the 6.6.0 changelog entry and in the gotchas at the end of `AGENTS.md`.
 
@@ -57,7 +57,7 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 - `terminalSequence` being inert for async hooks: measured on 2.1.251, read from the binary at 2.1.288, not re-measured.
 - The native `uninstall`: exercised end to end in a contained fake home on Windows 11. Not run against a real Linux or macOS install, a non-UTF-8 locale, or a real (as opposed to fabricated) plugin install; write-failure rollback is unit-tested only.
 - Mods: `$.audio.play` playing nothing was observed in a headless run on Windows. Interactive sessions and the Desktop app were not tested.
-- Cursor's `stop` `status` (6.8.0): `filters.stop.skip_if_aborted` and the `error` re-route to `stop_failure` rest on Cursor's documentation (`cursor.com/docs/hooks.md`, read 2026-10-07). No live Cursor payload was captured, and whether a `Stop` bridged from the Claude Code plugin carries `status` is unknown.
+- Cursor's `stop` `status` (6.8.0): `filters.stop.skip_if_aborted` and `filters.stop.error_as_stop_failure` rest on Cursor's documentation (`cursor.com/docs/hooks.md`, read 2026-10-07). No live Cursor payload was captured, and whether a `Stop` bridged from the Claude Code plugin carries `status` is unknown.
 - The Codex status-line item list (6.8.0): read from the Rust source at `rust-v0.160.1`; Codex itself was not run, and the releases that introduced `hostname` and `thread-name` were bracketed by sampling tags, not pinned.
 - The skill eval suite: two single runs on the smallest model. One case (`pomodoro-out-of-scope`) passed once and failed once on the same skill.
 
@@ -127,7 +127,7 @@ A survey of what the three editors now do by themselves, made to answer whether 
 |---|---|---|---|
 | Claude Code | `preferredNotifChannel`: desktop notification in Ghostty, Kitty and iTerm2, terminal bell elsewhere; mobile push through Remote Control; no sound files | A `statusLine` command and `/statusline` to generate a script; no rich built-in default | Nothing new; `diagnose` already reports `NATIVE_NOTIFICATIONS_ACTIVE` |
 | Codex | `notify` program on `agent-turn-complete`; `tui.notifications` over OSC 9 / BEL, focus-aware | A fixed item list (`tui.status_line`); a command-driven one is still an open request (openai/codex#17827) | Item list refreshed to 0.160.1 in 6.8.0 |
-| Cursor | IDE: one completion chime (custom file allowed) and system notifications. CLI: terminal notification, tab-title indicators | CLI only: an undocumented command-driven `statusLine` | `stop` `status` read on request in 6.8.0; the chime overlap documented; CLI status line listed as a candidate |
+| Cursor | IDE: one completion chime (custom file allowed) and system notifications. CLI: terminal notification, tab-title indicators | CLI only: an undocumented command-driven `statusLine` | `stop` `status` read through two opt-in keys in 6.8.0; the chime overlap documented; CLI status line listed as a candidate |
 
 Two findings of that survey were wrong and are recorded so they are not repeated: Codex hooks being on by default (`features.hooks`, with `codex_hooks` as a legacy alias) was already handled by `install --codex`, and a Codex status-line item called `daybreak` does not exist in either item enum at `rust-v0.160.1`.
 
