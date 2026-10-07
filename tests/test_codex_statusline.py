@@ -149,6 +149,33 @@ class TestCodexHelpers(unittest.TestCase):
                 with self.subTest(preset=name):
                     self.assertEqual(len(items), len(set(items)), f"{name} has dupes")
 
+    def test_known_items_cover_codex_0_160_1(self):
+        # Canonical IDs + strum aliases read from rust-v0.160.1
+        # (status_line_setup.rs and title_setup.rs).
+        canonical = {
+            "model", "model-with-reasoning", "reasoning", "current-dir",
+            "project-name", "hostname", "git-branch", "pull-request-number",
+            "branch-changes", "run-state", "permissions", "approval-mode",
+            "context-remaining", "context-used", "five-hour-limit",
+            "weekly-limit", "codex-version", "context-window-size",
+            "used-tokens", "total-input-tokens", "total-output-tokens",
+            "thread-credits", "estimated-thread-cost", "thread-id", "fast-mode",
+            "raw-output", "thread-name", "thread-title", "workspace-headline",
+            "task-progress", "activity", "app-name",
+        }
+        aliases = {"model-name", "project", "project-root", "status",
+                   "approval", "context-usage", "session-id", "thread", "spinner"}
+        known = self.mod.CODEX_KNOWN_STATUSLINE_ITEMS
+        self.assertFalse((canonical | aliases) - known)
+
+    def test_presets_use_only_known_items(self):
+        known = self.mod.CODEX_KNOWN_STATUSLINE_ITEMS
+        for table in (self.mod.CODEX_STATUSLINE_PRESETS,
+                      self.mod.CODEX_TERMINAL_TITLE_PRESETS):
+            for name, items in table.items():
+                with self.subTest(preset=name):
+                    self.assertFalse(set(items) - known)
+
     def test_generic_array_targets_any_key(self):
         text = "[tui]\nstatus_line = [\"a\"]\nterminal_title = [\"x\", \"y\"]\n"
         # Editing terminal_title must not touch status_line and vice versa.
