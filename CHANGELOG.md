@@ -16,29 +16,33 @@ summaries, webhooks, filters or snooze, and only Cursor's CLI has gained a
 command-driven status line (recorded as a candidate, not built). The survey is
 summarised in `docs/PROJECT_STATUS.md`, "Native features surveyed".
 
-One thing to know before upgrading: **a Cursor user who already has
-`stop_failure` enabled will hear the `stop_failure` sound instead of the `stop`
-sound on a turn Cursor reports as errored.** Nothing else changes by default.
+Nothing changes by default: every new behaviour is behind a key that is absent
+until it is set.
 
 ### Added
 
 - **Cursor: a cancelled or failed turn no longer has to sound like a finished
   one (opt-in).** Cursor documents its native `stop` input as
   `{"status": "completed" | "aborted" | "error", "loop_count": 0}`; the runner
-  ignored `status`. Two additions, neither changing default behaviour.
-  (1) `filters.stop.skip_if_aborted` (default off;
-  `audio-hooks set filters.stop.skip_if_aborted true`): a `stop` whose `status`
-  is exactly `aborted` is filtered, logged `FILTERED`, and opens no debounce
-  window. The key is per hook and not tied to an editor; it does nothing where
-  the payload has no `status`. (2) Under the Cursor invoker, a `stop` whose
-  `status` is exactly `error` is delivered as `stop_failure` when the user has
-  enabled `stop_failure`: its sound, switch, filters, debounce window, per-hook
-  mode, TTS message ("Agent stopped with an error") and `hook_type` in the
-  webhook, with the original `status` kept in `event_data`. With `stop_failure`
-  off (the default) it plays as an ordinary `stop`, exactly as before. Enabling
-  only a `stop_failure_*` variant does not re-route. An absent `status`, or any
-  other value, is unchanged. The new key is not written into
-  `default_preferences.json`; like its sibling filter keys, absent means off.
+  ignored `status`. Two new keys, both absent from the template (absent = off),
+  so no configuration changes behaviour until one is set.
+  (1) `filters.stop.skip_if_aborted true`: a `stop` whose `status` is exactly
+  `aborted` is filtered (`FILTERED`) and opens no debounce window; per hook, not
+  tied to an editor, and a no-op where the payload has no `status`.
+  (2) `filters.stop.error_as_stop_failure true`: under the Cursor invoker, a
+  `stop` whose `status` is exactly `error` becomes `stop_failure`: its switch,
+  filters, debounce window, sound, per-hook mode and webhook `hook_type`, with
+  the original `status` kept in `event_data`. The key alone is the opt-in;
+  having `stop_failure` enabled does not trigger it. Once re-routed, the
+  ordinary `stop_failure` switch decides, so enable both
+  (`audio-hooks hooks enable stop_failure`): with the key on and `stop_failure`
+  off, an errored turn is silent and does not fall back to the `stop` sound. A
+  re-routed event has no variant, so a config written by
+  `hooks enable-only stop_failure_<variant>` (which leaves the parent on) plays
+  the generic `stop_failure` sound for it once the key is on. TTS for a
+  re-routed event always says "Agent stopped with an error", never
+  `tts_settings.messages.stop_failure`. An absent `status` or any other value
+  is unchanged.
 - **`audio-hooks statusline codex preview|apply --items` accepts every item ID
   in Codex 0.160.1** (checked against the Rust source at `rust-v0.160.1`). New
   are `hostname`, `thread-name` and `permissions` (the last was already in
@@ -71,9 +75,9 @@ sound on a turn Cursor reports as errored.** Nothing else changes by default.
 
 - No live Cursor payload was captured (the Cursor CLI is not installed on the
   development machine and the IDE cannot be driven headlessly), so both Cursor
-  behaviours rest on Cursor's documentation alone; whether a `Stop` bridged
-  from the Claude Code plugin carries `status` is unknown, and if it does not,
-  neither behaviour activates on the bridge path.
+  keys rest on Cursor's documentation alone; whether a `Stop` bridged from the
+  Claude Code plugin carries `status` is unknown, and if it does not, neither
+  key has any effect on the bridge path.
 - Codex itself was not run; the item list was read from source. The releases
   that introduced `hostname` and `thread-name` were bracketed by sampling tags.
 - The Claude Code sync ran no live experiment (nothing echook relies on had
@@ -84,11 +88,23 @@ sound on a turn Cursor reports as errored.** Nothing else changes by default.
   `docs/PROJECT_STATUS.md`); only what was re-read from raw sources was acted
   on.
 
+### Review
+
+- An independent review of the first version of the Cursor change reproduced
+  two defects before anything was pushed: the re-route was gated on
+  `stop_failure` being enabled, so a config written by
+  `hooks enable-only stop_failure_rate_limit` turned a silent errored Cursor
+  turn into an audible one, and with TTS on the re-routed event spoke the
+  shipped "API error occurred". Both came from tests built on a config shape
+  the CLI never writes; the tests now build their configs with the real CLI
+  and run the runner end to end.
+
 ### Docs
 
-- **`docs/TROUBLESHOOTING.md`**: the two Cursor `status` switches, and Cursor's
+- **`docs/TROUBLESHOOTING.md`**: the two Cursor `status` keys, and Cursor's
   built-in completion chime sounding alongside echook's `stop`.
-- **`docs/CLI_REFERENCE.md`**: `filters.<hook>.skip_if_aborted`.
+- **`docs/CLI_REFERENCE.md`**: `filters.<hook>.skip_if_aborted` and
+  `filters.stop.error_as_stop_failure`.
 - **`docs/PROJECT_STATUS.md`**: the survey table, three more "deliberately not
   done" rows, two candidates, and the new unverified claims.
 - **`docs/EVENT_BEHAVIOR_NOTES.md`**: the 2.1.292 sync findings.

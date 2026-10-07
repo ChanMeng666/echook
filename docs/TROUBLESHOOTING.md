@@ -326,14 +326,26 @@ If you intentionally want both paths active despite the double-fire, the runtime
 
 ### Cursor plays the finished sound when I cancel a turn, or when the agent errored (v6.8.0)
 
-Cursor documents its native `stop` payload as carrying `status`: `completed`, `aborted` or `error`. echook reads it only on request, so by default all three sound the same.
+Cursor documents its native `stop` payload as carrying `status`: `completed`, `aborted` or `error`. echook reads it only through two opt-in keys, so by default all three sound the same.
+
+**A turn I cancelled.** A `stop` whose status is `aborted` is then skipped:
 
 ```bash
-audio-hooks set filters.stop.skip_if_aborted true   # a turn you cancelled is skipped
-audio-hooks hooks enable stop_failure               # an errored turn plays the stop_failure sound instead
+audio-hooks set filters.stop.skip_if_aborted true
 ```
 
-The second switch is the ordinary `stop_failure` one: under Cursor a `stop` with `status: error` is then delivered as `stop_failure` (its sound, filters, debounce window and webhook `hook_type`); in Claude Code the same switch also enables API-error alerts. Both rest on Cursor's documentation and have not been confirmed against a live payload, and it is not known whether a `Stop` bridged from the Claude Code plugin carries `status` at all. If nothing changes, run with `CLAUDE_HOOKS_DEBUG=1` and look in `audio-hooks logs tail --level debug` for `stop_rerouted_to_stop_failure` or a `FILTERED` entry — its absence means the payload carried no `status`.
+**A turn that ended in an error.** Run both:
+
+```bash
+audio-hooks set filters.stop.error_as_stop_failure true
+audio-hooks hooks enable stop_failure
+```
+
+A Cursor `stop` whose status is `error` is then delivered as `stop_failure` (its sound; "Agent stopped with an error" in the toast and in speech). Enabling `stop_failure` alone does nothing under Cursor. Note that `stop_failure` also turns on API-error alerts in Claude Code.
+
+**After setting `error_as_stop_failure`, errored Cursor turns are silent.** `stop_failure` is off. The key converts the event; the `stop_failure` switch decides whether it plays, and there is no fallback to the `stop` sound. Check `audio-hooks hooks list`, then `audio-hooks hooks enable stop_failure`. The log shows `stop_failure` with status `DISABLED` for such a turn.
+
+**Neither key seems to do anything.** Both rest on Cursor's documentation and have not been confirmed against a live payload. With `CLAUDE_HOOKS_DEBUG=1`, a re-route logs `stop_rerouted_to_stop_failure` and an aborted turn logs `FILTERED` (`audio-hooks logs tail --level debug`); if neither appears, the payload carried no `status` (it is not known whether a `Stop` bridged from the Claude Code plugin does).
 
 ### Cursor IDE: I hear Cursor's own chime as well as echook's sound
 
