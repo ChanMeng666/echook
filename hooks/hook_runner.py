@@ -1179,7 +1179,7 @@ def should_filter(hook_type: str, stdin_data: dict, config: Dict[str, Any]) -> b
         if field.startswith("_"):
             continue  # skip comment keys
         if field in ("skip_if_background_tasks_running", "skip_if_session_crons_scheduled",
-                     "skip_if_aborted", "min_duration_ms"):
+                     "skip_if_aborted", "error_as_stop_failure", "min_duration_ms"):
             continue  # reserved non-regex filters, handled above
 
         try:
@@ -2772,6 +2772,25 @@ def _is_cursor_stop_error(hook_type: str, stdin_data: Any) -> bool:
     )
 
 
+def _stop_error_reroute_enabled(config: Any) -> bool:
+    """True when ``filters.stop.error_as_stop_failure`` is exactly ``true``.
+
+    The key lives in ``filters.stop`` beside the other opt-in booleans that
+    read the Stop payload (``skip_if_background_tasks_running``,
+    ``skip_if_session_crons_scheduled``, ``skip_if_aborted``): it is the one
+    block that holds per-event behaviour switches, accepts keys the template
+    does not list, and survives migration. Absent means off. Tolerates a
+    malformed config (non-dict at any level) by answering False.
+    """
+    if not isinstance(config, dict):
+        return False
+    filters = config.get("filters")
+    if not isinstance(filters, dict):
+        return False
+    stop_filters = filters.get("stop")
+    return isinstance(stop_filters, dict) and stop_filters.get("error_as_stop_failure") is True
+
+
 def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = None) -> int:
     """
     Main hook execution function.
@@ -2898,17 +2917,26 @@ def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = N
         return 0
 
     # A Cursor ``stop`` whose documented ``status`` is "error" is delivered as
-    # ``stop_failure`` -- but only for a user who enabled ``stop_failure``.
+    # ``stop_failure`` -- only for a user who set
+    # ``filters.stop.error_as_stop_failure`` to true. The key is the whole
+    # opt-in: whether ``stop_failure`` happens to be enabled does not trigger
+    # this (it may be on for Claude Code's API errors, or left on as the parent
+    # of a variant by ``hooks enable-only stop_failure_rate_limit``), so without
+    # the key every configuration behaves exactly as it did before.
     # From here on the event *is* stop_failure: its switch, its filters, its
-    # debounce window, its sound, its per-hook mode, its TTS message, and the
-    # ``hook_type`` a webhook consumer sees (the original ``status`` stays in
-    # the webhook's ``event_data``). With ``stop_failure`` off, which is the
-    # default, nothing changes and the event stays an ordinary ``stop``.
-    if _is_cursor_stop_error(hook_type, stdin_data) and is_hook_enabled("stop_failure"):
+    # debounce window, its sound, its per-hook mode, and the ``hook_type`` a
+    # webhook consumer sees (the original ``status`` stays in the webhook's
+    # ``event_data``). It carries no variant, so the plain ``stop_failure``
+    # switch decides: with that off the errored turn is silent (DISABLED) and
+    # does not fall back to ``stop`` -- a fallback would make what plays depend
+    # on a second switch again, which is the coupling this key removed.
+    rerouted_stop_error = False
+    if _is_cursor_stop_error(hook_type, stdin_data) and _stop_error_reroute_enabled(load_config()):
         log_event("debug", "stop_rerouted_to_stop_failure", hook="stop_failure",
                   rerouted_from="stop", status="error")
         hook_type = "stop_failure"
         variant = None
+        rerouted_stop_error = True
         _set_log_context(sid, hook_type)
 
     # Check if hook is enabled
@@ -3025,6 +3053,12 @@ def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = N
             last_msg = (stdin_data or {}).get("last_assistant_message", "") if isinstance(stdin_data, dict) else ""
             spoken = _clean_for_output(str(last_msg), max_chars, for_speech=True) if last_msg else ""
             tts_message = spoken if spoken else custom_messages.get(hook_type, context)
+        elif rerouted_stop_error:
+            # ``messages.stop_failure`` -- the shipped "API error occurred" or a
+            # user's own wording -- was written for Claude Code's API errors.
+            # A Cursor turn that ended in an error is not known to be one, so
+            # it always speaks its own context text.
+            tts_message = context
         else:
             tts_message = custom_messages.get(hook_type, context)
         tts_sent = play_tts(tts_message)
