@@ -4675,6 +4675,7 @@ def _build_manifest() -> Dict[str, Any]:
             "filters.stop.skip_if_background_tasks_running",
             "filters.stop.skip_if_session_crons_scheduled",
             "filters.stop.skip_if_aborted",
+            "filters.stop.error_as_stop_failure",
             "webhook_settings.enabled",
             "webhook_settings.url",
             "webhook_settings.format",

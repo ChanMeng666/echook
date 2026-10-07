@@ -320,7 +320,8 @@ class TestMachineReadableSurface(unittest.TestCase):
         for expected in ("enabled_hooks.<variant_name>",
                          "filters.stop.skip_if_background_tasks_running",
                          "filters.stop.skip_if_session_crons_scheduled",
-                         "filters.stop.skip_if_aborted"):
+                         "filters.stop.skip_if_aborted",
+                         "filters.stop.error_as_stop_failure"):
             self.assertIn(expected, keys, f"{expected!r} missing from config_keys")
 
     def test_status_surfaces_variant_overrides(self) -> None:
