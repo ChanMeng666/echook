@@ -1130,6 +1130,20 @@ def should_filter(hook_type: str, stdin_data: dict, config: Dict[str, Any]) -> b
             log_debug(f"Filter: {hook_type} skipped — {len(crons)} session cron(s) scheduled")
             return True
 
+    # Opt-in: Cursor documents its native ``stop`` input as
+    # ``{"status": "completed" | "aborted" | "error", "loop_count": 0}``
+    # (cursor.com/docs/hooks, "stop"; ``subagentStop`` documents the same three
+    # values). A turn the user cancelled is not one they need to be told has
+    # finished. Only the exact string "aborted" counts: an absent field (Claude
+    # Code's Stop has none) or any other value never suppresses. Not scoped to
+    # an invoker -- like its siblings it keys on what the payload carries, and
+    # it does nothing unless the user turned it on. No live Cursor payload was
+    # captured when this was written; the basis is the documentation alone.
+    if filters.get("skip_if_aborted") is True:
+        if stdin_data.get("status") == "aborted":
+            log_debug(f"Filter: {hook_type} skipped — status is aborted")
+            return True
+
     # v6.5: another reserved non-regex filter. PostToolUse and
     # PostToolUseFailure carry ``duration_ms`` ("Tool execution time in
     # milliseconds. Excludes permission-prompt and hook time"), which finally
@@ -1164,7 +1178,8 @@ def should_filter(hook_type: str, stdin_data: dict, config: Dict[str, Any]) -> b
             continue
         if field.startswith("_"):
             continue  # skip comment keys
-        if field in ("skip_if_background_tasks_running", "skip_if_session_crons_scheduled", "min_duration_ms"):
+        if field in ("skip_if_background_tasks_running", "skip_if_session_crons_scheduled",
+                     "skip_if_aborted", "min_duration_ms"):
             continue  # reserved non-regex filters, handled above
 
         try:
@@ -1728,6 +1743,15 @@ def get_notification_context(hook_type: str, stdin_data: dict, detail_level: str
         # error_type is the v5.0 field; fall back to legacy `error` for older payloads.
         error = stdin_data.get("error_type") or stdin_data.get("error", "unknown")
         details = stdin_data.get("error_message") or stdin_data.get("error_details", "")
+        if (
+            stdin_data.get("status") == "error"
+            and not stdin_data.get("error_type")
+            and "error" not in stdin_data
+        ):
+            # A Cursor ``stop`` re-routed here by _is_cursor_stop_error(): its
+            # payload says only that the agent loop ended in an error, so
+            # "API error: unknown" would claim more than is known.
+            return "Agent stopped with an error" + (f" — {_truncate(details, max_len)}" if details else "")
         return f"API error: {error}" + (f" — {_truncate(details, max_len)}" if details else "")
     elif hook_type == "postcompact":
         trigger = stdin_data.get("trigger", "")
@@ -2721,6 +2745,33 @@ def emit_terminal_sequence(hook_type: str, context: str, config: Dict[str, Any])
         return False
 
 
+def _is_cursor_stop_error(hook_type: str, stdin_data: Any) -> bool:
+    """True for a Cursor ``stop`` whose payload says the agent loop errored.
+
+    Cursor documents the native ``stop`` input as ``{"status": "completed" |
+    "aborted" | "error", "loop_count": 0}`` (cursor.com/docs/hooks). Only the
+    exact string "error" qualifies; an absent field or any other value is an
+    ordinary stop.
+
+    Scoped to the Cursor invoker because that is the only editor whose
+    documentation gives a top-level ``status`` on ``stop`` this meaning. Claude
+    Code's Stop payload has no such field and reports failures through its own
+    StopFailure event; nothing establishes what a ``status`` would mean on a
+    Codex Stop. Cursor's native path and its Claude-Code-plugin auto-bridge
+    both report as "cursor"; the third-party-hooks page does not say whether a
+    bridged Stop carries ``status``, and nothing here assumes it does -- when
+    the field is absent this returns False.
+
+    No live Cursor payload was captured when this was written.
+    """
+    return (
+        hook_type == "stop"
+        and _get_invoker() == "cursor"
+        and isinstance(stdin_data, dict)
+        and stdin_data.get("status") == "error"
+    )
+
+
 def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = None) -> int:
     """
     Main hook execution function.
@@ -2845,6 +2896,20 @@ def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = N
             },
         )
         return 0
+
+    # A Cursor ``stop`` whose documented ``status`` is "error" is delivered as
+    # ``stop_failure`` -- but only for a user who enabled ``stop_failure``.
+    # From here on the event *is* stop_failure: its switch, its filters, its
+    # debounce window, its sound, its per-hook mode, its TTS message, and the
+    # ``hook_type`` a webhook consumer sees (the original ``status`` stays in
+    # the webhook's ``event_data``). With ``stop_failure`` off, which is the
+    # default, nothing changes and the event stays an ordinary ``stop``.
+    if _is_cursor_stop_error(hook_type, stdin_data) and is_hook_enabled("stop_failure"):
+        log_event("debug", "stop_rerouted_to_stop_failure", hook="stop_failure",
+                  rerouted_from="stop", status="error")
+        hook_type = "stop_failure"
+        variant = None
+        _set_log_context(sid, hook_type)
 
     # Check if hook is enabled
     if not is_hook_enabled(hook_type, variant):
