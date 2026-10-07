@@ -441,6 +441,13 @@ There is **no `audio-hooks upgrade --cursor` subcommand** — `audio-hooks upgra
 
 **Stdin field mapping**: Cursor's `cursor_version`, `conversation_id`, `final_status`, `reason`, `duration_ms`, `is_background_agent`, `workspace_roots`, `model`, `error_message` are surfaced under a `cursor: {...}` sub-object in webhook payloads. `user_email` is **redacted by default**; opt in via `audio-hooks set webhook_settings.include_user_email true`.
 
+**A cancelled or failed turn in Cursor** — Cursor documents its native `stop` input as `{"status": "completed" | "aborted" | "error", "loop_count": 0}`. Both behaviours below are off by default, act only on those exact values (an absent `status` or any other value is an ordinary `stop`), and rest on Cursor's documentation: no live Cursor payload has been captured, and it is not known whether a `Stop` bridged from the Claude Code plugin carries `status` at all.
+
+| User says | Run | What it does |
+|---|---|---|
+| "don't play the finished sound when I cancel a turn in Cursor" | `audio-hooks set filters.stop.skip_if_aborted true` | A `stop` whose `status` is `aborted` is filtered (`FILTERED` in the log) and opens no debounce window. Not tied to an editor: it does nothing where the payload has no `status`, as in Claude Code |
+| "use a different sound when the Cursor agent ends in an error" | `audio-hooks hooks enable stop_failure` | Under Cursor only, a `stop` whose `status` is `error` is delivered as `stop_failure` — its sound, its switch, its filters and debounce window, and `hook_type: "stop_failure"` in a webhook (the original `status` stays in `event_data`). With `stop_failure` off it plays as an ordinary `stop`, exactly as before. In Claude Code the same switch also turns on API-error alerts |
+
 ## Install for Codex users
 
 **OpenAI's Codex does NOT auto-bridge Claude Code plugins**. Prefer the Codex plugin path when available; use the native registration at `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`) as a fallback. Run `audio-hooks status` and check `editor_targets.codex.state`:
