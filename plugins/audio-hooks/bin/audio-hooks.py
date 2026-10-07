@@ -3449,8 +3449,9 @@ CODEX_STATUSLINE_PRESETS: Dict[str, List[str]] = {
     ],
 }
 
-# Every item ID Codex 0.143 accepts, recovered from the binary's enum + the
-# parallel description table. echook curates from this set; it cannot render
+# Every item ID (and strum alias) Codex accepts, verified against the Rust
+# source at rust-v0.160.1 (latest stable on 2026-10-07); the 0.143-era IDs stay
+# so older installs still validate. echook curates from this set; it cannot render
 # custom text (upstream FR openai/codex#17827 is still open). Kept as data so
 # `statusline codex --items` can reject a typo instead of writing a silent
 # no-op into config.toml.
@@ -3464,8 +3465,23 @@ CODEX_KNOWN_STATUSLINE_ITEMS = frozenset({
     "task-progress",
     # 0.148.0, Enterprise workspaces only (#38282).
     "thread-credits", "estimated-thread-cost",
-    # terminal_title only.
+    # Verified against rust-v0.160.1 (status_line_setup.rs + title_setup.rs).
+    # "permissions" is in the 0.143 enum too (earlier revisions of this list
+    # missed it). "hostname" arrived in 0.149-0.152 and "thread-name" in
+    # 0.153-0.156 (status line; thread-name is in the title enum as well), so
+    # an older Codex silently ignores them. "thread-title" now falls back to
+    # the thread id when unnamed; "thread-name" is omitted when unnamed.
+    "permissions", "hostname", "thread-name",
+    # terminal_title only (not in the status_line enum).
     "activity", "app-name",
+    # Legacy / alias spellings Codex 0.160.1 still parses to the same item
+    # (strum `serialize =`). `approval` is accepted in BOTH enums as an alias of
+    # approval-mode (it is not a canonical ID). Codex writes the canonical name
+    # back, so prefer that in new config.
+    "model-name", "project", "project-root", "status", "context-usage",
+    "session-id",
+    # terminal_title only aliases: `thread` -> thread-title, `spinner` -> activity.
+    "thread", "spinner",
 })
 
 # The terminal title (tab/window title) shares the same item-ID family and the

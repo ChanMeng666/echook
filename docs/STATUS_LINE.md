@@ -296,6 +296,27 @@ formatting are preserved. When `tomllib` is available (Python 3.11+) the result
 is parse- and round-trip-validated before writing. Restart Codex (or run
 `/statusline`) to reload.
 
+**Accepted item IDs** (`--items` rejects anything else with `INVALID_USAGE`).
+Verified against the Codex source at `rust-v0.160.1` (`codex-rs/tui/src/bottom_pane/status_line_setup.rs`
+and `title_setup.rs`), the latest stable on 2026-10-07; the list was originally
+recovered from the 0.143 binary and no 0.143 ID was dropped, so older installs still validate.
+- Both targets: `model`, `model-with-reasoning`, `reasoning`, `current-dir`, `project-name`,
+  `git-branch`, `run-state`, `approval-mode`, `context-remaining`, `context-used`,
+  `five-hour-limit`, `weekly-limit`, `codex-version`, `used-tokens`, `total-input-tokens`,
+  `total-output-tokens`, `thread-id`, `fast-mode`, `task-progress`, `thread-title`, `thread-credits` and
+  `estimated-thread-cost` (the last two since 0.148, Enterprise only).
+- `status_line` only: `pull-request-number`, `branch-changes`, `permissions`,
+  `context-window-size`, `raw-output`, `workspace-headline`, `hostname` (new, 0.149-0.152),
+  `thread-name` (new, 0.153-0.156; also a title item).
+- `terminal_title` only: `activity`, `app-name`.
+- Aliases Codex still parses to the same item (accepted by echook; Codex writes the canonical
+  name back): `model-name`, `project`, `project-root`, `status`, `approval`, `context-usage`,
+  `session-id`, and title-only `thread` and `spinner`. `approval` is an alias of
+  `approval-mode`, not a canonical ID.
+- An ID valid for only one target is ignored by Codex on the other; echook validates against
+  the union and does not check the target. Versions given are where echook first saw the item
+  in the Rust source (sampled at 0.143, 0.148, 0.152, 0.156, 0.160.1), not exact releases.
+
 > **Why a Codex item shows nothing:** an item ID with no value is simply not
 > drawn (e.g. `git-branch`/`branch-changes` outside a git repo, `five-hour-limit`
 > before any rate-limit usage). That is Codex behaviour, not an echook bug — a
