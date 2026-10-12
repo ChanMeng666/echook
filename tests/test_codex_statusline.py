@@ -20,6 +20,7 @@ try:
 except ImportError:  # python -m unittest tests.test_x from the repo root
     from tests import _isolation  # noqa: F401
 
+import importlib
 import importlib.util
 import json
 import os
@@ -39,7 +40,9 @@ def _load_module():
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module
+    # The Codex status-line code lives beside the entry file; loading the
+    # entry file is what puts that package on sys.path.
+    return importlib.import_module("echook_cli.statusline")
 
 
 def _run_cli(args, *, env_extra: Optional[Dict[str, str]] = None):

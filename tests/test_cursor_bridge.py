@@ -330,8 +330,8 @@ class TestWebhookPayloadCursorFields(unittest.TestCase):
                 def close(self):
                     pass
 
-            original_popen = mod.subprocess.Popen
-            mod.subprocess.Popen = _FakePopen
+            original_popen = mod.webhook_dispatch.subprocess.Popen
+            mod.webhook_dispatch.subprocess.Popen = _FakePopen
             try:
                 stdin_data = {
                     "session_id": "s4",
@@ -352,9 +352,9 @@ class TestWebhookPayloadCursorFields(unittest.TestCase):
                         "hook_types": ["stop"],
                     }
                 }
-                mod.send_webhook("stop", "Task done.", stdin_data, config)
+                mod.webhook_dispatch.send_webhook("stop", "Task done.", stdin_data, config)
             finally:
-                mod.subprocess.Popen = original_popen
+                mod.webhook_dispatch.subprocess.Popen = original_popen
 
             self.assertIn("body", captured, "webhook never invoked")
             payload = json.loads(captured["body"].decode("utf-8"))
@@ -383,10 +383,10 @@ class TestWebhookPayloadCursorFields(unittest.TestCase):
                 def write(self, data): captured["body"] = data
                 def close(self): pass
 
-            original_popen = mod.subprocess.Popen
-            mod.subprocess.Popen = _FakePopen
+            original_popen = mod.webhook_dispatch.subprocess.Popen
+            mod.webhook_dispatch.subprocess.Popen = _FakePopen
             try:
-                mod.send_webhook(
+                mod.webhook_dispatch.send_webhook(
                     "stop",
                     "ctx",
                     {
@@ -405,7 +405,7 @@ class TestWebhookPayloadCursorFields(unittest.TestCase):
                     },
                 )
             finally:
-                mod.subprocess.Popen = original_popen
+                mod.webhook_dispatch.subprocess.Popen = original_popen
 
             payload = json.loads(captured["body"].decode("utf-8"))
             self.assertEqual(payload.get("cursor", {}).get("user_email"),

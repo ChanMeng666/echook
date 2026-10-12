@@ -1,0 +1,192 @@
+# Invariants
+
+Rules that must keep holding, why each exists, and the test that guards it. Each one cost an incident or a measurement to learn and none can be read off the code. Read the section for the area you are about to change; `AGENTS.md` indexes them.
+
+## Upstream editor behaviour
+
+Measured against running editors; none of it can be derived from this repository.
+
+### `terminalSequence` (v6.5.0) is inert and must not be recommended
+
+Claude Code writes a hook's OSC escape from exactly one function, called only on **synchronous** completion paths; every handler in the Claude Code template is `async: true` (70 of 70 at v6.7.2; 67 when this was measured), so the escape is never emitted. Measured live (async 0/3, sync 2/2) — see `docs/EVENT_BEHAVIOR_NOTES.md`. `diagnose` reports `TERMINAL_SEQUENCE_INERT`. For a desktop toast, point users at `notification_settings.mode = audio_and_notification`. Do not "fix" it by flipping the existing handlers to sync — that puts a Python start-up on the end of every turn; the recorded design is a second minimal sync handler beside the async one. Still inert at Claude Code 2.1.292 (read from the binary, not re-measured); upstream issue #90997 was still open on 2026-10-03, and Claude Code mods cannot emit it either (see the mods section).
+
+### `PreModelSwitch` must never be registered
+
+Claude Code 2.1.251 added `PreModelSwitch`/`PostModelSwitch`. `PreModelSwitch` is a **blocking decision hook** — `permissionDecision: allow|deny|ask`, *"same contract as PreToolUse"* — and Claude Code waits for it, with six distinct error strings for a hook that does not answer (`model switch blocked by a PreModelSwitch hook`, `did not respond before its timeout`, `Fast mode was not changed: the PreModelSwitch check failed`). Same trap as `WorktreeCreate` in v6.3.4. `PostModelSwitch` is the safe one (`additionalContext` only) and is cleared for a later release; see `docs/EVENT_BEHAVIOR_NOTES.md` for its payload and the registration steps. At 2.1.288 `PreModelSwitch` is still blocking (one more error string; unchanged at 2.1.292) and both model-switch payloads gained `prompt_cache_warm`, `cache_ttl`, `estimated_cache_write_usd` and `pricing`; `PostModelSwitch` stdout on exit 0 reaches the model, so a runner registered there must print nothing.
+
+### Do not migrate `hooks.json` to the `args` exec form
+
+It looks like the fix for every Windows quoting bug — *"spawned directly with these arguments — no shell"*. The old reason, [anthropics/claude-code#90495](https://github.com/anthropics/claude-code/issues/90495) (`args` dropped on Windows and routed through `bash.exe` with no argv), **did not reproduce on 2.1.288** (3 runs × 2 events on Windows 11: the exec-form hook ran 6/6 with `claude.exe` as its direct parent and every argument arrived intact), though the issue was still open on 2026-10-03. The shell form stays because the form echook would actually use — a bare `python` resolved through `PATH` — is **untested**, the docs restrict exec form on Windows to *"a real executable such as a `.exe`"*, and the plugin has no way to require a minimum Claude Code version, so a template that works on 2.1.288 could silently fail on an older build. Windows is this project's primary platform. Detail and limits in `docs/EVENT_BEHAVIOR_NOTES.md`.
+
+### Verify an event's real semantics empirically before relying on its name
+
+v6.3.4 was an emergency rollback because `WorktreeCreate` turned out to be a *provider* hook that hijacked worktree creation. Observed-vs-documented behaviour for Claude Code's events — including payload fields the docs omit and matchers that never fire — lives in `docs/EVENT_BEHAVIOR_NOTES.md`. Read it before adding or trusting an event.
+
+### `SubagentStop` also fires for Claude Code's own internal agents
+
+(prompt suggestions, `/btw` side questions), so without a guard echook would announce "background task finished" for work the user never started. Since v6.6.0 `run_hook` skips a `SubagentStop` whose `agent_type` is exactly `""` (debug NDJSON action `skipped_internal_subagent`). Scope: **Claude Code invoker only** — not Cursor, Codex or an `unknown` invoker (which includes the legacy script install), because nothing establishes what an empty `agent_type` means there. An *absent* key is not the marker (older builds omit it). In a session started with `--agent`, internal agents carry that agent's name and still announce. A forked subagent arrives with `agent_type` `"fork"` (the built-in fork agent's type, read from the binary), so it is not affected. The documented basis is the hooks reference; no real internal-agent payload was captured.
+
+### Claude Code mods are not an echook surface, and a `modules` key must never reach a file Codex reads
+
+Claude Code 2.1.287 added "Claude Mods": a top-level `"modules"` array in `hooks/hooks.json` (one entry at most). Investigated at 2.1.288 and adopted for neither track — `$.audio.play` resolved without sound on Windows in a headless run and the binary only has a macOS player, `$.ui.toast` is an in-app notification bar rather than an OS notification, a mod has no terminal write and so cannot revive `terminalSequence`, and none of its render sites is the status line. Codex's hooks-file parser rejects unknown keys (`deny_unknown_fields`), and a hooks file that fails to parse disables every hook, so a `modules` key in a file Codex reads would take all of Codex's hooks down. echook is insulated only because `.codex-plugin/plugin.json` points at `codex-hooks/plugin-hooks.json`; do not repoint it at the Claude Code `hooks.json`, and do not add `modules` to the Cursor or Codex templates. Interactive sessions and the Desktop app were not tested. Detail in `docs/EVENT_BEHAVIOR_NOTES.md`.
+
+### `userConfig.webhook_url` is `sensitive: true`; do not add `options` to any `userConfig` field
+
+Claude Code still exports a sensitive option to hook processes as `CLAUDE_PLUGIN_OPTION_WEBHOOK_URL` (measured on 2.1.288 with a shell-form hook, and documented: "exported to hook processes for every option"), which is all the runner reads, and a value stored before the flag was set is still found. Never write `${user_config.…}` into a shell-form hook command (Claude Code rejects it). `options` on any field makes Claude Code older than 2.1.271 refuse to load the plugin. `tests/test_plugin_packaging.py` guards both.
+
+### Cursor does not inject `CLAUDE_PLUGIN_DATA`
+
+when bridging — `UserPreferences._resolve_data_dir()` in `hooks/user_preferences.py` is the fallback chain. Do not assume the env var exists. **Codex is the opposite**: it *does* inject `CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` compat aliases alongside its native `PLUGIN_ROOT`/`PLUGIN_DATA`, so do not generalise Cursor's behaviour to it.
+
+### Cursor's `stop` carries `status`, and echook reads it only through two opt-in keys (v6.8.0)
+
+Cursor documents `{"status": "completed" | "aborted" | "error", "loop_count": 0}` for its native `stop`. `filters.stop.skip_if_aborted true` filters an aborted turn. `filters.stop.error_as_stop_failure true` makes a Cursor `stop` with `status: "error"` *become* `stop_failure` (`_is_cursor_stop_error` and `_stop_error_reroute_enabled` in `hooks/hook_runner.py`), before the enabled check, so the event then takes `stop_failure`'s switch, filters, debounce key, sound and webhook `hook_type`. **The key is the whole opt-in — never gate the re-route on `stop_failure` being enabled.** The first version did, and `hooks enable-only stop_failure_rate_limit` (which leaves the parent `stop_failure` on with `stop` off) turned a silent errored turn into an audible one; it also changed sound, filters and webhook `hook_type` for anyone who had enabled `stop_failure` for Claude Code's API errors. With the key on and `stop_failure` off the turn is silent, with no fallback to `stop`. A re-routed event has no variant, so the parent switch alone decides. Its TTS is always the context text, never `tts_settings.messages.stop_failure` (shipped as "API error occurred"). Both keys are absent from `default_preferences.json` on purpose. Documentation-based: no live payload was captured and the bridged path is not known to carry `status`; do not make either a default until one is measured. `tests/test_cursor_stop_status.py` builds its configs with the real CLI and runs the runner end to end — keep it that way, since a hand-written config shape is what hid the defect.
+
+### Codex sets no `CODEX_VERSION` env var
+
+Invoker detection uses the `--invoker codex` CLI flag baked into the Codex install template, parsed by `hooks/invoker.py`.
+
+### Claude Code registers 30 of the 39 canonical events plus 47 matcher variants (Claude Code itself has 33 events as of 2.1.292, unchanged since 2.1.251; the three echook does not register are `PreModelSwitch`, `WorktreeCreate` and `PostModelSwitch`); Cursor (native: 19 template entries → 18 distinct events, incl. granular per-tool shell/MCP/file events; auto-bridge: 8 coarse) and Codex (11 of 39) have smaller hook surfaces and no variant support
+
+The other 9 canonical events are Cursor-only (`shell_*`, `mcp_*`, `file_read`, `agent_response`, `agent_thinking`, `workspace_open`, `tab_file_edit`) and Claude Code has no equivalent — `manifest.supported_editors["claude-code"].events` is derived from the template, not from `HOOK_CATALOG` (before v6.4.1 it was, and wrongly claimed every canonical event). Codex's 11th event, `SessionEnd`, is registered by `install --codex` **only** when the installed Codex is ≥ 0.145.0. The runner no-ops unsupported events with `skipped_no_*_equivalent` debug NDJSON.
+
+## Hook runner
+
+### Filters run before debounce (v6.7)
+
+In `run_hook` the order is enabled → snooze → `should_filter` → `should_debounce`, because `should_debounce()` stamps the debounce file whenever it lets an event through. Before v6.7 the order was reversed, so an event a filter then discarded (a `stop` skipped by `skip_if_background_tasks_running`) had already opened the debounce window and could suppress the next genuine event for up to the debounce interval although nothing had played. A filtered event inside an open window is now logged `FILTERED`, not `DEBOUNCED`. Keep the debounce check last; `tests/test_filter_debounce_order.py` pins it.
+
+### Two escapers, and using the wrong one is silent
+
+`escape_powershell_string()` (backticks, `hooks/platform_shell.py`) is for PowerShell; `_escape_notification_string()` (backslashes, `hooks/desktop_notification.py`) is for macOS `osascript` **only**. Through 6.5.0 the Windows toast used the osascript one, so any notification containing a `"` produced a script that failed to parse and no toast at all — invisible, because the dispatch was fire-and-forget into `DEVNULL` and returned `True` regardless. It shipped twice — `send_desktop_notification()` **and** `play_tts()` (`hooks/text_to_speech.py`), so Windows/WSL TTS went silent on the same inputs. Both fixed in 6.5.1; the osascript escaper now reaches exactly one branch (macOS). If you add a platform branch that builds a shell string, pick the escaper that matches the shell and add a parse assertion to `tests/test_desktop_notification.py` — the real guard is feeding the generated script to PowerShell's own parser, not comparing strings.
+
+### A dead notification channel used to look identical to a working one
+
+`send_desktop_notification()` (`hooks/desktop_notification.py`) now logs `desktop_notification` at **info** with the backend it used, and emits `NOTIFICATION_FAILED` when every backend fails. Keep it that way: anything that dispatches fire-and-forget into `DEVNULL` and returns `True` is unfalsifiable, and this project has now shipped that bug once.
+
+### One owner per name across the runner modules
+
+`hooks/hook_runner.py` was split into sibling modules (map in `docs/ARCHITECTURE.md`). A name is defined in one module and called through it (`runner_core.log_event(...)`, `audio_playback.play_audio(...)`), never `from module import name`, and `hook_runner` re-exports nothing. The reason is the tests: about 80 sites patch a runner name and then run real code, and a patch that no longer reaches its caller passes while the real sound, toast or PowerShell code runs. With one binding per name the patch target is the owning module (`hr.runner_core`, `hr.audio_playback`, …) and a stale target raises `AttributeError`. Only `runner_core` holds rebound state (log context, queue-dir flag); read it there. The catalog tables stay in `hook_runner.py` (the secret-scanner false positive below, `bump-version.sh`, tests that read the file) and are bound into the modules that need them at import, so a sibling passes an error code as a string literal. `tests/test_runner_modules.py` pins all of it.
+
+### A script install finds the runner modules through `.project_path`
+
+Its self-update copies only `hook_runner.py`, so the split modules exist only in the checkout. `_add_checkout_hooks_for_script_install()` in `hooks/hook_runner.py` puts `<checkout>/hooks` on `sys.path` *after* the installed directory, before any sibling import. Keep it above those imports, self-contained and non-raising, and keep `user_preferences` / `invoker` resolving from the installed copies (they pick the data directory from their own location). `tests/test_script_install_bootstrap.py` builds the layout and runs it.
+
+### The CLI asks the runner; it does not restate it
+
+`hook_runner.DEFAULT_ENABLED_HOOKS`, `resolve_hook_enabled(enabled_hooks, hook, variant)` (the pure decision behind `is_hook_enabled`) and `read_snooze_until(queue_dir)` (creates nothing; `is_snoozed` still creates the queue dir) are the only implementations; `bin/audio-hooks.py` calls them for `hooks list`, `status`, `diagnose` and `snooze status`. The CLI's earlier copy of the precedence had drifted: it showed a non-boolean value as the default (the runner treats anything but `true` as off) and gave a variant its parent's catalog default when the parent was explicitly `true`. `tests/test_runner_cli_agreement.py` pins CLI == runner.
+
+## Events, variants and sounds
+
+### Events and matcher variants
+
+**39 canonical events + 47 matcher variants.** A variant is one matcher value of a matcher-scoped event — `notification` has 17 (`notification_idle_prompt`, `notification_worker_permission_prompt`, …), `stop_failure` 13, `session_start` 5, `session_end` 4, `precompact`/`postcompact`/`setup`/`directory_added` 2 each. Since v6.4 each is independently switchable; before that they all shared their parent's single flag.
+
+- Variant keys are ordinary booleans in `enabled_hooks`, alongside canonical names. No nesting, no schema change.
+- `audio-hooks hooks list --variants` to enumerate; `hooks enable|disable|enable-only` accept variant names.
+- Live truth: `audio-hooks manifest` → `variants` and `variant_gating`.
+
+**Gating precedence** (`hook_runner.is_hook_enabled(hook, variant)`, decided by `resolve_hook_enabled`), highest first — the second rule is the one that surprises people:
+
+1. explicit `enabled_hooks[<variant>]`
+2. `enabled_hooks[<parent>] is false` — **hard kill switch for every variant under it**
+3. per-variant default (`SYNTHETIC_VARIANT_DEFAULTS`)
+4. explicit `enabled_hooks[<parent>] is true`
+5. built-in default set: `notification`, `stop`, `permission_request`
+
+To keep exactly one variant of a muted parent, set that variant key explicitly — rule 1 outranks rule 2. Never reach for the parent to express "all but one".
+
+**The three variants added in v6.7.0.** Claude Code sends these matcher values and nothing was registered for them, so each was a permanent silent event: `stop_failure_cloud_credential_error` ("Cloud credentials error"), `stop_failure_verification_required` ("Verification required") and `notification_auth_storage_failure` ("Login needs attention"). The two `stop_failure` ones follow the `stop_failure` switch like their eleven siblings — silent unless the user enabled `stop_failure`. A user who enabled the whole parent (`hooks enable stop_failure`) will now hear two error types that were silent before; a user who enumerated variants (`hooks enable-only <variant>`) will not, because migration writes the new variants explicitly `false` for them (the `VARIANT_INTRODUCED` section below). The `notification` one is **off by default** (explicit `SYNTHETIC_VARIANT_DEFAULTS` entry), so a login-storage failure stays silent until `audio-hooks hooks enable notification_auth_storage_failure`. `model_refusal_fallback` is deliberately **not** registered: the 2.1.288 binary declares it, but no emitter was found.
+
+**Registration chain.** `hooks.json` matcher `X` → command arg `<parent>_X` → `SYNTHETIC_EVENT_MAP["<parent>_X"]` → `(canonical, audio_override)`. Nothing enforces this at runtime — an unresolvable arg falls through `_resolve_synthetic_event` and the event silently becomes a permanent no-op. `tests/test_plugin_hooks_contract.py` is what makes a break loud; run it after touching any of those three surfaces.
+
+### `plugins/audio-hooks/hooks/hooks.json` is hand-edited and has no repo-root counterpart
+
+It sits inside an otherwise generated directory and `build-plugin.sh` does **not** sync it, so it looks generated but isn't. Edit it in place; `build-plugin.sh` will not carry your change and will not warn you.
+
+### A new variant of an on-by-default parent needs `SYNTHETIC_VARIANT_DEFAULTS[<variant>] = False`
+
+Otherwise merely registering the matcher starts making noise on every existing install the moment it ships. New events are opt-in; new variants are too.
+
+### A new variant also needs a row in `UserPreferences.VARIANT_INTRODUCED`
+
+(`hooks/user_preferences.py`: variant → (parent, release that first shipped it)). Migration reads it (`_seed_new_variants`): when the stored `_version` is older than the variant's release, the parent is explicitly `true`, and *every* older sibling variant carries an explicit boolean — the signature `hooks enable-only <variant>` leaves — the new variant is written explicitly `false`, so a user who chose exactly which variants they wanted cannot have a new one become audible. A config that only enables the parent (`hooks enable stop_failure`), or that has just some siblings set by hand, is unchanged and the new variant inherits the parent. `tests/test_variant_migration.py` fails when the table and `SYNTHETIC_EVENT_MAP` disagree on the variant set or on a parent. **Stated limit:** an enumeration made before an earlier addition it never answered does not satisfy "every older sibling explicit" and keeps inheriting.
+
+### Every event and every variant owns a distinct sound (86 slots — 39 events + 47 variants — and 86 distinct files, in both themes)
+
+Each theme directory holds 87 mp3s (174 entries in `config/audio_manifest.json`): the 86 slot files plus `notification-info.mp3` (`chime-notification-info.mp3` in the custom theme), which no event maps to by default — it is `get_audio_file()`'s last-resort fallback and is in `config/audio_manifest.json`. A variant that reuses its parent's file is audibly identical to it, so its independent toggle buys the user nothing. Add the audio override *and* the two `config/audio_manifest.json` entries; `tests/test_plugin_hooks_contract.py::TestAudioUniqueness` fails on a shared file, a variant with no override, a file missing from either theme, or two identical manifest prompts.
+
+## Configuration and migration
+
+### `_migrate_if_needed` is gated structurally, not on the version string
+
+Through 6.5.0 it returned early whenever `user._version == template._version`, and `config/default_preferences.json` was left stamped `5.1.5` from 5.1.5 through 6.5.0 — so for a large class of installs migration **never ran** and four minor versions of new keys never landed. `scripts/bump-version.sh` now owns that stamp — the three in `config/default_preferences.json` (`_version`, `version`, and the `(vX.Y.Z)` in `_comment`). If you add a version location, add it there too.
+
+## CLI contract
+
+### `audio-hooks install` has no default mode, and no subcommand may act on an argument it does not understand
+
+The reason is the 2026-10-03 incident (see `docs/INSTALLATION_GUIDE.md`): an agent probing `install --help` ran the script installer (removed in 7.0.0) and double-registered every hook, and the same fall-through let `upgrade --help`, `tts set --help` and `statusline install --dry-run` change real state. Anything new that mutates state must either declare its grammar through `_check_args` (or its own parser) and answer `INVALID_USAGE` to everything else. `--help` is handled once, at dispatch, before any handler runs.
+
+### Commands that only report must stay read-only (v6.7)
+
+`status`, `diagnose`, `get`, `hooks list`, `theme [list]`, `snooze status`, bare `webhook`/`tts`/`rate-limits`, `statusline show|segments|…`, `logs tail`, `backup list|show`, `manifest`, `version`, `update` and every `--help` path must leave the home and data dirs byte-identical: no auto-created `user_preferences.json`, no migration save (its `.bak` and lock file included), no `logs/` or `queue/`. `main()` marks them via `_is_read_only_invocation()` / `_READ_ONLY_FORMS`, `UserPreferences.load(read_only=True)` computes the merged result in memory, and `_save_config_raw()` refuses. Before v6.7, looking at the state changed it — and re-stamped the real user's file whenever a development checkout's template was newer than the installed plugin. A **new** subcommand must be classified in `tests/test_read_only_commands.py` (`READ_ONLY` or `STATE_CHANGING`) or that test fails; the hook runner and state-changing commands still initialise and migrate. A consequence: `PREFS_SCHEMA_STALE` is no longer cleared by running `status` — the next hook event or any write does it, or `audio-hooks migrate` does it on request. `migrate` is state-changing (it is in `STATE_CHANGING` in that test), takes no flags, is idempotent, and never creates the preferences file or its directory; it reports `ok`, `config_path`, `exists`, `changed`, `from_version`, `to_version`, `added[]`, `removed[]`, `stale[]`, `backup`. A rejected `logs` invocation (`logs clear extra`, `logs <unknown>`) creates no directories either. Known limit, not new in v6.7: `status` shows a corrupt preferences file as the defaults and `diagnose` does not flag it.
+
+### Every error code the CLI can emit must be in `manifest.error_codes`
+
+`hook_runner.ErrorCode` covers what a hook reports; the CLI-only codes (`INVALID_USAGE`, `DUPLICATE_BRIDGE`, `UNINSTALL_INCOMPLETE`, `SCRIPT_INSTALL_REMOVED`, the `UPGRADE_*` family, the `diagnose` findings…) live in `CLI_ERROR_CODES` in `bin/echook_cli/error_codes.py` and are merged in by `_build_manifest()` in `bin/audio-hooks.py`. The test scans the entry file and every module of the package. `tests/test_cli_error_codes.py` parses the CLI source and fails on an `emit_error("X", …)` call or a `{"code": "X"}` literal naming an uncatalogued code, on a non-literal code it cannot scan, and on a catalogued code nothing emits.
+
+### The script installer is gone (7.0.0); its removal rule and ownership markers live only in `bin/echook_cli/legacy_uninstall.py`
+
+The script installer, the shell uninstaller and their shell library were removed in 7.0.0: the installer double-registered every hook on 2026-10-03, had almost no CI coverage, and no supported install path used it. `audio-hooks install --scripts` returns `SCRIPT_INSTALL_REMOVED` and must never install anything again. Two things stay **because machines still carry a script install**: `audio-hooks uninstall` (the only way to remove one, and the remedy for `DUAL_INSTALL_DETECTED`), and the runner's support for one — `get_project_dir` (`.project_path`), `check_and_self_update` and `_add_checkout_hooks_for_script_install` in `hooks/hook_runner.py`, without which such a machine goes silent after `git pull`. `get_project_dir` accepts a checkout that has `config/default_preferences.json` or `config/user_preferences.json`; the tracked `config/user_preferences.json` is kept one more release only because an already-installed old runner tests for it on the first hook after `git pull`, before it self-updates (`tests/test_project_dir_detection.py`).
+
+`bin/echook_cli/legacy_uninstall.py` (`LEGACY_HOOK_EVENTS`, `LEGACY_COMMAND_SCRIPTS`, `_LEGACY_REF_TEMPLATE`, `_strip_legacy_*`, the per-file markers) is the only implementation of the removal rule. `tests/test_legacy_scripts_contract.py` pins its lists and fails if a removed file comes back or is referenced outside `CHANGELOG.md` and `docs/PROJECT_STATUS.md`. Ownership is by **content, not name**, because the earlier name-only rule would delete a user's own `~/.claude/hooks/stop_hook.sh`, and the earlier substring match removed a user hook whose command merely contained `stop_hook.sh`; markers are derived from, and tested against, every historical revision of each file. Those files no longer change, so the markers are frozen: never loosen or drop one. The contract test still requires `LEGACY_HOOK_EVENTS` to cover every event the plugin registers, so a new event gets a row there.
+
+## Tests
+
+### Every `tests/test_*.py` must `import _isolation` before anything else, and a new test module must do the same
+
+`tests/_isolation.py` points the home directory and the plugin data directory at throwaway ones for the whole run; `tests/test_isolation_guard.py` fails if a module omits it. Without it (before v6.6.0) a full suite run on a developer machine with the plugin installed resolved the **real** plugin data directory: it re-stamped the real `user_preferences.json` after a version bump, appended two test events to the real log per run, and the hook-runner subprocess tests played real sounds and raised real toasts (measured 2026-10-03). That left a POSIX gap until v6.7: a hook-runner subprocess started by a test without an explicit data dir fell back to `/tmp/claude_audio_hooks_queue`. v6.7 closes it (see the next section); the fix is reasoned from the code and was not run on POSIX locally — CI covers Linux and macOS. The isolation also repairs and reports leaked `CLAUDE_PLUGIN_DATA`, `PLUGIN_DATA`, `CLAUDE_PLUGIN_ROOT`, `PLUGIN_ROOT`, `CLAUDE_CONFIG_DIR`, `CLAUDE_AUDIO_HOOKS_PROJECT` and `CURSOR_VERSION`. When you run the CLI by hand from a worktree, also set `CLAUDE_PLUGIN_DATA` to a scratch directory.
+
+### A test that spawns the hook runner must pin its data dir
+
+with `_isolation.pin_data_dir(env, state_dir)`. A runner started with no `CLAUDE_AUDIO_HOOKS_DATA` falls back on POSIX to the literal `/tmp/claude_audio_hooks_queue`, a legacy install's real data dir, whatever HOME and TMPDIR say. `tests/test_isolation_guard.py` fails for a module that builds `[sys.executable, str(HOOK_RUNNER), …]` without it.
+
+## Repository and release
+
+### A push to `master` is watched by Anthropic's plugin directory (since 2026-10-04)
+
+A GitHub webhook reports every push, and the directory scans the newest commit of `plugins/audio-hooks/` as a candidate version. So: keep `master` releasable and do work on a branch; raise `version` with every release that changes the plugin folder; change `plugins/audio-hooks/README.md` and `PRIVACY.md` in the same commit as any change to what the plugin runs, sends or writes (the listing's attestations rest on them); and keep every hook command a literal path under `${CLAUDE_PLUGIN_ROOT}` with no other variable, command substitution or inline program — for a plugin in a repository subfolder anything else blocks the listing. The directory holds a version for manual review when any file exceeds 256 KiB; `bin/audio-hooks.py` was 229.8 KiB at v6.8.0 and was split into the `bin/echook_cli/` package for that reason (the entry file is now about 122 KiB). Put a new concern in its own module there instead of growing the entry file. Detail in `docs/DIRECTORY_LISTING.md`.
+
+### The secret scanner on pull requests can flag a sound-file mapping
+
+In v6.7.0 GitGuardian reported "Authentication Tuple" for the `SYNTHETIC_EVENT_MAP` entry of the `notification_auth_storage_failure` variant in `hooks/hook_runner.py` — a key containing `auth` whose value is a tuple of two strings (the parent event and a sound file name). The line is deliberately not quoted here: quoting it verbatim in documentation tripped the same detector again. It is a false positive, but do not merge past a failing secret scan on your own and do not reword code to slip under the detector: show the maintainer exactly what was flagged and let them decide. Procedure in `docs/RELEASING.md`.
+
+### `CLAUDE.md` is a one-line import of `AGENTS.md`, not a copy
+
+Claude Code ignores `AGENTS.md` whenever a `CLAUDE.md` exists, so `CLAUDE.md` is `@AGENTS.md` plus anything genuinely Claude-Code-only. Edit the guide in `AGENTS.md`. Do not turn it into a symlink (unreliable on Windows) or re-copy it (the two had to be kept in sync by hand). `tests/test_agent_guides.py` pins the shape.
+
+### Windows paths in install templates must be JSON-escaped
+
+(`D:\path` → `D:\\path`). 5.1.6 fix; covered by `tests/test_codex_hooks.py` and `tests/test_cursor_bridge.py`.
+
+### Do not write file content containing backslashes through a shell heredoc
+
+In the Bash tool used on this project a heredoc collapsed `\\` to `\` and turned `\x89` into a raw byte, corrupting a test file twice during 6.7.x (caught only because the file stopped parsing). Use the file-writing tool, or a script file, for Python with escapes, regexes and Windows paths.
+
+## `stop` does not mean "task complete"
+
+The single most common user complaint is audio firing too often, and it is almost always `stop`. It maps to Claude Code's `Stop`, which fires at the **end of every turn**; the payload carries **no field** distinguishing a final turn from an intermediate one, so no configuration can make it mean "the work is done". Say this rather than tuning debounce and hoping. Real fixes, in order:
+
+1. `hooks enable-only notification permission_request` — fires only when the user must act. `idle_prompt` is the genuine "waiting for you" signal, and Claude Code 2.1.288 stopped it firing while background agents are still running. It is documented to arrive about 60 s after Claude finishes and only if the user has not typed since (not re-measured here), so it is a "parked" cue; `permission_request` is the immediate one.
+2. `filters.stop.skip_if_background_tasks_running true` (v6.4) — stays quiet while teammates/subagents/shells are still in flight. Since v6.6.0 it counts `pending` as well as `running` tasks and ignores Claude Code's own maintenance task types (`dream`, `auto-mode scan`, `memory import`).
+3. `filters.stop.skip_if_session_crons_scheduled true` (v6.6.0, opt-in) — stays quiet while the payload's `session_crons` array (`CronCreate` / `ScheduleWakeup` / `/loop` wakeups) is non-empty. Deliberately a **separate** key: a session with a recurring cron carries that entry for its whole life, so folding it into the one above would silence every turn for users who only asked about running work.
+4. On Cursor, `filters.stop.skip_if_aborted true` (v6.8.0, opt-in) — skips a `stop` whose `status` is `aborted`, i.e. a turn the user cancelled (see the Cursor `status` section above).
+5. Debounce last.
+
+**Its mirror image is the second most common complaint: "the task-finished sound stopped working."** That is almost always the first fix above having been taken earlier — `stop` sitting at `false` in `user_preferences.json` months later, with the user reading the silence as an upstream regression. `audio-hooks diagnose` reports it as `NO_COMPLETION_SIGNAL` when `notification` is off too. Check `hooks list` before investigating Claude Code; the restore is:
+
+```
+audio-hooks hooks enable stop
+audio-hooks set filters.stop.skip_if_background_tasks_running true
+```

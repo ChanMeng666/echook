@@ -6,7 +6,7 @@ hook_runner.py and bin/audio-hooks.py acquire an instance via get_prefs()
 (lazy module-level singleton) so they share path resolution, load
 semantics, and backup state.
 
-See docs/specs/2026-05-01-painless-upgrades-design.md for the design.
+Design history: the 5.1.5 entry in CHANGELOG.md.
 """
 
 from __future__ import annotations

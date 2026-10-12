@@ -15,7 +15,7 @@ How a change gets from a working tree to users, as it was actually done for v6.6
 
 1. Edit the canonical sources (`/hooks/`, `/bin/`, `/audio/`, `/config/`, `/cursor-hooks/`, `/codex-hooks/`). `plugins/audio-hooks/hooks/hooks.json`, `plugin.json`, `runner/run.py`, `skills/`, `evals/`, the plugin `README.md` and `.claude-plugin/icon.png` are edited in place.
 2. `bash scripts/build-plugin.sh` to sync the mirrors.
-3. Update every affected document in the same change: `CHANGELOG.md`, `AGENTS.md`, `README.md`, `docs/overview.md`, `llms.txt`, the files under `docs/`, the skill, and — when what the plugin runs, sends or writes has changed — `plugins/audio-hooks/README.md` and `PRIVACY.md`. A release is not split into a code commit and a later docs commit.
+3. Update every affected document in the same change: `CHANGELOG.md`, the files under `docs/`, the skill, `AGENTS.md` if a rule or the map changed, and — when what the plugin runs, sends or writes has changed — `plugins/audio-hooks/README.md` and `PRIVACY.md`. A release is not split into a code commit and a later docs commit.
 4. Take counts from the CLI, not from memory: `audio-hooks manifest`, `audio-hooks hooks list --variants`, `audio-hooks statusline segments`.
 
 ### If the change adds a sound
@@ -54,7 +54,7 @@ An independent review by a reader who was given the code and its intent, not the
 bash scripts/bump-version.sh <new_version>
 ```
 
-It stamps the 12 canonical version locations and four document headers, runs `build-plugin.sh` and the test suite, validates every target before writing anything, and reports `CHANGELOG.md` and `llms.txt` under `needs_hand_written`. Write those two by hand. Raise the version for every release that changes the plugin folder: the plugin directory requires it (see `docs/DIRECTORY_LISTING.md`).
+It stamps the 12 canonical version locations, runs `build-plugin.sh` and the test suite, validates every target before writing anything, and reports `CHANGELOG.md` under `needs_hand_written` until its release entry is written by hand. No document carries a version stamp. Raise the version for every release that changes the plugin folder: the plugin directory requires it (see `docs/DIRECTORY_LISTING.md`).
 
 A documentation-only change that touches nothing under `plugins/audio-hooks/` does not need a version bump.
 

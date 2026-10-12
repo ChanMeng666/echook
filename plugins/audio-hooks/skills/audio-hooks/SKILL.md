@@ -5,576 +5,110 @@ description: Use whenever the user asks to install, configure, uninstall, snooze
 
 # audio-hooks skill
 
-This plugin is the AI control surface for the echook project. The user does NOT operate this project by hand. You operate it on their behalf via the `audio-hooks` binary that this plugin adds to your Bash tool's PATH.
+This plugin is the AI control surface for the echook project. The user does NOT operate it by hand. You operate it for them through the `audio-hooks` binary, which this plugin adds to your Bash tool's PATH.
 
-**Golden rule:** when in doubt about the project's current capabilities, run `audio-hooks manifest` first. The manifest is the canonical machine description of every subcommand, every config key, every hook, every audio file, and every error code. It is always up to date with the running version. Treat this SKILL.md as an orientation; treat `audio-hooks manifest` as the source of truth.
+## Rules
 
-## What the user can ask for and what you should run
+- **The `audio-hooks` CLI is the only interface.** Every command is non-interactive and returns JSON with stable error codes. Never edit `user_preferences.json` by hand: use `audio-hooks set <dotted.key> <value>` and the typed setters (`hooks enable`, `theme set`, `webhook set`, `tts set`, `rate-limits set`).
+- **Run `audio-hooks manifest` first** for anything you do not immediately recognise (subcommands, hooks, config keys, error codes, env vars). It never lags the running version; this file can. `audio-hooks manifest --schema` gives the config JSON Schema.
+- **Diagnose before guessing:** `audio-hooks status`, then `audio-hooks diagnose` (its errors carry a `code` and a `suggested_command` to run), then `audio-hooks logs tail --n 20`. Verify a fix with `audio-hooks test all`.
+- **Do not ask the user to confirm** ("[y/N]"). If they gave an instruction, run it.
+- **Do not translate JSON output.** Keys and values are stable contracts.
+- **Reporting commands are read-only** (`status`, `diagnose`, `get`, `hooks list`, `snooze status`, `manifest`, `statusline segments`, every `--help`, ...). A stale preferences file (`PREFS_SCHEMA_STALE`) is not fixed by running them; the next hook event or any state-changing command migrates it, or run `audio-hooks migrate` (v6.7, no flags, idempotent).
+- **No subcommand acts on an argument it does not understand.** State-changing subcommands answer an unknown flag or stray positional with `INVALID_USAGE` and change nothing; `--help` is always safe.
 
-**Install / set up the project**
+## Installing (three entry points)
 
-The plugin install (which you are using right now) is the recommended path for Claude Code users. If a user is not yet on the plugin, run `claude plugin marketplace add ChanMeng666/echook --json` and `claude plugin install audio-hooks@chanmeng-audio-hooks --json` yourself (`audio-hooks install --plugin` prints exactly these commands and changes nothing), then ask the user to type `/reload-plugins` inside Claude Code — it is REPL-only and has no CLI equivalent. **Cursor IDE 3.2.16+ users get audio-hooks for free via Cursor's built-in third-party hooks bridge** — no separate Cursor install needed, and `audio-hooks install --cursor` on a machine that has the plugin aborts with `DUPLICATE_BRIDGE`. For users who run Cursor *without* Claude Code, use `audio-hooks install --cursor` (see "Install for Cursor-only users" below). **Codex users** should use the Codex plugin path when available, or `audio-hooks install --codex` as the native hooks.json fallback — Codex does NOT auto-bridge Claude Code plugins (see "Install for Codex users" below). Once installed, verify with:
+- **Claude Code (plugin, the recommended path):** `claude plugin marketplace add ChanMeng666/echook --json` then `claude plugin install audio-hooks@chanmeng-audio-hooks --json` (`audio-hooks install --plugin` prints exactly these and changes nothing). Then **ask the user to type `/reload-plugins`** in any already-open session. It is REPL-only; never fake it via Bash.
+- **Cursor:** `audio-hooks install --cursor` (see the duplicate-bridge section below).
+- **Codex:** plugin path `codex plugin marketplace add ChanMeng666/echook` then `codex plugin add audio-hooks@chanmeng-audio-hooks`, or the native fallback `audio-hooks install --codex`; follow the `next_steps` / `feature_flag_state` in its output. Codex does not auto-bridge Claude Code plugins.
 
-```bash
-audio-hooks status
-audio-hooks test all
+`audio-hooks install` has **no default mode**: it needs exactly one of `--plugin`, `--cursor`, `--codex`, else `INVALID_USAGE`. The script installer was removed in 7.0.0: `install --scripts` returns `SCRIPT_INSTALL_REMOVED` and installs nothing. A script install left by an older release plus the plugin makes every hook fire twice (`diagnose`: `DUAL_INSTALL_DETECTED`); the fix is bare `audio-hooks uninstall`. Upgrade the plugin without losing config with `audio-hooks upgrade` (`--check-only` to look). Uninstall: `audio-hooks uninstall --plugin` prints the `claude plugin uninstall ... --keep-data --json` command (then `/reload-plugins`); a script install is removed by bare `audio-hooks uninstall`. If that returns `UNINSTALL_INCOMPLETE`, show the user `unmatched_references` before running `--remove-unmatched`.
+
+## Mapping a request
+
+Match the request to a subcommand in `audio-hooks manifest`, then run it:
+
+- mute: `audio-hooks snooze <30m|1h|90s|2d|bare minutes|off|status>`
+- single hook or variant on/off: `audio-hooks hooks enable|disable|enable-only <name>...` (`hooks list --variants` shows the 47 matcher variants)
+- theme, webhook, TTS, rate-limit alerts: `theme set`, `webhook set|test|clear`, `tts set`, `rate-limits set`
+- delivery mode: `notification_settings.mode` (`audio_only`, `notification_only`, `audio_and_notification`, `disabled`), with `notification_settings.per_hook.<hook>` overrides
+- anything else: `audio-hooks get|set <dotted.key>`
+- backups: `audio-hooks backup list`, `backup restore latest-external`
+
+Precedence for variants: an explicit variant key wins; otherwise a parent set to `false` is a hard kill switch for every variant under it. To keep exactly one variant of a muted category, set that variant key explicitly, never the parent.
+
+## Judgement calls
+
+### "Claude is too loud" / "it chimes too often"
+
+Lead with `audio-hooks hooks enable-only notification permission_request` as the first command. Then explain why: `stop` fires at the **end of every turn**, not at task completion, and Claude Code exposes no field that distinguishes a final turn from an intermediate one, so no setting makes `stop` mean "the task is done". Say this plainly rather than tuning debounce and hoping. Further fixes, in order:
+
+1. `notification`/`idle_prompt` is the genuine "waiting for you" signal (documented to arrive about 60 s after Claude finishes and only if the user has not typed; since Claude Code 2.1.288 not while background agents run); `permission_request` is the immediate one.
+2. `audio-hooks set filters.stop.skip_if_background_tasks_running true` (v6.4): quiet while subagents/shells are in flight (v6.6.0 counts `pending` too and ignores Claude Code's own `dream` / `auto-mode scan` / `memory import` tasks).
+3. `audio-hooks set filters.stop.skip_if_session_crons_scheduled true` (v6.6.0, opt-in): quiet while `/loop` or scheduled wakeups are pending. Separate on purpose: a recurring cron stays in the array for the whole session.
+4. `audio-hooks set filters.posttooluse.min_duration_ms 30000` (v6.5): only sound for tools that took that long. Fails open on Cursor and Codex, which do not report duration. Prefer this to debounce, which cannot tell a burst of fast tools from one long build.
+5. In Cursor, `audio-hooks set filters.stop.skip_if_aborted true` skips a cancelled turn.
+6. `audio-hooks set playback_settings.debounce_ms 60000` last (blunt; several sessions chiming at once).
+
+`notification_agent_needs_input` and `notification_agent_completed` need Claude Code 2.1.198+, ship off, and were never observed firing; do not present them as a working "task finished" cue. `model_refusal_fallback` is deliberately not registered; do not offer it.
+
+### "The task-finished sound stopped working"
+
+Almost always the fix above taken earlier: `stop` left disabled in the preferences, which the user reads as an upstream regression. `audio-hooks diagnose` reports `NO_COMPLETION_SIGNAL` when `notification` is off too. Check `audio-hooks hooks list` before investigating Claude Code, then restore:
+
+```
+audio-hooks hooks enable stop
+audio-hooks set filters.stop.skip_if_background_tasks_running true
 ```
 
-`audio-hooks install` has **no default mode** (v6.6.0): it needs exactly one of `--plugin`, `--scripts`, `--cursor`, `--codex`. A bare `install`, an unknown argument, or two modes returns `INVALID_USAGE` and changes nothing. `install --scripts` is the legacy installer and is refused with `DUAL_INSTALL_DETECTED` while the plugin is installed (it would register every hook twice) — do not add `--force` unless the user explicitly wants both. `--help` / `-h` (also `-?`, `/?`, `--help=<x>`) on any subcommand is safe: it prints usage and does nothing else. State-changing subcommands reject unknown flags and stray positionals with `INVALID_USAGE` and change nothing; `--flag=value` forms are not supported.
+### "Notify me while I am away from the screen"
 
-**Snooze / mute / quiet hours**
+Recommend a channel that works, with a concrete command:
 
-| User says | Run |
-|---|---|
-| "snooze audio for 30 minutes" | `audio-hooks snooze 30m` |
-| "shut up for an hour" | `audio-hooks snooze 1h` |
-| "mute audio for the rest of the day" | `audio-hooks snooze 8h` |
-| "unmute" / "resume" / "cancel snooze" | `audio-hooks snooze off` |
-| "is audio snoozed?" | `audio-hooks snooze status` |
+- desktop toast: `audio-hooks set notification_settings.mode audio_and_notification` (it ships this way; use `notification_only` for no sound). To toast only when it needs the user: mode `audio_only`, then `per_hook.notification` and `per_hook.permission_request` set to `audio_and_notification`.
+- phone or other app: `audio-hooks webhook set --url <url> --format ntfy` (formats `slack`, `discord`, `teams`, `ntfy`, `raw`), then `webhook test`.
+- spoken summary: `audio-hooks tts set --enabled true --speak-assistant-message true` (code blocks and secrets are stripped, but the reply is read aloud, so not near bystanders).
+- the "waiting for you" trigger is `notification` / `idle_prompt`; `permission_request` is the immediate one.
 
-Duration syntax: `30m`, `1h`, `90s`, `2d`, or a bare integer (interpreted as minutes).
+If every backend fails, `diagnose` reports `NOTIFICATION_FAILED` naming the backend.
 
-**Upgrade the plugin without losing config**
+**Never recommend `notification_settings.terminal_sequence.*`, and never claim a terminal bell or window title is available.** v6.5.0 shipped it; v6.5.1 found it inert: Claude Code writes a hook's `terminalSequence` only from a synchronous completion path, and every echook handler is `async: true`, so no escape is ever emitted (still inert at Claude Code 2.1.288). `diagnose` reports `TERMINAL_SEQUENCE_INERT` if a user already enabled it; say so and use the channels above. Do not "fix" it by making handlers synchronous. Details: `docs/EVENT_BEHAVIOR_NOTES.md`.
 
-`audio-hooks upgrade` is the AI-first way to refresh the plugin code (and `~/.claude/plugins/cache/`) without touching the user's preferences. Use it whenever:
+### Out-of-scope features (pomodoro, timers, wellness)
 
-| User says | Run |
-|---|---|
-| "upgrade audio-hooks" / "refresh the cache" / "Cursor still plays old theme" | `audio-hooks upgrade` |
-| "is there a new version?" | `audio-hooks upgrade --check-only` |
-| "the upgrade got stuck" | `audio-hooks upgrade --force` (only after confirming via `audio-hooks status`) |
+echook does two things only: (1) audio and out-of-band notification of editor lifecycle events, (2) the status line. A pomodoro/break timer, breathing exercise, gamification, opening URLs or side-commands during a session is **out of scope by design** (`focus_flow` was removed in v6.0.0). Decline and say it is intentionally not part of echook. Invent no command, setting or hook for it; suggesting a separate timer tool is fine.
 
-A stale `user_preferences.json` (`diagnose` code `PREFS_SCHEMA_STALE`) is fixed by `audio-hooks migrate` (v6.7), not by `status`/`diagnose`, which only report.
+### Cursor install and the duplicate bridge
 
-`upgrade` rejects unknown arguments (only `--check-only` and `--force` exist). It auto-detects scope via `claude plugin list --json`, tries `claude plugin update` first (data-preserving), falls back to `uninstall --keep-data + install` if needed. On success, the user's `~/.claude/plugins/data/audio-hooks-chanmeng-audio-hooks/user_preferences.json` is preserved verbatim, then loaded through auto-migration so new keys from the new template are merged in non-destructively.
+Cursor 3.2.x+ auto-bridges the Claude Code plugin, so on a machine that already has the plugin, Cursor already plays echook with no install. The command is `audio-hooks install --cursor`, but there it **aborts with `DUPLICATE_BRIDGE`**, because Cursor runs every matching hook from every source without de-duplicating (everything would fire twice). Say so before handing over the command. `--force` is only for someone who accepts that trade-off; the runtime guard `DUPLICATE_BRIDGE_RUNTIME_SKIP` then suppresses the native path. Cursor's bridge toggle (Settings, Rules, Skills, Subagents, "Include third-party Plugins, Skills, and other configs") is global and has no effect on `cursor-agent`. Check `audio-hooks status` -> `editor_targets.cursor.state` (`bridged-via-claude-code`, `native`, `double-registered` - fix with `audio-hooks uninstall --cursor` - or `inactive`). Under the bridge only 8 coarse events fire; `notification` and `permission_request` have no Cursor equivalent. Cursor-only users install from a clone; upgrade is `git pull && install --cursor` (there is no `upgrade --cursor`). Refresh the bridged plugin cache with `audio-hooks upgrade`, never `/plugin uninstall + install`, which destroys config.
 
-**Restore from a backup**
+Cursor `stop` carries `status` (`completed|aborted|error`), documented but not yet captured live. `filters.stop.error_as_stop_failure true` makes an errored Cursor turn become `stop_failure`; it needs `hooks enable stop_failure` too, and with the key on and `stop_failure` off that turn is silent.
 
-| User says | Run |
-|---|---|
-| "what configurations have I changed?" | `audio-hooks status` (look at the `customizations` field) |
-| "show me available backups" | `audio-hooks backup list` |
-| "restore my config from before the upgrade" | `audio-hooks backup restore latest-external` |
-| "delete old backups" | `audio-hooks backup prune` |
+### Status line, and only some segments
 
-**Enable / disable individual hooks**
+Install with `audio-hooks statusline install` (then restart Claude Code); `uninstall`, `show` and `segments` (the live catalogue of 33 segments, 31 on by default) are the others. To show a subset, use the **`visible_segments` whitelist**, not `hidden_segments`: "only context usage" is `audio-hooks set statusline_settings.visible_segments '["context"]'` and nothing else in the list. To add a segment, `get` the current array, append, `set` it back. `'[]'` restores the default. `hidden_segments` (blacklist, only when the whitelist is empty) suits "everything except...". `extra_segments` turns on the opt-in `prompt_cache` and `remote` (`audio-hooks set statusline_settings.extra_segments '["prompt_cache"]'`). `spend_limit` and `fast_mode` are on by default but draw only when Claude Code sends the data, so "why is there no spend limit" is almost always "your session does not send one". Wrapping: lines reflow by segment; `statusline_settings.max_width` pins the width (`0` = auto); truncation with `...` usually means Claude Code older than v2.1.153, which does not export `COLUMNS`. A per-agent row in the agent panel is a separate surface: `audio-hooks statusline subagent install|show|uninstall` (restart Claude Code); the plugin cannot supply it as a default. Full reference: `docs/STATUS_LINE.md`.
 
-Run `audio-hooks hooks list` to see all 39 hooks with their current state (add `--variants` for the 47 matcher variants). Then:
+**Codex cannot render custom status text.** It draws only a fixed list of built-in item IDs; echook curates them. For a cut-off Codex bar: `audio-hooks statusline codex apply --preset balanced` (`--target terminal_title|both`, `codex show`, `codex preview`), then restart Codex or run `/statusline`.
 
-| User says | Run |
-|---|---|
-| "stop the audio for tool execution" | `audio-hooks hooks disable pretooluse` and `audio-hooks hooks disable posttooluse` |
-| "enable rate-limit warnings" | `audio-hooks set rate_limit_alerts.enabled true` |
-| "I only want stop and notification audio" | `audio-hooks hooks enable-only stop notification permission_request` |
-| "enable the v5.0 permission_denied hook" | `audio-hooks hooks enable permission_denied` |
-| "watch .env files for changes" | `audio-hooks hooks enable file_changed` and `audio-hooks set file_changed.watch '[".env",".envrc"]'` |
-| "ping me when setup/init finishes" | `audio-hooks hooks enable setup` |
-| "different sound for shell vs MCP calls in Cursor" | `audio-hooks hooks enable shell_before` and `audio-hooks hooks enable mcp_before` (v6.2, Cursor-only granular events) |
+### "Context jumped to 97%"
 
-**Too much audio — the single most common complaint (read this before changing anything)**
+Almost always expected arithmetic, not a bug. Switching from a 1M-context model to a 200K window keeps the tokens identical and shrinks the denominator 5x. Since v5.1.3 the indicator shows absolute counts (`Context: 83% (166K/200K)`), so point at that. The bar is green under 50%, yellow 50-80% (consider `/compact` or `/clear`), red above 80%. To check what Claude Code actually pipes in, have the user set `CLAUDE_HOOKS_DEBUG=1` before launching Claude Code; the script then dumps the last stdin JSON to `${CLAUDE_PLUGIN_DATA}/statusline.last_input.json` (inspect `context_window.context_window_size`). It may contain paths and the last assistant message, so tell them to unset it afterwards.
 
-Almost every "it's too noisy" report is the `stop` hook, and the user's mental model of it is wrong in a specific way. `stop` fires at the **end of every turn**, not at task completion, and Claude Code exposes **no field** distinguishing a final turn from an intermediate one — so there is no setting that makes `stop` mean "the task is done". Say this plainly rather than tuning debounce and hoping.
+### Snooze
 
-Five real fixes, in the order you should offer them:
+"Mute for 30 minutes" is exactly `audio-hooks snooze 30m`; "unmute" is `audio-hooks snooze off`.
 
-| User says | Run | Why |
-|---|---|---|
-| "only tell me when you need me" | `audio-hooks hooks enable-only notification permission_request` | Fires only when the user must act. `notification`/`idle_prompt` is the genuine "Claude is waiting for you" signal — documented to arrive about 60 s after Claude finishes and only if the user has not typed since, and, since Claude Code 2.1.288, no longer fires while background agents are still running. `permission_request` is the immediate one |
-| "stop chiming while background work is running" | `audio-hooks set filters.stop.skip_if_background_tasks_running true` | v6.4. Reads the `background_tasks` array on the `Stop` payload and stays silent until nothing is still running or pending (v6.6.0 counts `pending` too, and ignores Claude Code's own `dream` / `auto-mode scan` / `memory import` tasks). Keeps `stop` but kills the chime storm from teammates/subagents |
-| "stop chiming while a /loop or scheduled wakeup is pending" | `audio-hooks set filters.stop.skip_if_session_crons_scheduled true` | v6.6.0, opt-in. Stays silent while the payload's `session_crons` array is non-empty. Separate from the key above on purpose: a recurring cron stays in the array for the whole session, so it would silence every turn for someone who only asked about running work |
-| "stop chiming for every little command" | `audio-hooks set filters.posttooluse.min_duration_ms 30000` | v6.5. Only sound once a tool actually took that long. Reach for this before debounce — debounce suppresses by time window, so it cannot tell a burst of fast tools from one long build |
-| "I have several sessions open and they all chime" | `audio-hooks set playback_settings.debounce_ms 60000` | Blunt instrument — use only after the four above |
+### Unrelated requests
 
-**Per-variant control (v6.4)**
-
-Matcher-scoped events have independently switchable **variants**: `notification` has 17 (`notification_permission_prompt`, `notification_idle_prompt`, `notification_worker_permission_prompt`, …), `stop_failure` has 13, `session_start` has 5, `session_end` has 4, `precompact`/`postcompact`/`setup`/`directory_added` have 2 each — 47 in total. Before v6.4 they all shared their parent's single switch.
-
-| User says | Run |
-|---|---|
-| "chime for permission prompts but not idle ones" | `audio-hooks hooks disable notification_idle_prompt` |
-| "only alert me on rate limits, not other API errors" | `audio-hooks hooks enable-only stop_failure_rate_limit` |
-| "what variants exist?" | `audio-hooks hooks list --variants` |
-| "sound when I log out but not when I clear" | `audio-hooks hooks enable session_end_logout` and `audio-hooks hooks disable session_end_clear` |
-| "tell me when Claude Code can't save my login" / "login needs attention" | `audio-hooks hooks enable notification_auth_storage_failure` (v6.7; **off by default** — until enabled a login-storage failure is silent) |
-| "tell me about cloud-credential or verification errors" | `audio-hooks hooks enable stop_failure_cloud_credential_error stop_failure_verification_required` (v6.7). These follow the `stop_failure` switch, so if `stop_failure` is off they stay silent unless set explicitly like this; if the user enabled the whole parent (`hooks enable stop_failure`) they already play, but a user who had enumerated variants with `enable-only` got them migrated to off |
-
-Precedence when both a variant and its parent are set: an explicit variant key wins outright; otherwise a parent set to `false` is a hard kill switch for all its variants. So to keep exactly one variant of a muted category, set that variant key explicitly — do not rely on the parent.
-
-`notification_agent_needs_input` and `notification_agent_completed` need Claude Code v2.1.198+ and ship **off**. They could not be observed firing during v6.4's pre-release capture (5 subagent completions produced none), and appear to belong to the push-notification path for background agents rather than local `Task` subagents. Do not present them to a user as a working "task finished" cue — recommend `notification`/`idle_prompt` or the `background_tasks` filter instead.
-
-Three variants were added in v6.7 (`stop_failure_cloud_credential_error`, `stop_failure_verification_required`, `notification_auth_storage_failure`); Claude Code sent those matcher values before and nothing was registered for them, so they were silent. A user who enabled the whole `stop_failure` parent will now hear the first two; one who had enumerated variants (`hooks enable-only <variant>`) will not, because migration writes variants added after their choice as explicitly off (they can `hooks enable` any of them). `model_refusal_fallback` is deliberately not registered (declared in the Claude Code 2.1.288 binary, no emitter found) — do not offer it. When a filter such as `skip_if_background_tasks_running` discards an event it no longer starts the debounce window (v6.7), so "it was quiet and then my next chime was swallowed" is no longer a filter side effect; a filtered event inside an open window logs as `FILTERED`, not `DEBOUNCED`.
-
-If the complaint is really *"I miss it when I'm not looking at the terminal"* rather than *"it's too loud"*, the fix is a different **channel**, not fewer events — see **Desktop notifications when the user is away from the screen** below, or the webhook for a phone.
-
-**Check project status**
-
-Run `audio-hooks status` when the user asks "what's the current audio config?", "is audio working?", "show me audio status", etc. It returns a full snapshot: version, theme, enabled hooks count, snooze state, webhook, TTS, rate-limit alerts, status line settings (including `extra_segments`), and install mode.
-
-**Reporting commands are read-only (v6.7).** `status`, `diagnose`, `get`, `hooks list`, `theme [list]`, `snooze status`, `webhook`/`tts`/`rate-limits` without flags, `statusline` show/`segments`/`subagent show`/`codex show`/`codex preview`, `logs tail`, `backup list|show`, `manifest`, `version`, `update` and every `--help` leave the user's home and data directories untouched — safe to run to look, on a fresh machine too (a fresh home shows no preferences file after `status`; that is correct). The corollary: a stale preferences file (`diagnose` reports `PREFS_SCHEMA_STALE`) is **not** fixed by running `status` or `diagnose`. The next hook event migrates it, as does any state-changing command; to do it immediately run **`audio-hooks migrate`** (v6.7: no flags, idempotent, never creates a missing file; returns `changed`, `from_version`, `to_version`, `added[]`, `removed[]`, `stale[]`, `backup`).
-
-```bash
-audio-hooks status                     # full state snapshot
-audio-hooks version                    # version + install type detection
-```
-
-**Change audio theme**
-
-The project ships two themes. `default` is voice recordings, `custom` is non-voice chimes.
-
-```bash
-audio-hooks theme list                  # show available + current
-audio-hooks theme set custom            # switch to chimes
-audio-hooks theme set default           # switch to voice
-```
-
-**Webhook fan-out (Slack / Discord / Teams / ntfy / raw)**
-
-```bash
-audio-hooks webhook                     # view current webhook config
-audio-hooks webhook set --url https://ntfy.sh/my-claude-channel --format ntfy
-audio-hooks webhook set --url https://hooks.slack.com/services/... --format slack
-audio-hooks webhook test                # POST a test payload
-audio-hooks webhook clear               # disable
-```
-
-Supported formats: `slack`, `discord`, `teams`, `ntfy`, `raw`. The raw format ships the `audio-hooks.webhook.v1` schema. Every event includes `session_id`, `session_name`, `worktree`, `agent`, `rate_limits`, `last_assistant_message`, `notification_type`, `error_type`, `source`, `trigger`, `load_reason`, and `permission_suggestions` at the top level.
-
-**Text-to-speech**
-
-```bash
-audio-hooks tts set --enabled true
-# Speak a sanitized summary of Claude's final reply on stop/subagent_stop.
-# Code blocks and secrets are stripped automatically before anything is spoken,
-# but note the reply is read aloud — avoid near bystanders.
-audio-hooks tts set --speak-assistant-message true
-audio-hooks tts set --assistant-message-max-chars 200
-```
-
-**Rate-limit alerts (v5.0)**
-
-The runner inspects every hook's stdin for `rate_limits.{five_hour,seven_day}` and plays a one-shot warning when crossing thresholds. Default thresholds are `[80, 95]`. Each (window, threshold, resets_at) tuple fires exactly once per reset window, so the user is alerted at 80% and again at 95% but never spammed.
-
-```bash
-audio-hooks rate-limits set --enabled true
-audio-hooks rate-limits set --five-hour-thresholds 75,90,98
-audio-hooks rate-limits set --seven-day-thresholds 80,95
-```
-
-**Status line / context window monitoring**
-
-The status line displays real-time audio-hooks state and context window usage at the bottom of Claude Code. It includes a color-coded context usage bar that warns the user when context is getting full (the "agent dumb zone" starts around 60%):
-
-- 🟢 Green (< 50%): safe — agent performs well
-- 🟡 Yellow (50–80%): caution — user should `/compact` or `/clear`
-- 🔴 Red (> 80%): danger — agent performance degrades significantly
-
-| User says | Run |
-|---|---|
-| "install the status line" / "show context usage" / "monitor context window" | `audio-hooks statusline install` then tell the user to restart Claude Code |
-| "remove the status line" | `audio-hooks statusline uninstall` |
-| "is the status line installed?" | `audio-hooks statusline show` |
-
-After installing, the status line updates every 60 seconds and shows two lines:
-```
-[Opus 4.8 (1M context)] | 🧠 high | ⚡ CC v2.1.193 | 📁 D:\…\claude-code-audio-hooks | 🔊 echook v6.7.0 | 3/39 Sounds | Webhook: off | Theme: Voice
-🌿 main  ████░░░░ API Quota: 60% · resets 2pm  ███████░ Weekly: 82% · resets Jul 4 9pm  █████░░░ Context: 65% (130K/200K) ⚠️ /compact  💲 $0.42 +156/-23
-```
-The status line pins the key facts from Claude Code's **startup banner** so they stay visible after the banner scrolls off the top of the terminal: the model + reasoning **effort** (`🧠`), Claude Code's own **version** (`⚡ CC v…`, distinct from echook's `🔊 echook v…`), the **cwd**, the **5-hour API quota** and the headline **weekly (7-day) limit + reset date & time** (`Weekly: 82% · resets Jul 4 9pm` — the weekly reset is days out, so it shows the date; the always-soon 5-hour reset stays a bare time), and session **cost + diff** (`💲 $0.42 +156/-23`). The `📁` segment (`cwd`) is abbreviated (home → `~`, long paths shortened to `<root>…<last folder>`) so the user can tell at a glance which project the session is in.
-
-> The subscription **plan name** ("Claude Max"/"Pro") shown in the banner is *not* piped to status line scripts by Claude Code, so echook intentionally does not show it. The presence of the weekly/API-quota bars already implies a Claude.ai subscription.
-
-**Customise which status line segments to show**
-
-The status line exposes **33 segments** — every useful field Claude Code pipes to a status line script. By default 31 are shown (most richer ones self-omit when their data is absent, so a plain session stays clean); `prompt_cache` and `remote` are **opt-in** (see `extra_segments` below). The catalog's `default` flag says which is which. Run **`audio-hooks statusline segments`** for the authoritative live catalog (name, line, source field, conditional flag).
-
-Line 1 (identity / config): `model`, `session_name`, `agent`, `remote` (opt-in), `effort`, `fast_mode`, `thinking`, `vim`, `output_style`, `cc_version`, `cwd`, `repo`, `version`, `sounds`, `webhook`, `theme`
-Line 2 (live state / metrics): `snooze`, `branch`, `git_dirty`, `worktree`, `pr`, `added_dirs`, `api_quota`, `weekly_quota`, `spend_limit`, `context`, `tokens`, `prompt_cache` (opt-in), `exceeds_200k`, `cost`, `duration`, `api_time`, `burn_rate`
-
-Three ways to choose segments:
-- **`visible_segments`** (whitelist) — when non-empty, *only* these show. Best when the user wants a short, fixed line.
-- **`hidden_segments`** (blacklist) — applied only when `visible_segments` is empty: show everything *except* these. Best when the user likes the comprehensive default but wants to drop a couple (e.g. `audio-hooks set statusline_settings.hidden_segments '["burn_rate","api_time"]'`).
-- **`extra_segments`** (v6.7, empty by default) — opt-in additions, applied only when `visible_segments` is empty: a segment whose catalog `default` is `false` appears only when named here, and `hidden_segments` still wins. This is how a user turns on the prompt-cache indicator (`cache warm 4m`, or `cache cold` and the cause of a recent miss): `audio-hooks set statusline_settings.extra_segments '["prompt_cache"]'`; `remote` (`☁ remote`, from an undocumented field) the same way. A user who writes a `visible_segments` whitelist can name an opt-in segment there directly.
-
-`spend_limit` (Claude apps gateway spend limit) and `fast_mode` (`🚀 fast`, only while fast mode is on) are in the default set but draw only when Claude Code sends the data, so most users never see them; if someone asks "why is there no spend limit" the answer is almost always "your session does not send one". All four are Claude Code only — Codex cannot render them.
-
-(`git_dirty` shells out to `git status --porcelain`, cached ~5s; everything else comes from the stdin session JSON. Conditional segments self-omit when Claude Code doesn't supply that data — e.g. `pr` only inside a PR, `vim` only in vim mode, `weekly_quota` only for Claude.ai subscribers, `output_style` only when not the default.)
-
-**Auto-reflow (no truncation).** Each line automatically wraps into as many rows as the terminal width needs — segments are never split, so a content-rich status line shows in full instead of being cut off with an ellipsis (`Webho…`). Width is read from the `COLUMNS` env var Claude Code provides (Claude Code v2.1.153+), falling back to 80 columns. If a user wants fewer rows, trim segments with `visible_segments`. To pin the wrap width explicitly (e.g. when `COLUMNS` is unreliable), set `statusline_settings.max_width` to a column count (`0` = auto):
-
-| User says | Run |
-|---|---|
-| "my status line wraps too much / pin it to 120 columns" | `audio-hooks set statusline_settings.max_width 120` |
-| "status line is getting cut off / truncated with …" | Usually means an old Claude Code (< v2.1.153, which doesn't export `COLUMNS`) — pin it: `audio-hooks set statusline_settings.max_width <your terminal width>` |
-| "go back to auto width" | `audio-hooks set statusline_settings.max_width 0` |
-| "the status line has too many rows" | Trim segments, e.g. `audio-hooks set statusline_settings.visible_segments '["model","cwd","context","weekly_quota"]'` |
-
-| User says | Run |
-|---|---|
-| "only show context usage in the status line" | `audio-hooks set statusline_settings.visible_segments '["context"]'` |
-| "show context and API quota only" | `audio-hooks set statusline_settings.visible_segments '["context","api_quota"]'` |
-| "show my weekly limit only" | `audio-hooks set statusline_settings.visible_segments '["weekly_quota"]'` |
-| "show the model, effort, and Claude Code version" | `audio-hooks set statusline_settings.visible_segments '["model","effort","cc_version"]'` |
-| "show session cost in the status line" | Read current with `audio-hooks get statusline_settings.visible_segments`, append `"cost"`, then set the updated array |
-| "show the current folder and context only" | `audio-hooks set statusline_settings.visible_segments '["cwd","context"]'` |
-| "show context, branch, and model" | `audio-hooks set statusline_settings.visible_segments '["model","context","branch"]'` |
-| "show everything in the status line" (reset) | `audio-hooks set statusline_settings.visible_segments '[]'` |
-| "add webhook to the status line" | Read current with `audio-hooks get statusline_settings.visible_segments`, append `"webhook"` to the array, then set the updated array |
-| "remove sounds count from status line" | Read current, remove `"sounds"`, set the updated array |
-| "show session duration / how long I've been running" | add `"duration"` (it's on by default; if hidden, remove from `hidden_segments`) |
-| "show cost per hour / burn rate" | `burn_rate` (on by default) |
-| "show uncommitted git changes" | `git_dirty` (on by default) |
-| "hide burn rate and api time but keep everything else" | `audio-hooks set statusline_settings.hidden_segments '["burn_rate","api_time"]'` |
-| "what segments are available?" | `audio-hooks statusline segments` |
-
-Examples of what the user sees after customisation:
-```
-# Only context:
-█████░░░ Context: 65% ⚠️ /compact
-
-# context + api_quota:
-██████░░ API Quota: 85%  █████░░░ Context: 65% ⚠️ /compact
-
-# model + branch + context:
-[Opus]
-🌿 main  █████░░░ Context: 65% ⚠️ /compact
-```
-
-**Codex status line (curation only — NOT rendered by echook)**
-
-Unlike Claude Code, **Codex does not support a command-backed status line**. Codex renders only *fixed lists of built-in item IDs* configured under `[tui].status_line` and `[tui].terminal_title` in `~/.codex/config.toml` (command rendering is open feature request openai/codex#20140). echook therefore cannot inject custom segments into Codex — it can only **curate** those fixed lists so they stop truncating with an ellipsis (the common cause is a list with 20+ redundant items like `model-with-reasoning` + `model` + `reasoning`, or `context-remaining` + `context-used`, all crammed onto Codex's single line).
-
-| User says | Run |
-|---|---|
-| "my codex status bar is cut off / shows `…`" | `audio-hooks statusline codex apply --preset balanced` (then restart Codex / `/statusline`) |
-| "fix the codex tab/window title too / it's also crammed" | `audio-hooks statusline codex apply --target terminal_title --preset balanced` |
-| "fix both the codex status line and title" | `audio-hooks statusline codex apply --target both --preset balanced` |
-| "show me the current codex status line + title" | `audio-hooks statusline codex show` |
-| "preview before applying" | `audio-hooks statusline codex preview --preset full --target both` |
-| "give me a minimal / full codex status line" | `audio-hooks statusline codex apply --preset minimal` \| `--preset full` |
-| "use these exact codex items" | `audio-hooks statusline codex apply --items model-with-reasoning,git-branch,context-remaining` |
-
-`--target` selects which `[tui]` array to curate: `status_line` (default), `terminal_title`, or `both`. Presets — status line: `minimal` (4), `balanced` (8, recommended), `full` (14); terminal title: `minimal` (2), `balanced` (4), `full` (6). `apply` backs up `config.toml` first and surgically edits *only* the targeted array(s) (all other tables/comments preserved). `--items` overrides the preset for a single target.
-
-**Notification settings (audio mode, detail level, per-hook overrides)**
-
-Control how notifications are delivered — audio only, desktop notification only, both, or disabled entirely:
-
-| User says | Run |
-|---|---|
-| "only play audio, no desktop notifications" | `audio-hooks set notification_settings.mode audio_only` |
-| "only show desktop notifications, no audio" | `audio-hooks set notification_settings.mode notification_only` |
-| "I want both audio and notifications" | `audio-hooks set notification_settings.mode audio_and_notification` |
-| "disable all notifications" | `audio-hooks set notification_settings.mode disabled` |
-| "make notifications more detailed" | `audio-hooks set notification_settings.detail_level verbose` |
-| "minimal notifications" | `audio-hooks set notification_settings.detail_level minimal` |
-| "only use desktop notification for the stop hook" | `audio-hooks set notification_settings.per_hook.stop notification_only` |
-
-**Desktop notifications when the user is away from the screen**
-
-This is usually what someone means by *"notify me when it's done"* if they are not sitting in front of the terminal. The supported route is echook's own desktop notification, controlled by `notification_settings.mode` (it ships as `audio_and_notification`, so it is normally already on):
-
-| User says | You run |
-|---|---|
-| "send me a desktop notification", "pop a toast when it needs me" | `audio-hooks set notification_settings.mode audio_and_notification` |
-| "notifications only, no sound" | `audio-hooks set notification_settings.mode notification_only` |
-| "turn the desktop notifications off" | `audio-hooks set notification_settings.mode audio_only` |
-| "only toast when it's waiting for me" | `audio-hooks set notification_settings.mode audio_only`, then `audio-hooks set notification_settings.per_hook.notification audio_and_notification` and `audio-hooks set notification_settings.per_hook.permission_request audio_and_notification` |
-| "I want it on my phone", "I'm away from the desk" | the webhook: `audio-hooks webhook set --url … --format ntfy` |
-
-On Windows the toast is a real WinRT toast; `audio-hooks diagnose` reports `NOTIFICATION_FAILED` (naming the backend and the reason) if every backend fails.
-
-**Do not recommend `notification_settings.terminal_sequence.*`, and do not claim a terminal bell or window title is available.** v6.5.0 shipped that block as "Claude Code emits an OSC escape for echook", and v6.5.1 found it **inert**: Claude Code writes a hook's `terminalSequence` only from a synchronous completion path, and all 67 echook handlers are registered `async: true`, so no escape is ever emitted. It was still inert at Claude Code 2.1.288. Setting the flag does nothing, and `audio-hooks diagnose` reports `TERMINAL_SEQUENCE_INERT` when it is on. Do not "fix" it by making the existing handlers synchronous. If a user already has it enabled, say so and use the table above instead. (Details: `docs/EVENT_BEHAVIOR_NOTES.md`.)
-
-**Per-subagent status line (v6.5)**
-
-A *second*, separate surface from the main status line: one rendered row per task in Claude Code's agent panel. With agent teams this is where most of the live state is.
-
-| User says | You run |
-|---|---|
-| "show status for each subagent", "add a status line to the agent panel" | `audio-hooks statusline subagent install` |
-| "is the subagent status line on?" | `audio-hooks statusline subagent show` |
-| "remove the per-agent status" | `audio-hooks statusline subagent uninstall` |
-
-Each row shows status icon · model · reasoning effort · context used · elapsed, and every field self-omits when absent:
-```
-▶ · opus-5 · 🧠high · ◔24% 48.0k/200.0k · ⏱3m05s
-✓ · haiku-4-5 · ◔1.2k
-```
-Tell the user to **restart Claude Code** (or start a session with subagents) before the rows appear. This is independent of the main status line — installing one does not install the other. The plugin cannot supply this as a default: Claude Code loads a plugin's `settings.json` and keeps only `subagentStatusLine`, but does not expand `${CLAUDE_PLUGIN_ROOT}` there and does not put the plugin's `bin/` on that command's PATH, so a marketplace-installed plugin cannot name its own script; the user's own setting, written by `statusline subagent install`, is the only way.
-
-**Only make a sound for slow tools (v6.5)**
-
-Reach for this when a user says *"stop chiming for every little command"* but still wants to know when a long build or test run finishes. It is a better answer than debounce, which suppresses by time window and so cannot tell a burst of fast tools from one genuinely long command.
-
-| User says | You run |
-|---|---|
-| "only tell me about commands that take a while" | `audio-hooks set filters.posttooluse.min_duration_ms 30000` |
-| "only sound for failures that took over 10s" | `audio-hooks set filters.posttoolusefailure.min_duration_ms 10000` |
-| "go back to sounding for everything" | `audio-hooks set filters.posttooluse.min_duration_ms 0` |
-
-`duration_ms` excludes permission-prompt and hook time, so the threshold measures real tool work. **Fails open:** Cursor and Codex do not report it, so the filter never silences those editors.
-
-**Playback settings**
-
-```bash
-# Adjust debounce (minimum ms between same hook firing, default 500)
-audio-hooks set playback_settings.debounce_ms 300
-```
-
-**Scope (what this plugin does — and does not — do)**
-
-echook is two tracks only: **(1) audio + out-of-band notification** of editor lifecycle
-events (sounds, desktop toasts, TTS spoken summaries, webhook fan-out, rate-limit sound
-alerts) and **(2) the status line**. Anything that is neither a notification nor a status
-line segment — breathing/wellness exercises, pomodoro/timers, gamification, opening URLs,
-or running side-commands during a session — is out of scope by design. If the user asks
-for such a feature, say it's intentionally not part of echook rather than trying to add it.
-(The `focus_flow` / breathing feature was removed in v6.0.0.)
-
-**Uninstall**
-
-| User says | Run |
-|---|---|
-| "uninstall audio hooks" (plugin install) | `claude plugin uninstall audio-hooks@chanmeng-audio-hooks --keep-data --json` (what `audio-hooks uninstall --plugin` prints; `--keep-data` preserves the user's preferences and backups); then ask the user to type `/reload-plugins` |
-| "uninstall audio hooks" (script install) | `audio-hooks uninstall` — works on Windows, macOS and Linux and from the plugin layout (v6.6.0; on native Windows it used to do nothing). Backs up to `~/.claude/backups/audio-hooks-uninstall-<ts>/` first, removes echook's own entries and only files that carry echook's content marker, preserves config and audio. A user's own `stop_hook.sh` / `shared/` is left alone and listed in `skipped_not_ours`. `nothing_to_remove: true` means there was nothing to do. **If it returns `UNINSTALL_INCOMPLETE` (`ok: false`)**: read `unmatched_references` (registrations that spell the home directory in a form it does not recognise — `$env:USERPROFILE\…`, `%HOMEDRIVE%%HOMEPATH%\…`, an MSYS `/c/Users/…` path, `"$HOME"/…`), show them to the user, and only then run `audio-hooks uninstall --remove-unmatched` (scripts mode only), because the loose rule can catch another tool's variable such as `$XDG_CONFIG_HOME` or `%ANDROID_HOME%`. A file that could not be deleted: close what holds it and re-run |
-| "remove everything including config and audio files" | `bash scripts/uninstall.sh --yes --purge` (source checkout only: a wrapper around `uninstall --scripts` whose `--purge` also removes that checkout's `config/user_preferences.json` and `audio/default/*`, backed up first; the CLI's own `--purge` is for `--cursor` / `--codex`) |
-
-**Read or write any config key**
-
-For any setting not covered above, use the generic getter/setter:
-
-```bash
-audio-hooks get <dotted.key>           # read any config key
-audio-hooks set <dotted.key> <value>   # write any config key (auto-coerces bool/int/JSON)
-```
-
-Run `audio-hooks manifest --schema` to see the full JSON Schema for all config keys.
-
-**Test that audio is actually working**
-
-```bash
-audio-hooks test all                    # exercise every enabled hook
-audio-hooks test stop                   # one specific hook
-audio-hooks test session_start_resume   # a v5.0 matcher variant
-```
-
-**Troubleshooting "no sound" / "wrong sound"**
-
-Always run `audio-hooks diagnose` first. It returns a JSON document listing the platform, audio player binary, the state of `~/.claude/settings.json` (including `disableAllHooks`), and any audio files missing for the active theme. Errors come with stable `code` enums and a `suggested_command` you should run.
-
-Common error codes you may see:
-
-| Code | What it means | Run |
-|---|---|---|
-| `SETTINGS_DISABLE_ALL_HOOKS` | The user (or their managed settings) has set `disableAllHooks: true` | Tell the user; Claude Code's config takes precedence |
-| `AUDIO_PLAYER_NOT_FOUND` | No mpg123/ffplay/aplay on Linux, or PowerShell missing on Windows | `sudo apt install mpg123` (Linux) |
-| `AUDIO_FILE_MISSING` | Audio files for the active theme are missing | `audio-hooks theme set default` to fall back |
-| `WEBHOOK_HTTP_ERROR` / `WEBHOOK_TIMEOUT` | Webhook unreachable | `audio-hooks webhook test` and inspect the URL |
-| `INVALID_USAGE` | An unknown subcommand, flag or stray positional on a state-changing subcommand, a missing or conflicting `install` mode, `--purge` with `uninstall --scripts` / `--plugin`, `--remove-unmatched` outside scripts mode, or a help-like token as the value of `set`. Nothing was changed | The error's `suggested_command` — usually `audio-hooks install --help` or `audio-hooks manifest` |
-| `UNINSTALL_INCOMPLETE` | `audio-hooks uninstall` removed what it could but left registrations in an unrecognised home spelling (`unmatched_references`) or a file it could not delete | Read the list, show it to the user, then `audio-hooks uninstall --remove-unmatched` |
-| `DUAL_INSTALL_DETECTED` | The script install and the plugin install are both active (hooks fire twice), or `install --scripts` was refused for that reason | Both active: `audio-hooks uninstall` (removes the script install on every platform; keeps config and audio). `install --scripts` refused: do not force it; only if the user wants to switch to the script install, run `audio-hooks uninstall --plugin` first |
-
-After running any fix, verify with `audio-hooks logs tail --n 20` to see the recent NDJSON event stream.
-
-## Diagnosing the status line (v5.1.3+)
-
-If a user complains that the **Context: X%** indicator looks wrong (e.g. "it jumped to 97% after I switched models"), this is almost always **expected math** — switching from a 1M-context variant to a 200K window keeps the user's tokens identical but shrinks the denominator 5×. Since v5.1.3 the indicator displays absolute counts (e.g. `Context: 83% (166K/200K)`) so the math is self-explanatory; point the user at that.
-
-If they want to verify what Claude Code is actually piping to the status line script, set `CLAUDE_HOOKS_DEBUG=1` (or `true`/`yes`, case-insensitive) in their shell **before** launching Claude Code. The script then atomically dumps the most recent stdin JSON to `${state_dir}/statusline.last_input.json` after every refresh. Read it with:
-
-```bash
-cat "${CLAUDE_PLUGIN_DATA:-$TEMP/claude_audio_hooks_queue}/statusline.last_input.json"
-```
-
-Inspect `context_window.context_window_size` to confirm whether Claude Code refreshed it after the `/model` switch. Privacy note: the dump may contain workspace paths and the last assistant message — instruct the user to disable the env var when they finish diagnosing.
-
-## Reading the logs
-
-All log events are NDJSON (one JSON object per line) under `${CLAUDE_PLUGIN_DATA}/logs/events.ndjson`. Schema is `audio-hooks.v1`. Each event has `ts`, `level`, `hook`, `session_id`, `action`, and event-specific fields. Errors include `error.code`, `error.hint`, and `error.suggested_command`.
-
-```bash
-audio-hooks logs tail --n 50              # last 50 events
-audio-hooks logs tail --n 100 --level error
-audio-hooks logs clear
-```
-
-## Install for Cursor-only users (5.1.4+)
-
-**Cursor IDE 3.2.16+ has its own "Cursor Hooks Service" that auto-bridges Claude Code plugins** ([cursor.com/docs/reference/third-party-hooks](https://cursor.com/docs/reference/third-party-hooks)). When the user has both Claude Code and Cursor on the same machine, Cursor calls our hook scripts on its own session events automatically — no extra install needed. Just run `audio-hooks status` and check `editor_targets.cursor.state`:
-
-| State | Meaning |
-|---|---|
-| `bridged-via-claude-code` | Cursor is auto-bridging; 8 coarse events fire (`supported_editors.cursor.bridged_events_subset`); `notification` and `permission_request` have no Cursor equivalent and stay silent. |
-| `native` | User ran `audio-hooks install --cursor`; Cursor reads `~/.cursor/hooks.json`. |
-| `double-registered` | Both bridge AND native install present — fires audio twice. Run `audio-hooks uninstall --cursor` to fix. |
-| `inactive` | Cursor isn't running this project at all. |
-
-**For users who run Cursor without Claude Code**, install natively (clone the repo, then run `install --cursor` from inside it):
-
-```bash
-# One-time install
-git clone https://github.com/ChanMeng666/echook ~/audio-hooks
-python ~/audio-hooks/bin/audio-hooks install --cursor       # writes ~/.cursor/hooks.json
-
-# Override DUPLICATE_BRIDGE if Claude Code is also installed (rare; double audio risk)
-python ~/audio-hooks/bin/audio-hooks install --cursor --force
-
-# Upgrade to a newer release — idempotent, preserves user_preferences.json
-cd ~/audio-hooks && git pull && python bin/audio-hooks install --cursor
-
-# Uninstall (preserves preferences for re-install)
-python ~/audio-hooks/bin/audio-hooks uninstall --cursor
-python ~/audio-hooks/bin/audio-hooks uninstall --cursor --purge   # also delete ~/.cursor/audio-hooks-data/
-```
-
-There is **no `audio-hooks upgrade --cursor` subcommand** — `audio-hooks upgrade` targets Claude Code's plugin cache and intentionally does not touch `~/.cursor/`. For Cursor-only installs, `git pull && install --cursor` is the upgrade recipe.
-
-**Runtime guard for `--force`:** when the install marker records `duplicate_bridge_forced: true` and the runner is invoked under Cursor, the runtime emits a `duplicate_bridge_runtime_skip` warn event (`DUPLICATE_BRIDGE_RUNTIME_SKIP`) and returns 0 — Claude Code's bridge fires alone. Re-enable the native path by `audio-hooks uninstall --cursor` followed by re-install without `--force`.
-
-**Bridge limitations** (these are Cursor's, not ours):
-
-- `Notification` and `PermissionRequest` hooks have no Cursor equivalent — those audio cues never fire under Cursor.
-- `Glob` / `WebFetch` / `WebSearch` matchers don't trigger under Cursor (no equivalent tools).
-- Cursor's bridge toggle (Settings → Rules, Skills, Subagents → "Include third-party Plugins, Skills, and other configs") is **global** — it affects *all* Claude Code plugins — and it has **no effect on `cursor-agent`**, where bridging is hardcoded. Cursor also runs every matching hook from every source without de-duplicating, which is why `install --cursor` aborts with `DUPLICATE_BRIDGE` when the plugin is installed; on the CLI that abort is the only defence.
-
-**Refreshing the cached plugin code Cursor's bridge invokes**: Cursor reads from `~/.claude/plugins/cache/chanmeng-audio-hooks/audio-hooks/<ver>/`, so the user must refresh that cache to pick up new releases. **Use `audio-hooks upgrade`** — it wraps `claude plugin update` (data-preserving) with a fallback to `uninstall --keep-data + install`, so the user's `user_preferences.json` survives. The legacy 5.1.3-era recipe (`/plugin uninstall + /plugin install`) destroys config and should not be recommended.
-
-**Stdin field mapping**: Cursor's `cursor_version`, `conversation_id`, `final_status`, `reason`, `duration_ms`, `is_background_agent`, `workspace_roots`, `model`, `error_message` are surfaced under a `cursor: {...}` sub-object in webhook payloads. `user_email` is **redacted by default**; opt in via `audio-hooks set webhook_settings.include_user_email true`.
-
-**A cancelled or failed turn in Cursor** — Cursor documents its native `stop` input as `{"status": "completed" | "aborted" | "error", "loop_count": 0}`. Both behaviours below are off by default, act only on those exact values (an absent `status` or any other value is an ordinary `stop`), and rest on Cursor's documentation: no live Cursor payload has been captured, and it is not known whether a `Stop` bridged from the Claude Code plugin carries `status` at all.
-
-| User says | Run | What it does |
-|---|---|---|
-| "don't play the finished sound when I cancel a turn in Cursor" | `audio-hooks set filters.stop.skip_if_aborted true` | A `stop` whose `status` is `aborted` is filtered (`FILTERED` in the log) and opens no debounce window. Not tied to an editor: it does nothing where the payload has no `status`, as in Claude Code |
-| "use a different sound when the Cursor agent ends in an error" | `audio-hooks set filters.stop.error_as_stop_failure true` **and** `audio-hooks hooks enable stop_failure` — both are needed | The `filters.stop.error_as_stop_failure` key is the opt-in; enabling `stop_failure` alone changes nothing under Cursor. With the key on, under Cursor only, a `stop` whose `status` is `error` *becomes* `stop_failure`: its sound, its switch, its filters and debounce window, and `hook_type: "stop_failure"` in a webhook (the original `status` stays in `event_data`). TTS always says "Agent stopped with an error", never `tts_settings.messages.stop_failure` (that message is about API errors). **With the key on and `stop_failure` off, an errored turn is silent** — it does not fall back to the `stop` sound, so check `audio-hooks hooks list` before turning the key on. A user who ran `hooks enable-only stop_failure_<variant>` has the parent `stop_failure` left on, so with the key on they hear the generic `stop_failure` sound for errored Cursor turns. `stop_failure` also turns on API-error alerts in Claude Code |
-
-## Install for Codex users
-
-**OpenAI's Codex does NOT auto-bridge Claude Code plugins**. Prefer the Codex plugin path when available; use the native registration at `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`) as a fallback. Run `audio-hooks status` and check `editor_targets.codex.state`:
-
-| State | Meaning |
-|---|---|
-| `active` | Installed and hooks are enabled. Audio fires correctly. |
-| `active-but-hooks-disabled` | Installed but `[features].hooks = false` disables hooks. Remove that opt-out or set `hooks = true`, then tell the user to restart Codex. |
-| `active-but-config-unreadable` | Installed but `~/.codex/config.toml` couldn't be parsed. Fix the TOML; hooks are enabled by default unless `[features].hooks = false` is present. |
-| `inactive` | Not installed. Run `audio-hooks install --codex`. |
-
-**Codex plugin install**:
-
-```bash
-codex plugin marketplace add ChanMeng666/echook
-codex plugin add audio-hooks@chanmeng-audio-hooks
-```
-
-If Codex asks for it, tell the user to type `/reload-plugins`, then verify with `audio-hooks status`, `audio-hooks diagnose`, and `audio-hooks test all`.
-
-**Native hooks.json install** (works whether or not they also have Claude Code):
-
-```bash
-git clone https://github.com/ChanMeng666/echook ~/audio-hooks
-python ~/audio-hooks/bin/audio-hooks install --codex
-```
-
-Read the JSON output and act on it:
-
-| `feature_flag_state` | What you do |
-|---|---|
-| `enabled_by_default` | Nothing more. Tell the user to restart Codex. |
-| `explicitly_enabled` | Nothing more. Tell the user to restart Codex. |
-| `explicitly_enabled_legacy` | Nothing more. Tell the user to restart Codex. |
-| `disabled` / `disabled_legacy` | Use your Edit tool to remove the hooks opt-out or set `hooks = true` under `[features]`, then tell the user to restart Codex. |
-| `parse_error` | Fix `~/.codex/config.toml`, then tell the user to restart Codex. |
-
-**Why we don't auto-edit user-authored `config.toml`:** TOML round-trip with comment preservation is unreliable, and getting it wrong destroys the user's formatting. Letting the AI agent do the targeted edit via its Edit tool keeps the user's file safe.
-
-**Upgrading the Codex install** (idempotent, preserves preferences):
-
-```bash
-cd ~/audio-hooks && git pull && python bin/audio-hooks install --codex
-```
-
-There is **no `audio-hooks upgrade --codex` subcommand** — `audio-hooks upgrade` targets Claude Code's plugin cache. For Codex installs, `git pull && install --codex` is the upgrade recipe.
-
-**Uninstalling**:
-
-```bash
-python ~/audio-hooks/bin/audio-hooks uninstall --codex
-python ~/audio-hooks/bin/audio-hooks uninstall --codex --purge   # also delete ~/.codex/audio-hooks-data/
-```
-
-The uninstall **never touches `~/.codex/config.toml`**.
-
-**Codex limitations** (these are Codex's, not ours, per [developers.openai.com/codex/hooks](https://developers.openai.com/codex/hooks)):
-
-- Codex supports 11 hook events in echook's mapping: `SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`, and `SessionEnd` — the last registered by `install --codex` **only** when the installed Codex is 0.145.0 or newer. Other audio-hooks canonical events have no Codex equivalent and the runner no-ops them with a `skipped_no_codex_equivalent` debug NDJSON event.
-- Codex plugin invokes with `PLUGIN_DATA`; native hooks.json install lands at `$CODEX_HOME/audio-hooks-data/` when `detect_invoker() == "codex"`.
-
-**Stdin field mapping**: Codex's stdin uses **the same snake_case schema** as Claude Code (`session_id`, `tool_name`, `hook_event_name`, `transcript_path`, `turn_id`, `tool_use_id`, `tool_response`, `stop_hook_active`, `last_assistant_message`, `source`). No translation layer needed. Codex-specific fields (`turn_id`, `tool_use_id`, `permission_mode`, `tool_response`, `stop_hook_active`) are surfaced under a `codex: {...}` sub-object in webhook payloads (parallel to `cursor: {...}`).
-
-## Reading the manifest (canonical introspection)
-
-`audio-hooks manifest` returns a single JSON document with:
-
-- `subcommands` — every CLI subcommand with arg list and description
-- `hooks` — every hook with default state, audio file, description
-- `config_keys` — every dotted config path
-- `themes` — available audio themes
-- `error_codes` — every stable error code with hint and suggested_command
-- `env_vars` — every recognised environment variable
-- `log_schema` and `webhook_schema` version strings
-
-`audio-hooks manifest --schema` returns the JSON Schema for `user_preferences.json` (use this when you need to validate or generate config).
-
-If any user request feels like it might involve a project capability you don't immediately recognise, **read the manifest first** instead of guessing. The manifest never lies; this skill might lag behind it after an update.
+This skill is for echook only. A request with nothing to do with audio notifications, sounds, or the status line (a general coding question, for instance) must not invoke it, and the answer must not mention echook.
 
 ## What you should NOT do
 
-- Do NOT edit `user_preferences.json` directly. Use `audio-hooks set` and the typed setters (`hooks enable`, `theme set`, `webhook set`, `tts set`, `rate-limits set`). They round-trip through validation and emit structured success/error JSON.
-- Do NOT prompt the user with a [y/N]. Defaults are sensible. If the user gave you a specific instruction, just run the command.
-- Do NOT try to install via `bash scripts/install-complete.sh` or `audio-hooks install --scripts` when the plugin install path is available — the plugin path is the recommended one, and the script path on top of it makes every hook fire twice (`DUAL_INSTALL_DETECTED`).
-- Do NOT edit hook registrations in `~/.claude/settings.json` by hand. The plugin registers its own hooks; `audio-hooks install --plugin` / `uninstall --plugin` print the `claude plugin … --json` commands that add and remove it.
-- Do NOT translate any of the JSON output. The keys and values are stable interface contracts.
-
-## Quick reference
-
-```bash
-audio-hooks manifest                       # canonical introspection — read this first
-audio-hooks status                         # full project state snapshot
-audio-hooks version                        # version + install detection
-audio-hooks diagnose                       # system check + warnings + errors
-
-audio-hooks hooks list                     # all 39 hooks
-audio-hooks hooks list --variants          # + 47 matcher variants
-audio-hooks hooks enable <name>            # turn one on
-audio-hooks hooks disable <name>           # turn one off
-audio-hooks hooks enable-only <a> <b>      # exclusive enable
-
-audio-hooks snooze [duration|off|status]   # mute (default 30m)
-audio-hooks theme set <default|custom>     # switch theme
-audio-hooks webhook                        # view current webhook config
-audio-hooks webhook set --url <u> --format <f>
-audio-hooks webhook test                   # POST a test payload
-audio-hooks webhook clear                  # disable webhook
-audio-hooks tts set --enabled true --speak-assistant-message true
-audio-hooks rate-limits set --five-hour-thresholds 80,95
-
-audio-hooks set notification_settings.mode <mode>            # audio_only | notification_only | audio_and_notification | disabled
-audio-hooks set notification_settings.detail_level <level>   # minimal | standard | verbose (verbose = full sanitized summary)
-audio-hooks set notification_settings.per_hook.<hook> <mode> # per-hook override
-audio-hooks set playback_settings.debounce_ms <int>          # min ms between same hook (default 500)
-
-audio-hooks statusline install             # register status line (restart Claude Code after)
-audio-hooks statusline uninstall           # remove status line
-audio-hooks statusline show                # check registration state
-audio-hooks set statusline_settings.visible_segments '["context"]'               # show only context bar
-audio-hooks set statusline_settings.visible_segments '["context","api_quota"]'   # show context + API quota
-audio-hooks set statusline_settings.visible_segments '[]'                        # show all (default)
-
-audio-hooks test <hook|all>                # play a hook end-to-end
-audio-hooks logs tail --n 50               # recent NDJSON events
-audio-hooks logs clear                     # truncate the event log
-
-audio-hooks get <dotted.key>               # any config key
-audio-hooks set <dotted.key> <value>       # any config key (auto-coerces)
-audio-hooks update                         # show current version info
-```
+- Do NOT edit `user_preferences.json` or `~/.claude/settings.json` hook registrations by hand. The plugin registers its own hooks.
+- Do NOT try `audio-hooks install --scripts`: the script installer was removed in 7.0.0 (`SCRIPT_INSTALL_REMOVED`). Use `--plugin`.
+- Do NOT recommend `terminal_sequence`, a terminal bell or a window title.
+- Do NOT invent commands or settings for out-of-scope features.
+- Do NOT claim `stop` means task completion.
+- Do NOT fake `/reload-plugins` through Bash; ask the user to type it.
+- Do NOT recommend `audio-hooks upgrade --force` unless `audio-hooks status` confirms the upgrade is stuck.

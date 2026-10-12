@@ -3,9 +3,10 @@
 CLAUDE.md tells agents the manifest is the source of truth for error codes, but
 it was built from ``hook_runner.ErrorCode`` alone -- the codes a *hook* reports.
 INVALID_USAGE, DUPLICATE_BRIDGE, UNINSTALL_INCOMPLETE and a dozen more are
-emitted only by ``bin/audio-hooks.py``, as string literals, so they were absent.
+emitted only by the CLI (``bin/audio-hooks.py`` and the ``bin/echook_cli``
+package beside it), as string literals, so they were absent.
 The CLI now carries its own table (``CLI_ERROR_CODES``) and this test scans the
-CLI's source for every emit site, so a new code cannot ship uncatalogued.
+CLI's sources for every emit site, so a new code cannot ship uncatalogued.
 """
 
 from __future__ import annotations
@@ -27,6 +28,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 CLI = REPO / "bin" / "audio-hooks.py"
+# The CLI is the entry file plus the package beside it; an emit site in either
+# is an emit site of the CLI.
+CLI_SOURCES = [CLI] + sorted((REPO / "bin" / "echook_cli").glob("*.py"))
 CODE_SHAPE = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$")
 
 
@@ -73,10 +77,20 @@ def emitted_codes(source: str):
     return codes, unscannable
 
 
+def emitted_codes_in_cli():
+    """``emitted_codes`` over every CLI source file; sites are ``file:line``."""
+    codes, unscannable = {}, []
+    for path in CLI_SOURCES:
+        found, bad = emitted_codes(path.read_text(encoding="utf-8"))
+        for code, line in found.items():
+            codes.setdefault(code, f"{path.name}:{line}")
+        unscannable.extend(f"{path.name}:{line}" for line in bad)
+    return codes, unscannable
+
+
 class TestCliErrorCodes(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.source = CLI.read_text(encoding="utf-8")
         cls.cli = _load_cli()
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -85,7 +99,8 @@ class TestCliErrorCodes(unittest.TestCase):
 
     def test_scanner_finds_the_known_codes(self) -> None:
         """Guards the scanner itself: a refactor that makes it find nothing must not pass."""
-        codes, _ = emitted_codes(self.source)
+        self.assertGreater(len(CLI_SOURCES), 1, "bin/echook_cli/*.py not found")
+        codes, _ = emitted_codes_in_cli()
         for known in ("INVALID_USAGE", "DUPLICATE_BRIDGE", "UNINSTALL_INCOMPLETE",
                       "DUAL_INSTALL_DETECTED", "UNKNOWN_HOOK_TYPE", "CONFIG_READ_ERROR",
                       "PROJECT_DIR_NOT_FOUND", "NO_COMPLETION_SIGNAL"):
@@ -102,14 +117,14 @@ class TestCliErrorCodes(unittest.TestCase):
         self.assertEqual(unscannable, [3])
 
     def test_every_emitted_code_is_in_the_manifest(self) -> None:
-        codes, unscannable = emitted_codes(self.source)
+        codes, unscannable = emitted_codes_in_cli()
         self.assertEqual(unscannable, [],
                          "emit sites whose code is not a string literal cannot be catalogued; "
                          f"lines {unscannable}")
         missing = {c: line for c, line in codes.items() if c not in self.manifest_codes}
         self.assertEqual(missing, {},
                          "the CLI emits these codes but manifest.error_codes lacks them; add each to "
-                         "CLI_ERROR_CODES in bin/audio-hooks.py (code: first emit line)")
+                         "CLI_ERROR_CODES in bin/echook_cli/error_codes.py (code: first emit site)")
 
     def test_every_cli_table_entry_is_well_formed(self) -> None:
         for code, meta in self.cli.CLI_ERROR_CODES.items():
@@ -123,7 +138,7 @@ class TestCliErrorCodes(unittest.TestCase):
 
     def test_cli_table_has_no_dead_entries(self) -> None:
         """A catalogued code the CLI no longer emits is documentation that lies."""
-        codes, _ = emitted_codes(self.source)
+        codes, _ = emitted_codes_in_cli()
         dead = sorted(set(self.cli.CLI_ERROR_CODES) - set(codes))
         self.assertEqual(dead, [], "in CLI_ERROR_CODES but never emitted")
 

@@ -290,25 +290,25 @@ class _RunHookCase(unittest.TestCase):
         config["webhook_settings"]["url"] = "http://127.0.0.1:9/never"
         self.loaded = config
         patches = {
-            "prefs": mock.patch.object(hr, "_prefs", return_value=SimpleNamespace(queue_dir=queue)),
-            "ensured": mock.patch.object(hr, "_queue_dir_ensured", True),
+            "prefs": mock.patch.object(hr.runner_core, "_prefs", return_value=SimpleNamespace(queue_dir=queue)),
+            "ensured": mock.patch.object(hr.runner_core, "_queue_dir_ensured", True),
             "config": mock.patch.object(hr, "load_config", return_value=config),
-            "log_event": mock.patch.object(hr, "log_event"),
+            "log_event": mock.patch.object(hr.runner_core, "log_event"),
             "log_trigger": mock.patch.object(
-                hr, "log_trigger", side_effect=lambda h, s, d="": self.triggers.append((h, s))),
-            "invoker": mock.patch.object(hr, "_get_invoker", return_value=invoker),
+                hr.runner_core, "log_trigger", side_effect=lambda h, s, d="": self.triggers.append((h, s))),
+            "invoker": mock.patch.object(hr.runner_core, "_get_invoker", return_value=invoker),
             "marker": mock.patch.object(hr, "_read_install_marker", return_value={}),
             "snoozed": mock.patch.object(hr, "is_snoozed", return_value=False),
-            "rate": mock.patch.object(hr, "check_rate_limits"),
+            "rate": mock.patch.object(hr.rate_limit_alerts, "check_rate_limits"),
             "update": mock.patch.object(hr, "check_and_self_update"),
             "audio_file": mock.patch.object(hr, "get_audio_file", side_effect=_audio),
-            "play_audio": mock.patch.object(hr, "play_audio", return_value=True),
-            "desktop": mock.patch.object(hr, "send_desktop_notification", return_value=True),
-            "tts": mock.patch.object(hr, "play_tts", return_value=True),
+            "play_audio": mock.patch.object(hr.audio_playback, "play_audio", return_value=True),
+            "desktop": mock.patch.object(hr.desktop_notification, "send_desktop_notification", return_value=True),
+            "tts": mock.patch.object(hr.text_to_speech, "play_tts", return_value=True),
             "webhook": mock.patch.object(
-                hr, "send_webhook",
+                hr.webhook_dispatch, "send_webhook",
                 side_effect=lambda h, c, s, cfg: self.contexts.append((h, c))),
-            "terminal": mock.patch.object(hr, "emit_terminal_sequence", return_value=False),
+            "terminal": mock.patch.object(hr.terminal_sequence, "emit_terminal_sequence", return_value=False),
         }
         self.mocks = {}
         for name, p in patches.items():
@@ -409,7 +409,7 @@ class TestRerouteKeyOn(_RunHookCase):
         self.run_stop("error")
         actions = [c.args[1] for c in self.mocks["log_event"].call_args_list]
         self.assertIn("stop_rerouted_to_stop_failure", actions)
-        self.assertEqual(self.hr._current_hook_type, "stop_failure")
+        self.assertEqual(self.hr.runner_core._current_hook_type, "stop_failure")
 
     def test_completed_aborted_absent_and_unknown_stay_stop(self) -> None:
         for status in ("completed", "aborted", None, "Error", "ERROR", "failed", "", 1, True,
@@ -580,7 +580,7 @@ class TestStopFailureContextWording(unittest.TestCase):
         cls.hr = _load_hook_runner()
 
     def _context(self, payload: Dict[str, Any]) -> str:
-        return self.hr.get_notification_context("stop_failure", payload, "standard")
+        return self.hr.notification_context.get_notification_context("stop_failure", payload, "standard")
 
     def test_claude_code_payloads_are_worded_as_before(self) -> None:
         self.assertEqual(self._context({"error_type": "rate_limit"}), "API error: rate_limit")
@@ -619,10 +619,10 @@ class TestWebhookNamesTheEventThatFired(unittest.TestCase):
                 self.stdin = mock.Mock()
                 self.stdin.write.side_effect = lambda b: sent.setdefault("body", b)
 
-        with mock.patch.object(hr.subprocess, "Popen", return_value=_Proc()), \
-                mock.patch.object(hr, "log_event"), \
-                mock.patch.object(hr, "_get_invoker", return_value="cursor"):
-            hr.send_webhook("stop_failure", CONTEXT, _payload("error"), config)
+        with mock.patch.object(hr.webhook_dispatch.subprocess, "Popen", return_value=_Proc()), \
+                mock.patch.object(hr.runner_core, "log_event"), \
+                mock.patch.object(hr.runner_core, "_get_invoker", return_value="cursor"):
+            hr.webhook_dispatch.send_webhook("stop_failure", CONTEXT, _payload("error"), config)
         body = json.loads(sent["body"].decode("utf-8"))
         self.assertEqual(body["hook_type"], "stop_failure")
         self.assertEqual(body["invoker"], "cursor")

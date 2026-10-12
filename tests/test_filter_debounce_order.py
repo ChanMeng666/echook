@@ -62,20 +62,20 @@ class TestFilterRunsBeforeDebounce(unittest.TestCase):
         self.stamp = self.queue / "stop_last_played"
         self.statuses = []
         patches = {
-            "prefs": mock.patch.object(hr, "_prefs", return_value=SimpleNamespace(queue_dir=self.queue)),
-            "ensured": mock.patch.object(hr, "_queue_dir_ensured", True),
+            "prefs": mock.patch.object(hr.runner_core, "_prefs", return_value=SimpleNamespace(queue_dir=self.queue)),
+            "ensured": mock.patch.object(hr.runner_core, "_queue_dir_ensured", True),
             "config": mock.patch.object(hr, "load_config", return_value=CONFIG),
-            "log_event": mock.patch.object(hr, "log_event"),
+            "log_event": mock.patch.object(hr.runner_core, "log_event"),
             "log_trigger": mock.patch.object(
-                hr, "log_trigger", side_effect=lambda h, s, d="": self.statuses.append(s)),
-            "invoker": mock.patch.object(hr, "_get_invoker", return_value="claude-code"),
+                hr.runner_core, "log_trigger", side_effect=lambda h, s, d="": self.statuses.append(s)),
+            "invoker": mock.patch.object(hr.runner_core, "_get_invoker", return_value="claude-code"),
             "marker": mock.patch.object(hr, "_read_install_marker", return_value={}),
             "snoozed": mock.patch.object(hr, "is_snoozed", return_value=False),
-            "rate": mock.patch.object(hr, "check_rate_limits"),
+            "rate": mock.patch.object(hr.rate_limit_alerts, "check_rate_limits"),
             "update": mock.patch.object(hr, "check_and_self_update"),
             "audio_file": mock.patch.object(hr, "get_audio_file", return_value=Path(__file__)),
-            "play_audio": mock.patch.object(hr, "play_audio", return_value=True),
-            "terminal": mock.patch.object(hr, "emit_terminal_sequence", return_value=False),
+            "play_audio": mock.patch.object(hr.audio_playback, "play_audio", return_value=True),
+            "terminal": mock.patch.object(hr.terminal_sequence, "emit_terminal_sequence", return_value=False),
         }
         self.mocks = {}
         for name, p in patches.items():

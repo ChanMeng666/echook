@@ -235,15 +235,15 @@ class TestRateLimitThresholdTolerance(unittest.TestCase):
         payload = {"rate_limits": {"five_hour": {"used_percentage": 99, "resets_at": 1234567890}}}
         cfg = {"rate_limit_alerts": {"enabled": True, "five_hour_thresholds": thresholds,
                                      "seven_day_thresholds": []}}
-        with mock.patch.object(self.hr, "play_audio", return_value=True) as play, \
-                mock.patch.object(self.hr, "ensure_queue_dir"), \
-                mock.patch.object(self.hr, "_prefs") as prefs, \
-                mock.patch.object(self.hr, "log_event"), \
-                mock.patch.object(self.hr, "log_error_event"):
+        with mock.patch.object(self.hr.audio_playback, "play_audio", return_value=True) as play, \
+                mock.patch.object(self.hr.runner_core, "ensure_queue_dir"), \
+                mock.patch.object(self.hr.runner_core, "_prefs") as prefs, \
+                mock.patch.object(self.hr.runner_core, "log_event"), \
+                mock.patch.object(self.hr.runner_core, "log_error_event"):
             import tempfile
             with tempfile.TemporaryDirectory() as td:
                 prefs.return_value.queue_dir = Path(td)
-                self.hr.check_rate_limits(payload, cfg)
+                self.hr.rate_limit_alerts.check_rate_limits(payload, cfg)
         return play
 
     def test_scalar_string_and_malformed_values_do_not_raise(self) -> None:
@@ -264,8 +264,8 @@ class TestRateLimitThresholdTolerance(unittest.TestCase):
     def test_infinite_used_percentage_does_not_raise(self) -> None:
         payload = {"rate_limits": {"five_hour": {"used_percentage": float("inf"), "resets_at": 1}}}
         cfg = {"rate_limit_alerts": {"enabled": True, "five_hour_thresholds": [80]}}
-        with mock.patch.object(self.hr, "play_audio", return_value=True):
-            self.hr.check_rate_limits(payload, cfg)
+        with mock.patch.object(self.hr.audio_playback, "play_audio", return_value=True):
+            self.hr.rate_limit_alerts.check_rate_limits(payload, cfg)
 
 
 if __name__ == "__main__":

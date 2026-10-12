@@ -51,16 +51,16 @@ class TestInternalSubagentGuard(unittest.TestCase):
         self.events = []
         patches = {
             "log_event": mock.patch.object(
-                hr, "log_event", side_effect=lambda *a, **k: self.events.append((a, k))),
+                hr.runner_core, "log_event", side_effect=lambda *a, **k: self.events.append((a, k))),
             "is_hook_enabled": mock.patch.object(hr, "is_hook_enabled", return_value=False),
-            "invoker": mock.patch.object(hr, "_get_invoker", return_value="claude-code"),
+            "invoker": mock.patch.object(hr.runner_core, "_get_invoker", return_value="claude-code"),
             # The cursor path reads the install marker; keep it off the real disk.
             "marker": mock.patch.object(hr, "_read_install_marker", return_value={}),
-            "log_trigger": mock.patch.object(hr, "log_trigger"),
-            "play_audio": mock.patch.object(hr, "play_audio", return_value=True),
-            "play_tts": mock.patch.object(hr, "play_tts", return_value=True),
+            "log_trigger": mock.patch.object(hr.runner_core, "log_trigger"),
+            "play_audio": mock.patch.object(hr.audio_playback, "play_audio", return_value=True),
+            "play_tts": mock.patch.object(hr.text_to_speech, "play_tts", return_value=True),
             "send_desktop_notification": mock.patch.object(
-                hr, "send_desktop_notification", return_value=True),
+                hr.desktop_notification, "send_desktop_notification", return_value=True),
         }
         self.mocks = {}
         for name, p in patches.items():

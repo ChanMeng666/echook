@@ -40,7 +40,8 @@ class TestAgentGuides(unittest.TestCase):
     def test_claude_md_is_a_shim_not_a_copy(self) -> None:
         shim, guide = _read("CLAUDE.md"), _read("AGENTS.md")
         self.assertLess(len(shim), 2000, "CLAUDE.md should hold the import and Claude-only notes, not the guide")
-        self.assertGreater(len(guide), 10000)
+        self.assertGreater(len(guide), 2000)
+        self.assertLess(len(guide), 12000, "AGENTS.md is loaded into every session; put detail in docs/INVARIANTS.md")
         self.assertNotEqual(shim, guide)
 
     def test_the_critical_rules_live_only_in_agents_md(self) -> None:
@@ -77,13 +78,36 @@ class TestAgentGuides(unittest.TestCase):
             self.assertTrue((REPO / rel).exists(), rel)
 
     def test_docs_do_not_call_the_shim_the_canonical_guide(self) -> None:
-        for rel in ("docs/ARCHITECTURE.md", "docs/INSTALLATION_GUIDE.md", "docs/TROUBLESHOOTING.md"):
+        for rel in ("docs/ARCHITECTURE.md", "docs/INSTALLATION_GUIDE.md", "docs/TROUBLESHOOTING.md", "docs/INVARIANTS.md"):
             with self.subTest(doc=rel):
                 self.assertNotRegex(_read(rel), r"\[CLAUDE\.md\]\(\.\./CLAUDE\.md\)\s+—\s+canonical")
 
-    def test_agents_md_header_carries_the_current_version(self) -> None:
-        project = re.search(r'(?m)^PROJECT_VERSION\s*=\s*"([^"]+)"', _read("bin/audio-hooks.py")).group(1)
-        self.assertRegex(_read("AGENTS.md"), rf"(?m)^> v{re.escape(project)} ")
+    def test_every_path_the_guide_names_exists(self) -> None:
+        """AGENTS.md is an index; a path in it that no longer exists sends an agent nowhere."""
+        guide = _read("AGENTS.md")
+        named = set(re.findall(r"`((?:docs|tests|scripts|plugins|hooks|bin|config|audio|\.github)/[^`*<> ]+)`", guide))
+        named |= set(re.findall(r"`([A-Za-z_]+\.md)`", guide))
+        self.assertGreater(len(named), 20)
+        for rel in sorted(named):
+            with self.subTest(path=rel):
+                self.assertTrue((REPO / rel).exists(), rel)
+
+    def test_every_invariants_section_the_guide_names_exists(self) -> None:
+        headings = set(re.findall(r"(?m)^## (.+)$", _read("docs/INVARIANTS.md")))
+        table = _read("AGENTS.md").split("## Before you change", 1)[1].split("\n## ", 1)[0]
+        checked = 0
+        for line in table.splitlines():
+            cells = [c.strip() for c in line.split("|")]
+            if len(cells) < 4 or cells[1] in ("Area", "---"):
+                continue
+            for part in cells[2].split(";"):
+                name = re.sub(r"\s*\(.*\)\s*$", "", part.strip())
+                if not name or "docs/" in name or name.startswith("`docs"):
+                    continue
+                with self.subTest(section=name):
+                    self.assertIn(name, headings)
+                checked += 1
+        self.assertGreater(checked, 8)
 
 
 if __name__ == "__main__":
