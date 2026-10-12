@@ -18,13 +18,18 @@ A sound, a desktop toast or a message on your phone when Claude Code, Cursor or 
 
 <br>
 
-
-
 https://github.com/user-attachments/assets/eb723799-6e06-42d6-8855-addcdf74888f
 
+<sub>Every frame is code: a replica of echook's terminal UI in Remotion, with a synthesised score. How it was made: <a href="https://github.com/ChanMeng666/echook-promo-studio">echook-promo-studio</a>.</sub>
 
+<details>
+<summary><sub>The first film (89 s)</sub></summary>
 
 https://github.com/user-attachments/assets/804dff1e-56d8-49b2-b0c0-6706f3eeccd4
+
+<sub>Made with Remotion, Claude Code, ElevenLabs and Suno. How it was made: <a href="https://github.com/ChanMeng666/echook-promo-video">echook-promo-video</a>.</sub>
+
+</details>
 
 ## Try it
 
