@@ -67,7 +67,7 @@ class CleanForOutputTests(unittest.TestCase):
         cls.hr = _load_module()
 
     def clean(self, text, max_len=200, **kw):
-        return self.hr._clean_for_output(text, max_len, **kw)
+        return self.hr.notification_context._clean_for_output(text, max_len, **kw)
 
     # ---- code stripping -------------------------------------------------
     def test_fenced_code_block_omitted(self):

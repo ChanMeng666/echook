@@ -1,6 +1,6 @@
 """Tests for the native ``audio-hooks uninstall`` (legacy script install removal).
 
-``uninstall`` used to shell out to ``scripts/uninstall.sh``. The plugin layout
+``uninstall`` used to shell out to a shell script (removed in 7.0.0). The plugin layout
 does not ship ``scripts/`` (and ``PROJECT_ROOT`` is the plugin directory
 precisely when ``DUAL_INSTALL_DETECTED`` is reported), and the old code did
 nothing on Windows. The removal now lives in the CLI, so these tests run it
@@ -17,6 +17,7 @@ except ImportError:  # python -m unittest tests.test_x from the repo root
     from tests import _isolation  # noqa: F401
 
 import contextlib
+import importlib
 import importlib.util
 import io
 import json
@@ -56,6 +57,8 @@ def _cmd(c):
 class _Base(unittest.TestCase):
     def setUp(self) -> None:
         self.cli = _load_cli()
+        # The removal rule and its helpers live beside the entry file.
+        self.legacy = importlib.import_module("echook_cli.legacy_uninstall")
         self._td = tempfile.TemporaryDirectory()
         self.addCleanup(self._td.cleanup)
         self.home = Path(self._td.name) / "home"
@@ -332,7 +335,7 @@ class TestNativeUninstall(_Base):
         self.write_settings({"permissions": {"allow": ["Bash(~/.claude/hooks/stop_hook.sh:*)"]}},
                             name="settings.local.json")
         self.install_files()
-        real = self.cli._write_bytes_atomic
+        real = self.legacy._write_bytes_atomic
         calls = []
 
         def flaky(path, data):
@@ -341,7 +344,7 @@ class TestNativeUninstall(_Base):
                 raise OSError("disk full")
             return real(path, data)
 
-        with mock.patch.object(self.cli, "_write_bytes_atomic", side_effect=flaky):
+        with mock.patch.object(self.legacy, "_write_bytes_atomic", side_effect=flaky):
             rc, out = self.uninstall()
         self.assertEqual(rc, 1)
         self.assertFalse(out["ok"])
@@ -440,7 +443,7 @@ class TestOwnershipByContent(_Base):
         self.assertFalse((self.hooks / ".project_path").exists())
 
     def test_markers_cover_every_name_the_cli_removes(self) -> None:
-        names = set(self.cli.LEGACY_COMMAND_SCRIPTS) | set(self.cli.LEGACY_EXTRA_HOOK_FILES)
+        names = set(self.legacy.LEGACY_COMMAND_SCRIPTS) | set(self.legacy.LEGACY_EXTRA_HOOK_FILES)
         self.assertEqual(set(self.cli.LEGACY_FILE_MARKERS) | {".project_path"}, names)
 
     def test_every_marker_matches_the_historical_content_it_was_derived_from(self) -> None:
@@ -454,7 +457,7 @@ class TestOwnershipByContent(_Base):
         for name, texts in samples.items():
             for t in texts:
                 self.assertTrue(re.search(self.cli.LEGACY_FILE_MARKERS[name], t, re.M), (name, t))
-        for name in self.cli.LEGACY_COMMAND_SCRIPTS:
+        for name in self.legacy.LEGACY_COMMAND_SCRIPTS:
             if name.endswith("_hook.sh"):
                 self.assertTrue(re.search(self.cli.LEGACY_FILE_MARKERS[name], self.WRAPPER, re.M), name)
         for text, name in (("# Claude Code Audio Hooks - Shared Configuration Library", "hook_config.sh"),
@@ -462,7 +465,7 @@ class TestOwnershipByContent(_Base):
                            ("# Claude Code Audio Hooks - Path Utilities", "path_utils.sh"),
                            ("# echook - Path Utilities", "path_utils.sh"),
                            ("# Hook Logger - Records all hook triggers for debugging", "hook_logger.sh")):
-            self.assertTrue(re.search(self.cli.LEGACY_SHARED_MARKERS[name], text + "\n", re.M), text)
+            self.assertTrue(re.search(self.legacy.LEGACY_SHARED_MARKERS[name], text + "\n", re.M), text)
 
 
 class TestWriteFidelity(_Base):
@@ -515,7 +518,7 @@ class TestWriteFidelity(_Base):
         self.write_settings(self._doc())
         self.write_settings({"permissions": {"allow": ["Bash(~/.claude/hooks/stop_hook.sh:*)"]}},
                             name="settings.local.json")
-        real = self.cli._write_bytes_atomic
+        real = self.legacy._write_bytes_atomic
         calls = []
 
         def flaky(path, data):
@@ -524,7 +527,7 @@ class TestWriteFidelity(_Base):
                 raise OSError("disk full")
             return real(path, data)
 
-        with mock.patch.object(self.cli, "_write_bytes_atomic", side_effect=flaky):
+        with mock.patch.object(self.legacy, "_write_bytes_atomic", side_effect=flaky):
             rc, out = self.uninstall()
         self.assertEqual(rc, 1)
         self.assertIn("could NOT be restored", out["error"]["message"])
@@ -606,8 +609,8 @@ class TestIncompleteIsDistinguishable(_Base):
 
 class TestGoldenFixtureTable(_Base):
     """One table, run through the CLI helpers: the cases from the ownership and
-    home-anchoring rules (scripts/uninstall.sh delegates to these helpers, so
-    there is no second copy to drift from)."""
+    home-anchoring rules (these helpers are the only implementation, so there
+    is no second copy to drift from)."""
 
     def test_strip_hooks_golden(self) -> None:
         home = self.home_fwd()
@@ -621,7 +624,7 @@ class TestGoldenFixtureTable(_Base):
             "PreToolUse": [ours("%USERPROFILE%\\.claude\\hooks\\hook_runner.py")],
         }}
         # stop_hook.sh belongs to the user (owned() says no); the rest of ours is ours
-        removed = self.cli._strip_legacy_hooks(doc, owned=lambda name: name != "stop_hook.sh")
+        removed = self.legacy._strip_legacy_hooks(doc, owned=lambda name: name != "stop_hook.sh")
         self.assertEqual(removed, 3)
         self.assertEqual(doc["hooks"]["Stop"], [ours("node D:/proj/.claude/hooks/hook_runner.py"),
                                                 ours("bash ~/bin/my_stop_hook.sh"),
@@ -633,7 +636,7 @@ class TestGoldenFixtureTable(_Base):
         doc = {"permissions": {"allow": ["Bash(~/.claude/hooks/stop_hook.sh:*)", "Bash(git status)",
                                          "Bash(~/.claude/hooks/hook_runner.py)",
                                          "Bash(node D:/proj/.claude/hooks/hook_runner.py)"]}}
-        removed = self.cli._strip_legacy_permissions(doc, owned=lambda name: name != "stop_hook.sh")
+        removed = self.legacy._strip_legacy_permissions(doc, owned=lambda name: name != "stop_hook.sh")
         self.assertEqual(removed, 1)
         self.assertEqual(doc["permissions"]["allow"], [
             "Bash(~/.claude/hooks/stop_hook.sh:*)", "Bash(git status)",
@@ -839,14 +842,14 @@ class TestRemoveUnmatched(_Base):
 class TestUnreadableAndModeDetails(_Base):
     def test_an_unreadable_file_is_not_described_as_markerless(self) -> None:
         self.install_files()
-        real = self.cli._read_head
+        real = self.legacy._read_head
 
         def read_head(path, limit=8192):
             if Path(path).name == "stop_hook.sh":
                 raise PermissionError("denied")
             return real(path, limit)
 
-        with mock.patch.object(self.cli, "_read_head", read_head):
+        with mock.patch.object(self.legacy, "_read_head", read_head):
             rc, out = self.uninstall()
         entry = next(e for e in out["skipped_not_ours"] if e["path"].endswith("stop_hook.sh"))
         self.assertIn("could not be read", entry["reason"])
@@ -874,7 +877,7 @@ class TestMatchingRule(_Base):
         with mock.patch("platform.system", return_value="Windows" if windows else "Linux"):
             for text in texts:
                 with self.subTest(text=text, windows=windows):
-                    self.assertIs(self.cli._is_legacy_script_ref(text), expected)
+                    self.assertIs(self.legacy._is_legacy_script_ref(text), expected)
 
     def test_every_accepted_home_spelling(self) -> None:
         home = self.home_fwd()
@@ -924,8 +927,8 @@ class TestMatchingRule(_Base):
         for doc in ({"hooks": []}, {"hooks": {"Stop": "x"}}, {"hooks": {"Stop": [None, 3, {"hooks": "x"}, {"hooks": [None]}]}},
                     {"permissions": {"allow": "x"}}, {"permissions": []}, {}):
             with self.subTest(doc=doc):
-                self.assertEqual(self.cli._strip_legacy_hooks(json.loads(json.dumps(doc))), 0)
-                self.assertEqual(self.cli._strip_legacy_permissions(json.loads(json.dumps(doc))), 0)
+                self.assertEqual(self.legacy._strip_legacy_hooks(json.loads(json.dumps(doc))), 0)
+                self.assertEqual(self.legacy._strip_legacy_permissions(json.loads(json.dumps(doc))), 0)
 
 
 if __name__ == "__main__":

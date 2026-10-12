@@ -1042,7 +1042,7 @@ class TestSegmentCatalogLockStep(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.mod = _load_module()
-        src = (Path(__file__).resolve().parent.parent / "bin" / "audio-hooks.py").read_text(encoding="utf-8")
+        src = (Path(__file__).resolve().parent.parent / "bin" / "echook_cli" / "statusline.py").read_text(encoding="utf-8")
         block = re.search(r"STATUSLINE_SEGMENTS\s*[:=].*?\n\]", src, re.DOTALL)
         assert block, "STATUSLINE_SEGMENTS not found"
         cls.catalog_names = re.findall(r'"name":\s*"([a-z0-9_]+)"', block.group(0))
@@ -1565,7 +1565,7 @@ class TestOptInSegmentCatalog(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.mod = _load_module()
-        src = (REPO / "bin" / "audio-hooks.py").read_text(encoding="utf-8")
+        src = (REPO / "bin" / "echook_cli" / "statusline.py").read_text(encoding="utf-8")
         block = re.search(r"STATUSLINE_SEGMENTS\s*[:=].*?\n\]", src, re.DOTALL).group(0)
         cls.defaults = {
             name: flag == "True"

@@ -1,23 +1,20 @@
-"""Contract tests for the legacy script-install path.
+"""Contract tests for what is left of the legacy script-install path.
 
-``scripts/install-complete.sh`` and ``scripts/uninstall.sh`` each carry a
-hand-written list of Claude Code event names, and nothing validated either one
-until this module existed. Both had silently drifted:
+Until 7.0.0 the repository shipped a script installer (a POSIX shell script and
+a PowerShell one) and a shell uninstaller. Each carried a hand-written list of
+Claude Code event names that nothing validated, and both had drifted: the
+installer registered 20 of the 28 events the plugin template registered, and
+the uninstaller knew only 9, so an uninstall left 19 orphaned registrations in
+``~/.claude/settings.json`` pointing at scripts that no longer existed.
 
-  * ``install-complete.sh`` registered 20 of the 28 events the plugin template
-    registers — missing the four v5.0 events (``PermissionDenied``,
-    ``CwdChanged``, ``FileChanged``, ``TaskCreated``) and all four v6.2 ones
-    (``Setup``, ``UserPromptExpansion``, ``PostToolBatch``, ``MessageDisplay``).
-    A script install was quietly less capable than a plugin install.
+7.0.0 removed the installer, the shell uninstaller and the shell library they
+shared. What remains is the removal rule in ``bin/echook_cli/legacy_uninstall.py``
+(``audio-hooks uninstall``), which machines that still carry a script install
+need. These tests pin that rule's lists and markers, and keep the removed files
+removed and unreferenced.
 
-  * ``uninstall.sh`` knew only 9 events, in two separate lists that disagreed
-    with each other. Uninstalling therefore left 19 orphaned registrations in
-    ``~/.claude/settings.json`` pointing at scripts that no longer existed —
-    the worse of the two bugs, because it outlives the uninstall.
-
-The authority is ``plugins/audio-hooks/hooks/hooks.json``: whatever the plugin
-registers, the script installer must be able to register and the uninstaller
-must be able to remove.
+The authority for event names is ``plugins/audio-hooks/hooks/hooks.json``:
+whatever the plugin registers, the uninstaller must be able to remove.
 
 Run with::
 
@@ -32,56 +29,36 @@ except ImportError:  # python -m unittest tests.test_x from the repo root
     from tests import _isolation  # noqa: F401
 
 import json
-import re
+import subprocess
 import unittest
 from pathlib import Path
-from typing import Set
+from typing import List, Set
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CC_TEMPLATE = REPO_ROOT / "plugins" / "audio-hooks" / "hooks" / "hooks.json"
-INSTALL_SH = REPO_ROOT / "scripts" / "install-complete.sh"
-UNINSTALL_SH = REPO_ROOT / "scripts" / "uninstall.sh"
+
+# Spelled in pieces so this module does not itself contain the names it bans.
+_INSTALLER_SH = "install-" + "complete.sh"
+_INSTALLER_PS1 = "install-" + "windows.ps1"
+_UNINSTALLER_SH = "uninstall" + ".sh"
+
+REMOVED_PATHS = (
+    "scripts/" + _INSTALLER_SH,
+    "scripts/" + _INSTALLER_PS1,
+    "scripts/" + _UNINSTALLER_SH,
+    "scripts/.internal-tests",
+    "hooks/shared",
+    "plugins/audio-hooks/hooks/shared",
+)
+BANNED_REFERENCES = (_INSTALLER_SH, _INSTALLER_PS1, "scripts/" + _UNINSTALLER_SH)
+# The release history and the dated project record may name what was removed.
+REFERENCE_ALLOWED_IN = {"CHANGELOG.md", "docs/PROJECT_STATUS.md"}
 
 
 def _authoritative_events() -> Set[str]:
     """Claude Code event names the plugin template registers."""
     data = json.loads(CC_TEMPLATE.read_text(encoding="utf-8"))
     return set(data["hooks"].keys())
-
-
-class TestLegacyScriptEventCoverage(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.expected = _authoritative_events()
-        cls.install_src = INSTALL_SH.read_text(encoding="utf-8")
-        cls.uninstall_src = UNINSTALL_SH.read_text(encoding="utf-8")
-
-    def test_authority_is_non_trivial(self) -> None:
-        """Guard the guard: if the template ever fails to parse, the other
-        assertions would pass vacuously against an empty set."""
-        self.assertGreaterEqual(len(self.expected), 25)
-
-    def test_install_script_registers_every_event(self) -> None:
-        block = re.search(
-            r"all_hook_types\s*=\s*\{(.*?)\n    \}", self.install_src, re.DOTALL
-        )
-        self.assertIsNotNone(block, "all_hook_types dict not found")
-        found = set(re.findall(r"'([A-Za-z]+)':\s*'[a-z_]+'", block.group(1)))
-        self.assertEqual(
-            self.expected - found,
-            set(),
-            "install-complete.sh cannot register events the plugin registers",
-        )
-
-    def test_uninstall_covers_every_event(self) -> None:
-        """The removal lives in the CLI (scripts/uninstall.sh delegates to it), so
-        the CLI's event list is the one that must cover the plugin's events."""
-        cli = _load_cli()
-        self.assertEqual(
-            self.expected - set(cli.LEGACY_HOOK_EVENTS),
-            set(),
-            "audio-hooks uninstall would leave orphaned hook registrations behind",
-        )
 
 
 def _load_cli():
@@ -95,47 +72,59 @@ def _load_cli():
     return module
 
 
-class TestUninstallScriptIsAThinWrapper(unittest.TestCase):
-    """``scripts/uninstall.sh`` used to carry its own copy of the matching rule,
-    the name lists and the deletion logic, and the copies drifted. It is now a
-    wrapper around ``audio-hooks uninstall --scripts``: there is one
-    implementation, so equivalence holds by construction. These tests keep it
-    that way -- no embedded rule, no deletion of files other than the project's
-    own --purge targets, no deletion of the live temp queue -- and pin the CLI's
-    own lists, markers and rule."""
+def _load_legacy():
+    """The module that owns the removal rule; loading the CLI puts it on sys.path."""
+    import importlib
+    _load_cli()
+    return importlib.import_module("echook_cli.legacy_uninstall")
+
+
+def _repository_files() -> List[str]:
+    """Tracked files plus untracked ones git would not ignore, as posix paths.
+
+    Raises ``unittest.SkipTest`` outside a git checkout (a source tarball).
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise unittest.SkipTest(f"git is not available: {exc}")
+    if proc.returncode != 0:
+        raise unittest.SkipTest("not a git checkout")
+    names = [n for n in proc.stdout.decode("utf-8", "replace").split("\0") if n]
+    # A file deleted in the working tree is still in the index until committed.
+    return [n for n in names if (REPO_ROOT / n).is_file()]
+
+
+class TestUninstallCoversEveryEvent(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.expected = _authoritative_events()
+
+    def test_authority_is_non_trivial(self) -> None:
+        """Guard the guard: if the template ever fails to parse, the other
+        assertion would pass vacuously against an empty set."""
+        self.assertGreaterEqual(len(self.expected), 25)
+
+    def test_uninstall_covers_every_event(self) -> None:
+        """The removal lives in the CLI, so the CLI's event list is the one that
+        must cover the plugin's events."""
+        cli = _load_legacy()
+        self.assertEqual(
+            self.expected - set(cli.LEGACY_HOOK_EVENTS),
+            set(),
+            "audio-hooks uninstall would leave orphaned hook registrations behind",
+        )
+
+
+class TestRemovalRuleLivesInTheCli(unittest.TestCase):
+    """There is one implementation of the removal rule. These tests pin its
+    lists, markers and matching rule."""
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.src = UNINSTALL_SH.read_text(encoding="utf-8")
-        cls.cli = _load_cli()
-
-    def test_it_delegates_to_the_cli(self) -> None:
-        self.assertIn('"$PYTHON_BIN" bin/audio-hooks.py uninstall --scripts', self.src)
-
-    def test_it_carries_no_rule_of_its_own(self) -> None:
-        for forbidden in ("PYTHON_SCRIPT", "hook_events", "HOOK_EVENTS", "HOOK_SCRIPTS",
-                          "REF_TEMPLATE", "HOME_SPELLINGS", "json.load", "json.dump",
-                          'rm "$HOOKS_DIR', "rm -rf \"$HOOKS_DIR"):
-            with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, self.src)
-
-    def test_it_does_not_delete_the_temp_queue(self) -> None:
-        self.assertNotIn("rm -rf \"$_tmp_dir/claude_audio_hooks_queue\"", self.src)
-        self.assertNotIn("rm -f \"$_tmp_dir/claude_audio_hooks.lock\"", self.src)
-
-    def test_paths_are_printed_with_printf_not_echo_e(self) -> None:
-        """`echo -e` interprets \\c, \\a, \\0 inside a Windows temp path and truncates it."""
-        for line in self.src.splitlines():
-            if line.lstrip().startswith("echo -e"):
-                self.assertNotRegex(line, r"\$\{?(?:BACKUP|PURGE|_tmp|PROJECT|CLAUDE|HOME|TEMP)", line)
-
-    def test_it_does_not_advertise_a_purge_form_the_cli_rejects(self) -> None:
-        self.assertNotIn("audio-hooks uninstall [--purge]", self.src)
-        self.assertNotIn("audio-hooks uninstall --purge", self.src)
-
-    def test_help_names_the_real_backup_location(self) -> None:
-        self.assertIn("backups/audio-hooks-uninstall-<timestamp>", self.src)
-        self.assertNotIn("claude_hooks_backup", self.src)
+        cls.cli = _load_legacy()
 
     def test_cli_names_files_and_markers_line_up(self) -> None:
         names = set(self.cli.LEGACY_COMMAND_SCRIPTS) | set(self.cli.LEGACY_EXTRA_HOOK_FILES)
@@ -149,6 +138,43 @@ class TestUninstallScriptIsAThinWrapper(unittest.TestCase):
             self.cli._LEGACY_REF_TEMPLATE,
             r"""(?:^|[\s"'=:(])(?:%s)/\.claude/hooks/(?:%s)(?![\w.\-/])""")
         self.assertEqual(len(self.cli.LEGACY_HOOK_EVENTS), 30)
+
+
+class TestScriptInstallerStaysRemoved(unittest.TestCase):
+    """7.0.0 removed the script installer. It double-registered every hook on a
+    machine that had the plugin (2026-10-03), and no supported install path
+    needed it."""
+
+    def test_the_removed_files_are_gone(self) -> None:
+        for rel in REMOVED_PATHS:
+            with self.subTest(path=rel):
+                self.assertFalse((REPO_ROOT / rel).exists(), f"{rel} is back")
+
+    def test_nothing_references_the_removed_scripts(self) -> None:
+        files = _repository_files()
+        self.assertGreater(len(files), 100, "file listing looks empty; the scan would pass vacuously")
+        self.assertIn("bin/audio-hooks.py", files)
+        needles = [n.encode("ascii") for n in BANNED_REFERENCES]
+        offenders = []
+        for rel in files:
+            if rel in REFERENCE_ALLOWED_IN:
+                continue
+            try:
+                blob = (REPO_ROOT / rel).read_bytes()
+            except OSError:
+                continue
+            for needle in needles:
+                if needle in blob:
+                    offenders.append(f"{rel}: {needle.decode('ascii')}")
+        self.assertEqual(offenders, [])
+
+    def test_the_cli_spawns_no_installer(self) -> None:
+        """`install --scripts` used to run a script from the checkout."""
+        src = (REPO_ROOT / "bin" / "audio-hooks.py").read_text(encoding="utf-8")
+        start = src.index("def cmd_install(")
+        body = src[start:src.index("\ndef ", start + 1)]
+        self.assertNotIn("subprocess", body)
+        self.assertIn('"SCRIPT_INSTALL_REMOVED"', body)
 
 
 if __name__ == "__main__":

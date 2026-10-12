@@ -511,7 +511,7 @@ class TestWebhookPayloadCodexFields(unittest.TestCase):
         # hard, so we directly invoke the module's payload construction
         # by patching subprocess.Popen to capture the body argv.
         mod = _load_module()
-        original_popen = mod.subprocess.Popen
+        original_popen = mod.webhook_dispatch.subprocess.Popen
         captured: Dict[str, Any] = {}
 
         class _FakePopen:
@@ -918,7 +918,7 @@ class TestCodexDisplayLabels(unittest.TestCase):
         try:
             sys.argv = ["hook_runner.py", "stop", "--invoker", "codex"]
             mod = _load_module()
-            self.assertEqual(mod._invoker_display_name(), "Codex")
+            self.assertEqual(mod.runner_core._invoker_display_name(), "Codex")
         finally:
             sys.argv = saved_argv
             sys.modules.pop("invoker", None)

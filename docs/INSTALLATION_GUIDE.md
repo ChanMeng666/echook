@@ -1,175 +1,27 @@
-# Installation Guide
+# Installing, upgrading and removing echook
 
-> **Version:** 6.8.0 | **Last Updated:** 2026-10-07
-
-**echook is AI-agent-first.** A human doesn't follow these steps — your AI agent (Claude Code, Cursor, or Codex) does. Point it at this repo and ask it to install/configure/uninstall; it runs every command below and reports back. This page documents the full pull → install → configure → verify → uninstall flow so the agent (and a curious human) can see exactly what happens. There are no interactive prompts and no human-only steps — the one exception is Claude Code's `/reload-plugins`, which has no CLI equivalent.
+Every step is a non-interactive command an agent runs; the one manual step is called out. `audio-hooks install --plugin|--cursor|--codex` prints machine-readable `next_steps`.
 
 > **Upgrading from 5.1.4 or earlier?** Don't `/plugin uninstall + install` manually — that destroys your `user_preferences.json`. Run `audio-hooks upgrade` instead. It auto-detects the install scope, tries `claude plugin update` (data-preserving) first, and falls back to `uninstall --keep-data + install` if needed. Migration on next load merges any new template keys into your config without overwriting your customizations. Disaster recovery: `audio-hooks backup list` / `audio-hooks backup restore latest-external`.
 
-## Recommended: plugin install
+| Platform | Command |
+|---|---|
+| Claude Code | `claude plugin marketplace add ChanMeng666/echook` → `claude plugin install audio-hooks@chanmeng-audio-hooks` → **ask the user to type `/reload-plugins`** in any session that is already open (no CLI equivalent — do not fake it via Bash). `audio-hooks install --plugin` only prints these as `claude plugin … --json` commands (v6.6.0) and changes nothing itself. Re-checked against Claude Code 2.1.288 on 2026-10-04 and 2.1.292 on 2026-10-07: there is still no `claude plugin reload` subcommand; the docs say a shell-installed plugin loads "the next time you start Claude Code, or when you run `/reload-plugins` in a session that's already open", so a *new* session needs no reload. Two things did change upstream: the `/plugin` *menu* applies its changes on close (2.1.268), and `/reload-plugins` can be typed into a session without an interactive terminal (desktop app, Agent SDK, `-p`; 2.1.260) — but it reloads only the session it is typed into and is refused over a remote connection, so it is not a way to reload someone else's running session. One headless test here (`claude -p "/reload-plugins"`) printed no reload summary; treat that route as unconfirmed. |
+| Cursor (native) | `audio-hooks install --cursor`. Aborts with `DUPLICATE_BRIDGE` if the Claude Code plugin is already installed (Cursor 3.2.x+ auto-bridges it — double-fire). Cursor runs **all** matching hooks from every source and does not de-duplicate, so the abort is the only defence; its bridge toggle (Settings → Rules, Skills, Subagents → "Include third-party Plugins, Skills, and other configs") has **no effect on `cursor-agent`**, where bridging is hardcoded. Pass `--force` only if the user accepts the trade-off; runtime guard `DUPLICATE_BRIDGE_RUNTIME_SKIP` then suppresses the native path. |
+| Codex | Plugin path: `codex plugin marketplace add ChanMeng666/echook` → `codex plugin add audio-hooks@chanmeng-audio-hooks` → ask the user to reload plugins if the REPL requires it. Native hooks.json path: `audio-hooks install --codex`; only follow `next_steps` when `feature_flag_state` is `disabled`, `disabled_legacy`, or `parse_error`. The install never round-trips user TOML. |
 
-Your agent runs these two commands (`audio-hooks install --plugin` prints exactly them and changes nothing itself):
+**`audio-hooks install` has no default mode (v6.6.0).** A mode flag is required: `--plugin`, `--cursor` or `--codex`. A bare `install`, an unknown argument, or two modes at once returns `INVALID_USAGE` and changes nothing. **The script installer was removed in 7.0.0:** `install --scripts` (with or without `--force`) returns `SCRIPT_INSTALL_REMOVED`, `ok: false`, exit 1, and changes nothing; use `--plugin`. A script install made by an earlier release keeps working after `git pull` and is still detected by `status`/`diagnose`, which report it next to a plugin install as `DUAL_INSTALL_DETECTED`. Plugin detection ignores orphaned cache directories (version directories Claude Code has marked with an `.orphaned_at` file after an uninstall; that marker's meaning is inferred from what is on disk, not documented upstream). Before v6.6.0 a bare `install`, `install --help` and `install --<anything>` ran the script installer and returned `ok: true` — on a machine that already had the plugin this registered every hook twice (it happened to a real machine on 2026-10-03, when an agent ran `install --help`).
 
-```bash
-claude plugin marketplace add ChanMeng666/echook --json
-claude plugin install audio-hooks@chanmeng-audio-hooks --json
-```
+**Removing a script install: `audio-hooks uninstall` (bare, or `--scripts`) — on every platform.** Since v6.6.0 it removes the script install natively, and since 7.0.0 it is the only uninstaller (the shell one went with the installer); it is the remedy for `DUAL_INSTALL_DETECTED`. Before v6.6.0 a bare `uninstall` on Windows returned `ok: true` with a hint and did nothing. It backs up to `~/.claude/backups/audio-hooks-uninstall-<ts>/`, removes echook's own hook entries from `settings.json` and its own permission entries from `settings.local.json`, then deletes only files that are echook's; the temp queue directory and lock stay (`left_in_place`). **Ownership is decided by content as well as name:** a file in `~/.claude/hooks/` goes only if it carries echook's marker (derived from, and tested against, every historical revision of that file; `.project_path` has no marker and is judged by a heuristic), so a user's own `stop_hook.sh` or `shared/` directory is left alone, listed in `skipped_not_ours` with a reason, and its registration kept. A registration is removed only when the file it names is echook's or no longer exists; `shared/` loses only echook's four libraries and is removed only if that empties it. A registration is matched as a whole path `<home>/.claude/hooks/<known script>` (backslashes read as `/`; `<home>` = `~`, `$HOME`, `${HOME}`, `%USERPROFILE%` or the real home). Removal is per hook entry; a group goes only when every hook in it was echook's. The result carries `removed_hook_entries`, `removed_permissions`, `removed_files[]`, `backup_dir`, `skipped_not_ours[]`, `unmatched_references[]`, `left_in_place[]`, `incomplete`. With nothing to remove: `ok: true`, `nothing_to_remove`, no backup. Unparseable or unserialisable settings: `CONFIG_READ_ERROR`/`INTERNAL_ERROR` with nothing changed. **Incomplete removal is `ok: false`, `UNINSTALL_INCOMPLETE`, exit 1** — a file could not be deleted, or a registration refers to an echook script through a home spelling the strict rule does not recognise (`$env:USERPROFILE\…`, `%HOMEDRIVE%%HOMEPATH%\…`, an MSYS `/c/Users/…`, an 8.3 short path, `"$HOME"/…`, `;~/…`). Those are listed in `unmatched_references`; the script they name is kept with the modules it needs so the surviving hook still runs, and everything else of echook's is removed. `audio-hooks uninstall --remove-unmatched` (scripts mode only) then also strips them and their scripts — read the list first, since the loose rule can catch another tool's variable (`$XDG_CONFIG_HOME/.claude/hooks/hook_runner.py`, `%ANDROID_HOME%/…`). **Accepted limits:** `$(echo ~)/…`, variables whose name contains neither HOME nor USERPROFILE, `~user/…`, relative prefixes and `cd … && ./hook_runner.py` are neither stripped nor reported; a user's compound command that mentions an echook script is removed as a whole entry; a settings file with removals is rewritten normalised (indentation, LF, no BOM); there is no lock against a concurrent writer. `--purge` is `INVALID_USAGE` with `--scripts`/`--plugin`; `uninstall --plugin` emits `claude plugin uninstall audio-hooks@chanmeng-audio-hooks --keep-data --json`. `status`/`diagnose` count a script install only when `~/.claude/hooks/hook_runner.py` carries echook's marker.
 
-Then it asks you to type `/reload-plugins` inside Claude Code — the one step with no CLI equivalent. (Claude Code 2.1.268 made the `/plugin` *menu* take effect when it closes, but whether a shell `claude plugin install` reaches an already-running session without `/reload-plugins` is not established, so the step stays.)
+**No subcommand acts on an argument it does not understand (v6.6.0).** `--help` / `-h` (and `-?`, `/?`, `--help=<x>`) is side-effect-free for **every** subcommand — a guard at dispatch prints usage and exits 0 without calling the handler. `set` is the one asymmetry: a help-like token in *first* position prints usage, but anywhere after the key it is `INVALID_USAGE` with nothing written — never stored as a value (a stored `--help` as `notification_settings.mode` would make the runner play nothing). State-changing subcommands (`set`, `hooks enable|disable|enable-only`, `theme set`, `snooze`, `webhook set|clear|test`, `tts set`, `rate-limits set`, `logs clear`, `backup restore|prune`, `statusline install|uninstall`, `statusline subagent install|uninstall`, `statusline codex preview|apply`) reject unknown flags and stray positionals with `INVALID_USAGE` and change nothing; `--flag=value` forms are not supported. Before v6.6.0 `upgrade --help` ran a real upgrade, `tts set --help` / `webhook set --help` / `rate-limits set --help` / `set <key> --help` wrote config, and `statusline install --dry-run` rewrote `settings.json`.
 
-Then verify and smoke-test:
+Verify with `audio-hooks status` + `audio-hooks diagnose` + `audio-hooks test all`.
 
-```text
-> run audio-hooks status
-> run audio-hooks test all
-```
+## Cursor with Claude Code already installed
 
-That's it. All 39 hook events register, every audio file is bundled, and `${CLAUDE_PLUGIN_DATA}/user_preferences.json` is auto-initialised by the first hook event or the first state-changing command (`audio-hooks test all` is one); since v6.7.0 `status` and `diagnose` only report and write nothing, so a fresh install may show no preferences file until then. The `/audio-hooks` SKILL ships with the plugin so you can configure everything via natural language afterwards.
-
-## Alternative: script install (cloned repo, no plugin system)
-
-For setups that don't use the plugin system — your agent runs this:
-
-```bash
-git clone https://github.com/ChanMeng666/echook.git
-cd echook
-bash scripts/install-complete.sh
-```
-
-The installer is **always non-interactive** — it never prompts, so AI agents and CI run it unattended. It registers `hook_runner.py` in `~/.claude/settings.json`. For Windows native (PowerShell), use `.\scripts\install-windows.ps1`. `audio-hooks install --scripts` runs the same installer through the CLI — it must be given that explicit flag, because since v6.6.0 `audio-hooks install` has **no default mode** (a bare `install`, an unknown argument, or two modes returns `INVALID_USAGE` and changes nothing), and it is refused with `DUAL_INSTALL_DETECTED` while the plugin is installed unless you pass `--force`. Uninstall with `audio-hooks uninstall` (bare = `--scripts`). Since v6.6.0 it removes the script install natively on Windows, macOS and Linux: it backs up to `~/.claude/backups/audio-hooks-uninstall-<timestamp>/`, removes only echook's own hook and permission entries from `settings.json` / `settings.local.json` and only files in `~/.claude/hooks/` that carry echook's content marker (your own `stop_hook.sh` or `shared/` is left alone and reported), and preserves your config and audio (before v6.6.0 it did nothing on Windows). If it reports `UNINSTALL_INCOMPLETE`, read `unmatched_references` and then run `audio-hooks uninstall --remove-unmatched`. Its `--purge` applies to `--cursor` / `--codex` only; in a source checkout, `bash scripts/uninstall.sh --yes --purge` (a wrapper around `uninstall --scripts`) also removes that checkout's config and audio defaults after backing them up.
-
-**Don't enable both paths** — they fire on every event independently and you'll hear double audio. `audio-hooks diagnose` reports `DUAL_INSTALL_DETECTED` if it finds both and tells you exactly how to fix it.
-
-## Cursor IDE
-
-The project ships AI-first install paths for Cursor IDE 3.2.16+. There are two of them; the right one depends on whether you also have Claude Code.
-
-### Path A — Cursor + Claude Code (auto-bridge)
-
-If you already have Claude Code on the same machine, run the recommended plugin install above. Cursor 3.2.16+ then auto-bridges every Claude Code plugin per [cursor.com/docs/reference/third-party-hooks](https://cursor.com/docs/reference/third-party-hooks). Enable Cursor Settings → "Third-party skills" if not already on.
-
-Verify by asking your agent:
-
-```text
-> run audio-hooks status
-```
-
-Expected: `editor_targets.cursor.state` == `bridged-via-claude-code`. 8 events bridge (`pretooluse`, `posttooluse`, `userpromptsubmit`, `stop`, `subagent_stop`, `session_start`, `session_end`, `precompact`) — `Notification` and `PermissionRequest` have no Cursor equivalent (per Cursor's docs) and stay silent under Cursor by design. The live list is `supported_editors.cursor.bridged_events_subset` in `audio-hooks manifest`.
-
-### Path B — Cursor without Claude Code (native install)
-
-Paste a single prompt into Cursor's agent chat:
-
-> *"Clone https://github.com/ChanMeng666/echook into ~/audio-hooks, then run `python ~/audio-hooks/bin/audio-hooks install --cursor`. After it succeeds, restart Cursor."*
-
-The `install --cursor` subcommand:
-
-- Reads the canonical `cursor-hooks/hooks.json` template.
-- Substitutes `{{PYTHON}}` and `{{HOOK_RUNNER}}` with absolute paths.
-- Merges into `~/.cursor/hooks.json` (preserves any of your other Cursor hooks).
-- Tags every entry with `_managed_by: "audio-hooks"` so uninstall is scope-safe.
-- Seeds `~/.cursor/audio-hooks-data/user_preferences.json` from the bundled defaults.
-
-It is fully non-interactive (no prompts, no menus) and idempotent (re-running does not duplicate entries).
-
-The native install registers 11 Cursor-native event types — the 8 bridge-mapped events plus `subagentStart`, `postToolUseFailure`, and `afterFileEdit` (Cursor-only events with no Claude Code equivalent and so absent from the auto-bridge).
-
-**`DUPLICATE_BRIDGE` guard:** if Claude Code's plugin is already installed, `install --cursor` aborts to prevent double audio. Pass `--force` only if you understand the trade-off.
-
-### Upgrading the Cursor-only install
-
-```bash
-cd ~/audio-hooks && git pull && python bin/audio-hooks install --cursor
-```
-
-Re-running the install is idempotent and preserves `~/.cursor/audio-hooks-data/user_preferences.json`. There is no separate `audio-hooks upgrade --cursor` subcommand — `audio-hooks upgrade` targets Claude Code's plugin cache.
-
-### Uninstalling the Cursor-only install
-
-```bash
-python ~/audio-hooks/bin/audio-hooks uninstall --cursor
-```
-
-Removes only entries tagged `_managed_by: "audio-hooks"` from `~/.cursor/hooks.json`. Preserves `~/.cursor/audio-hooks-data/user_preferences.json` so a future re-install picks up your settings. Pass `--purge` to delete that data dir as well.
-
-## Codex
-
-OpenAI's Codex does NOT auto-bridge Claude Code plugins. Use the Codex plugin path when available; use the native registration at `~/.codex/hooks.json` when the user prefers a cloned repo or is on an older Codex build.
-
-Plugin install prompt:
-
-> *"Run `codex plugin marketplace add ChanMeng666/echook`, then `codex plugin add audio-hooks@chanmeng-audio-hooks`. Ask me to reload plugins if Codex requires it, then verify with `audio-hooks status` and `audio-hooks test all`."*
-
-Native install prompt:
-
-> *"Clone https://github.com/ChanMeng666/echook into ~/audio-hooks, then run `python ~/audio-hooks/bin/audio-hooks install --codex`. Read the JSON output: only follow `next_steps` if `feature_flag_state` is `disabled`, `disabled_legacy`, or `parse_error`. Then restart Codex."*
-
-The `install --codex` subcommand:
-
-- Reads the canonical `codex-hooks/hooks.json` template.
-- Substitutes `{{PYTHON}}` (`python`/`python3`) and `{{HOOK_RUNNER}}` (absolute path) into every command, with Windows backslashes JSON-escaped.
-- Bakes a `--invoker codex` CLI flag into every command (Codex sets no env var we could detect by, unlike Cursor's `CURSOR_VERSION`).
-- Merges into `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`), tagging each entry with `_managed_by: "audio-hooks"` so future uninstalls leave foreign hooks untouched.
-- Seeds `$CODEX_HOME/audio-hooks-data/user_preferences.json` from the bundled defaults.
-- Writes `$CODEX_HOME/audio-hooks-data/install_marker.json` for diagnostics.
-
-**Hooks feature-state handling (AI-first):** Codex hooks are enabled by default. The install:
-
-- **Leaves `config.toml` untouched** when it is missing or has no hooks feature entry.
-- **Skips silently** when hooks are enabled by default or explicitly enabled.
-- **Emits a `next_steps` instruction** in JSON only when the file explicitly disables hooks with `[features].hooks = false` or cannot be parsed. We never round-trip user-authored TOML — formatting and comments would be destroyed.
-
-The 10 events Codex supports (`SessionStart`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`) are all registered. Other audio-hooks canonical events have no Codex equivalent and the runner no-ops them with a `skipped_no_codex_equivalent` debug NDJSON event.
-
-### Verifying the Codex install
-
-```bash
-audio-hooks status
-# expect editor_targets.codex.state == "active"
-# (or "active-but-hooks-disabled" if [features].hooks = false is still present)
-```
-
-### Upgrading the Codex install
-
-```bash
-cd ~/audio-hooks && git pull && python bin/audio-hooks install --codex
-```
-
-Re-running the install is idempotent: it strips any prior `_managed_by: "audio-hooks"` entries from `~/.codex/hooks.json` before writing the fresh ones, and preserves your `user_preferences.json` automatically. There is no separate `audio-hooks upgrade --codex` subcommand.
-
-### Uninstalling the Codex install
-
-```bash
-python ~/audio-hooks/bin/audio-hooks uninstall --codex
-```
-
-Removes only entries tagged `_managed_by: "audio-hooks"` from `~/.codex/hooks.json`. Preserves `~/.codex/audio-hooks-data/user_preferences.json`. Pass `--purge` to also delete that directory. **Never touches `~/.codex/config.toml`**.
+Install nothing more: Cursor 3.2.16+ bridges every Claude Code plugin ([third-party hooks](https://cursor.com/docs/reference/third-party-hooks)). `audio-hooks status` then shows `editor_targets.cursor.state` as `bridged-via-claude-code`. Eight events bridge (`manifest` → `supported_editors.cursor.bridged_events_subset`); `Notification` and `PermissionRequest` have no Cursor equivalent and stay silent there.
 
 ## Prerequisites
 
-| Requirement | Plugin install | Script install |
-|---|---|---|
-| Claude Code v2.1.80+ | ✓ | ✓ |
-| Python 3.6+ | ✓ (auto-detected, prefers `python3` then `python` then `py`) | ✓ |
-| PowerShell (Windows) | ✓ (for audio playback) | ✓ |
-| `mpg123` / `ffplay` / `paplay` / `aplay` (Linux) | one of these | one of these |
-
-## Verifying your install
-
-```text
-> run audio-hooks diagnose
-```
-
-Expected output for a healthy install: `ok: true`, `errors: []`, `warnings: []`, `audio_files: { present: 26, expected: 26 }`, `install: { script_install: ..., plugin_install: ... }` (exactly one of these `true`).
-
-If anything is broken, the diagnose output includes a `suggested_command` for each error. Run that command.
-
-## See also
-
-- [README.md](../README.md) — public introduction (one screen); [overview.md](overview.md) — features, value, mermaid diagrams
-- [docs/CLI_REFERENCE.md](CLI_REFERENCE.md) — `audio-hooks` CLI subcommands, config keys, env vars, error codes
-- [docs/NATURAL_LANGUAGE_CONTROL.md](NATURAL_LANGUAGE_CONTROL.md) — every natural-language prompt, with diagrams
-- [AGENTS.md](../AGENTS.md) — canonical AI-facing operating guide (decision tree for natural-language requests)
-- [docs/ARCHITECTURE.md](ARCHITECTURE.md) — developer-facing architecture deep dive
-- [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md) — troubleshooting (mostly a pointer to `audio-hooks diagnose`)
-- [CHANGELOG.md](../CHANGELOG.md) — full changelog, including the 5.1.5 painless-upgrades release notes
+Python on `PATH` (CI runs 3.9, 3.12 and 3.13). Windows plays through PowerShell; Linux needs one of `mpg123`, `ffplay`, `paplay` or `aplay`.

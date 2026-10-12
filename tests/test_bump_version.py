@@ -1,8 +1,9 @@
 """``scripts/bump-version.sh`` owns every mechanical version stamp.
 
-Through 6.6.0 it stamped the nine canonical files but not the version in the
-agent guide's header or in the headers of the three docs, so
-``docs/ARCHITECTURE.md`` still said 6.4.0 with a July date two releases later.
+It stamps the nine canonical files and nothing else. The agent guide and the docs
+carried version headers through 6.8.0; they were retired because a stamp on a
+document says nothing about whether its content is current, and each one was a
+release-time chore (``docs/ARCHITECTURE.md`` once sat two releases behind).
 The script is exercised against a scratch copy of just the files it touches (a
 stub ``build-plugin.sh`` stands in for the real sync), never the working tree.
 """
@@ -14,7 +15,6 @@ try:
 except ImportError:  # python -m unittest tests.test_x from the repo root
     from tests import _isolation  # noqa: F401
 
-import datetime
 import json
 import os
 import re
@@ -38,14 +38,11 @@ FILES = [
     "codex-hooks/hooks.json",
     "codex-hooks/plugin-hooks.json",
     "config/default_preferences.json",
-    "AGENTS.md",
-    "docs/ARCHITECTURE.md",
-    "docs/INSTALLATION_GUIDE.md",
-    "docs/TROUBLESHOOTING.md",
-    "llms.txt",
     "CHANGELOG.md",
 ]
-STAMPED_DOCS = ["docs/ARCHITECTURE.md", "docs/INSTALLATION_GUIDE.md", "docs/TROUBLESHOOTING.md"]
+# Documents that used to carry a stamp and must stay untouched by a bump.
+UNSTAMPED_DOCS = ["AGENTS.md", "docs/ARCHITECTURE.md", "docs/INSTALLATION_GUIDE.md", "docs/TROUBLESHOOTING.md",
+                  "llms.txt"]
 
 
 def _find_bash():
@@ -104,26 +101,6 @@ class TestBumpVersion(unittest.TestCase):
         # unrelated directories (a literal "%SystemDrive%") into its cwd.
         return {rel: (self.root / rel).read_bytes() for rel in FILES if (self.root / rel).exists()}
 
-    def test_a_mismatched_header_changes_nothing(self) -> None:
-        """The four Markdown headers used to be checked last, after twelve files were rewritten."""
-        for rel in ["AGENTS.md"] + STAMPED_DOCS:
-            with self.subTest(file=rel):
-                text = self._read(rel)
-                if rel == "AGENTS.md":
-                    broken = re.sub(r"(?m)^> v", "> version ", text, count=1)
-                else:
-                    broken = text.replace("**Version:**", "**Release:**", 1)
-                self.assertNotEqual(broken, text)
-                (self.root / rel).write_bytes(broken.encode("utf-8"))
-                before = self._tree_bytes()
-                err = self._bump_fails("9.8.7")
-                self.assertFalse(err["ok"])
-                self.assertEqual(err["file"], rel)
-                self.assertTrue(err["pattern"])
-                self.assertEqual(err["files_changed"], [])
-                self.assertEqual(self._tree_bytes(), before, "a failed bump must leave every file untouched")
-                (self.root / rel).write_bytes(text.encode("utf-8"))
-
     def test_a_mismatched_canonical_stamp_changes_nothing(self) -> None:
         for rel, old, new in (("bin/audio-hooks.py", "PROJECT_VERSION", "PROJECT_VER"),
                               ("plugins/audio-hooks/.claude-plugin/plugin.json", '"version"', '"vers"'),
@@ -138,10 +115,10 @@ class TestBumpVersion(unittest.TestCase):
                 (self.root / rel).write_bytes(text.encode("utf-8"))
 
     def test_a_missing_target_changes_nothing(self) -> None:
-        (self.root / "docs" / "TROUBLESHOOTING.md").unlink()
+        (self.root / "codex-hooks" / "plugin-hooks.json").unlink()
         before = self._tree_bytes()
         err = self._bump_fails("9.8.7")
-        self.assertEqual(err["file"], "docs/TROUBLESHOOTING.md")
+        self.assertEqual(err["file"], "codex-hooks/plugin-hooks.json")
         self.assertEqual(self._tree_bytes(), before)
 
     def _read(self, rel: str) -> str:
@@ -151,13 +128,19 @@ class TestBumpVersion(unittest.TestCase):
         out = self._bump("9.8.7")
         self.assertTrue(out["ok"], out)
         self.assertEqual(out["new_version"], "9.8.7")
-        for rel in FILES[:9] + ["AGENTS.md"] + STAMPED_DOCS:
+        for rel in FILES[:9]:
             self.assertIn(rel, out["files_changed"], f"{rel} was not stamped")
-        self.assertRegex(self._read("AGENTS.md"), r"(?m)^> v9\.8\.7 ")
-        today = datetime.date.today().isoformat()
-        for rel in STAMPED_DOCS:
-            self.assertRegex(self._read(rel), rf"(?m)^> \*\*Version:\*\* 9\.8\.7 \| \*\*Last Updated:\*\* {today}\r?$",
-                             rel)
+
+    def test_no_document_is_stamped(self) -> None:
+        for rel in UNSTAMPED_DOCS:
+            dst = self.root / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(REPO / rel, dst)
+        before = {rel: (self.root / rel).read_bytes() for rel in UNSTAMPED_DOCS}
+        out = self._bump("9.8.7")
+        for rel in UNSTAMPED_DOCS:
+            self.assertNotIn(rel, out["files_changed"])
+            self.assertEqual((self.root / rel).read_bytes(), before[rel], rel)
 
     def test_rerunning_the_same_version_changes_nothing(self) -> None:
         self._bump("9.8.7")
@@ -166,45 +149,26 @@ class TestBumpVersion(unittest.TestCase):
         self.assertEqual(out["files_changed"], [], out)
         self.assertEqual({rel: self._read(rel) for rel in FILES}, before)
 
-    def test_the_date_moves_only_with_the_version(self) -> None:
-        self._bump("9.8.7")
-        path = self.root / "docs" / "ARCHITECTURE.md"
-        text = self._read("docs/ARCHITECTURE.md")
-        path.write_bytes(re.sub(r"Last Updated:\*\* \S+", "Last Updated:** 2001-01-01", text, count=1).encode("utf-8"))
-        self._bump("9.8.7")
-        self.assertIn("Last Updated:** 2001-01-01", self._read("docs/ARCHITECTURE.md"))
-        self._bump("9.8.8")
-        self.assertNotIn("2001-01-01", self._read("docs/ARCHITECTURE.md"))
-
     def test_the_hand_written_prose_is_reported_not_stamped(self) -> None:
         out = self._bump("9.8.7")
-        self.assertEqual(sorted(out["needs_hand_written"]), ["CHANGELOG.md", "llms.txt"])
-        self.assertNotIn("9.8.7", self._read("llms.txt"))
+        self.assertEqual(out["needs_hand_written"], ["CHANGELOG.md"])
+        self.assertNotIn("9.8.7", self._read("CHANGELOG.md"))
         self.assertTrue(any("by hand" in step for step in out["next_steps"]), out["next_steps"])
-
-    def test_old_version_ignores_stale_doc_headers(self) -> None:
-        """A doc header stuck on an old version must not be reported as the old release."""
-        text = self._read("docs/ARCHITECTURE.md")
-        (self.root / "docs" / "ARCHITECTURE.md").write_bytes(
-            re.sub(r"\*\*Version:\*\* \S+", "**Version:** 1.0.0", text, count=1).encode("utf-8"))
-        project = re.search(r'(?m)^PROJECT_VERSION\s*=\s*"([^"]+)"', self._read("bin/audio-hooks.py")).group(1)
-        out = self._bump("9.8.7")
-        self.assertEqual(out["old_version"], project)
 
     def test_the_header_comment_lists_what_the_script_does(self) -> None:
         head = SCRIPT.read_text(encoding="utf-8").split("set -euo pipefail")[0]
         self.assertNotIn("Updates 9 canonical files", head)
-        for rel in ["AGENTS.md"] + STAMPED_DOCS:
+        for rel in FILES[:9]:
             self.assertIn(rel, head)
+        for rel in UNSTAMPED_DOCS:
+            self.assertNotIn(rel, head)
 
     def test_the_repo_is_internally_consistent(self) -> None:
-        """The stamps in the working tree agree with PROJECT_VERSION right now."""
+        """Every canonical stamp in the working tree agrees with PROJECT_VERSION right now."""
         project = re.search(r'(?m)^PROJECT_VERSION\s*=\s*"([^"]+)"',
                             (REPO / "bin" / "audio-hooks.py").read_text(encoding="utf-8")).group(1)
-        self.assertRegex((REPO / "AGENTS.md").read_text(encoding="utf-8"), rf"(?m)^> v{re.escape(project)} ")
-        for rel in STAMPED_DOCS:
-            self.assertRegex((REPO / rel).read_text(encoding="utf-8"),
-                             rf"(?m)^> \*\*Version:\*\* {re.escape(project)} \|", rel)
+        for rel in FILES[1:9]:
+            self.assertIn(f'"{project}"', (REPO / rel).read_text(encoding="utf-8"), rel)
 
 
 if __name__ == "__main__":

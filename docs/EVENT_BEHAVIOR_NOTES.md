@@ -297,7 +297,7 @@ source union — PreModelSwitch:  ["command","picker","sdk"]
 ```
 
 When `PostModelSwitch` is added, `PreModelSwitch` must go into
-`TERMINAL_SEQUENCE_FORBIDDEN_EVENTS` alongside `MessageDisplay` and the
+`TERMINAL_SEQUENCE_FORBIDDEN_EVENTS` (`hooks/terminal_sequence.py`) alongside `MessageDisplay` and the
 `Elicitation` pair, for the same reason they are there: its stdout is read as an
 answer on the user's behalf.
 

@@ -69,6 +69,14 @@ sync_dir() {
 sync_file "$REPO/hooks/hook_runner.py"             "$PLUGIN/hooks/hook_runner.py"
 sync_file "$REPO/hooks/user_preferences.py"        "$PLUGIN/hooks/user_preferences.py"
 sync_file "$REPO/hooks/invoker.py"                 "$PLUGIN/hooks/invoker.py"
+# The modules hook_runner.py is split into. An explicit list, not sync_dir:
+# hooks/hooks.json in the plugin is hand-edited and must never be overwritten.
+RUNNER_MODULES="runner_core platform_shell audio_playback notification_context"
+RUNNER_MODULES="$RUNNER_MODULES desktop_notification text_to_speech webhook_dispatch"
+RUNNER_MODULES="$RUNNER_MODULES rate_limit_alerts terminal_sequence"
+for runner_module in $RUNNER_MODULES; do
+    sync_file "$REPO/hooks/$runner_module.py"      "$PLUGIN/hooks/$runner_module.py"
+done
 sync_file "$REPO/bin/audio-hooks"                  "$PLUGIN/bin/audio-hooks"
 sync_file "$REPO/bin/audio-hooks.py"               "$PLUGIN/bin/audio-hooks.py"
 sync_file "$REPO/bin/audio-hooks.cmd"              "$PLUGIN/bin/audio-hooks.cmd"
@@ -76,6 +84,9 @@ sync_file "$REPO/bin/audio-hooks-statusline"       "$PLUGIN/bin/audio-hooks-stat
 sync_file "$REPO/bin/audio-hooks-statusline.py"    "$PLUGIN/bin/audio-hooks-statusline.py"
 sync_file "$REPO/bin/audio-hooks-statusline.cmd"   "$PLUGIN/bin/audio-hooks-statusline.cmd"
 sync_file "$REPO/bin/audio-hooks-subagent-statusline.py" "$PLUGIN/bin/audio-hooks-subagent-statusline.py"
+# The CLI's modules (bin/audio-hooks.py imports this package from beside itself).
+# sync_dir is non-recursive, so __pycache__ is never carried.
+sync_dir  "$REPO/bin/echook_cli"                   "$PLUGIN/bin/echook_cli"
 sync_file "$REPO/config/default_preferences.json"  "$PLUGIN/config/default_preferences.json"
 
 # Cursor IDE hooks template (5.1.4+) — used by `audio-hooks install --cursor`

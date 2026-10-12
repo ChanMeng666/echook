@@ -34,6 +34,7 @@ import platform
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -111,7 +112,7 @@ class _SpawnRecorder:
         self._originals = {
             "_spawn_powershell": self.module._spawn_powershell,
             "_run_powershell": self.module._run_powershell,
-            "monotonic": self.module.time.monotonic,
+            "monotonic": time.monotonic,
         }
 
         def _spawn(script):
@@ -129,13 +130,13 @@ class _SpawnRecorder:
         self.module._spawn_powershell = _spawn
         self.module._run_powershell = _run
         if self.duration:
-            self.module.time.monotonic = lambda: self._clock
+            time.monotonic = lambda: self._clock
         return self
 
     def __exit__(self, *exc):
         self.module._spawn_powershell = self._originals["_spawn_powershell"]
         self.module._run_powershell = self._originals["_run_powershell"]
-        self.module.time.monotonic = self._originals["monotonic"]
+        time.monotonic = self._originals["monotonic"]
         return False
 
     @property
@@ -154,12 +155,12 @@ class TestPowerShellEscaping(unittest.TestCase):
         body = 'git commit -m "fix: toast"'
         for backend in ("winrt", "burnttoast", "notifyicon"):
             with self.subTest(backend=backend):
-                script = self.mod._build_windows_toast_script(backend, "Claude Code", body)
+                script = self.mod.desktop_notification._build_windows_toast_script(backend, "Claude Code", body)
                 self.assertIn('git commit -m `"fix: toast`"', script)
                 self.assertNotIn('\\"', script)
 
     def test_dollar_and_backtick_survive(self):
-        script = self.mod._build_windows_toast_script(
+        script = self.mod.desktop_notification._build_windows_toast_script(
             "winrt", "Claude Code", "Cost $12 via `Get-Date`"
         )
         # Escaped, not deleted: the old escaper dropped $ and ` from the text
@@ -167,7 +168,7 @@ class TestPowerShellEscaping(unittest.TestCase):
         self.assertIn("Cost `$12 via ``Get-Date``", script)
 
     def test_title_is_escaped_too(self):
-        script = self.mod._build_windows_toast_script(
+        script = self.mod.desktop_notification._build_windows_toast_script(
             "notifyicon", 'Claude "Code" $1', "body"
         )
         self.assertIn('Claude `"Code`" `$1', script)
@@ -175,37 +176,37 @@ class TestPowerShellEscaping(unittest.TestCase):
     def test_winrt_inserts_text_as_xml_text_nodes(self):
         # Text goes through CreateTextNode so XML metacharacters in a tool
         # command cannot break the toast document.
-        script = self.mod._build_windows_toast_script(
+        script = self.mod.desktop_notification._build_windows_toast_script(
             "winrt", "Claude Code", "diff <old> & <new>"
         )
         self.assertIn("CreateTextNode(", script)
         self.assertIn("diff <old> & <new>", script)
 
     def test_winrt_targets_a_registered_aumid(self):
-        script = self.mod._build_windows_toast_script("winrt", "t", "m")
+        script = self.mod.desktop_notification._build_windows_toast_script("winrt", "t", "m")
         self.assertIn("CreateToastNotifier(", script)
         self.assertIn("{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}", script)
 
     def test_critical_urgency_uses_long_duration(self):
-        normal = self.mod._build_windows_toast_script("winrt", "t", "m", "normal")
-        critical = self.mod._build_windows_toast_script("winrt", "t", "m", "critical")
+        normal = self.mod.desktop_notification._build_windows_toast_script("winrt", "t", "m", "normal")
+        critical = self.mod.desktop_notification._build_windows_toast_script("winrt", "t", "m", "critical")
         self.assertIn('"duration", "short"', normal)
         self.assertIn('"duration", "long"', critical)
 
     def test_notifyicon_urgency_maps_to_tooltip_icon(self):
-        normal = self.mod._build_windows_toast_script("notifyicon", "t", "m", "normal")
-        critical = self.mod._build_windows_toast_script("notifyicon", "t", "m", "critical")
+        normal = self.mod.desktop_notification._build_windows_toast_script("notifyicon", "t", "m", "normal")
+        critical = self.mod.desktop_notification._build_windows_toast_script("notifyicon", "t", "m", "critical")
         self.assertIn("ToolTipIcon]::Info", normal)
         self.assertIn("ToolTipIcon]::Warning", critical)
 
     def test_burnttoast_is_never_installed(self):
-        script = self.mod._build_windows_toast_script("burnttoast", "t", "m")
+        script = self.mod.desktop_notification._build_windows_toast_script("burnttoast", "t", "m")
         self.assertIn("Import-Module BurntToast", script)
         self.assertNotIn("Install-Module", script)
 
     def test_powershell_invocation_uses_noprofile(self):
-        with mock.patch.object(self.mod.subprocess, "Popen") as popen:
-            self.assertTrue(self.mod._spawn_powershell("Write-Host hi"))
+        with mock.patch.object(self.mod.desktop_notification.subprocess, "Popen") as popen:
+            self.assertTrue(self.mod.desktop_notification.platform_shell._spawn_powershell("Write-Host hi"))
         cmd = popen.call_args[0][0]
         self.assertEqual(cmd[0], "powershell.exe")
         self.assertIn("-NoProfile", cmd)
@@ -257,11 +258,11 @@ class TestGeneratedScriptParses(unittest.TestCase):
         return (proc.stdout or "") + (proc.stderr or "") or "unknown parse failure"
 
     def test_all_backends_parse_for_nasty_bodies(self):
-        for backend in self.mod._WINDOWS_BACKENDS:
+        for backend in self.mod.desktop_notification._WINDOWS_BACKENDS:
             for body in NASTY_BODIES:
                 for urgency in ("normal", "critical"):
                     with self.subTest(backend=backend, body=body, urgency=urgency):
-                        script = self.mod._build_windows_toast_script(
+                        script = self.mod.desktop_notification._build_windows_toast_script(
                             backend, 'Claude "Code"', body, urgency
                         )
                         errors = self._parse_errors(script)
@@ -272,14 +273,14 @@ class TestGeneratedScriptParses(unittest.TestCase):
         # the SAPI script unparseable, so TTS went silent.
         for body in NASTY_BODIES:
             with self.subTest(body=body):
-                errors = self._parse_errors(self.mod._build_sapi_script(body))
+                errors = self._parse_errors(self.mod.text_to_speech._build_sapi_script(body))
                 self.assertEqual("", errors, f"SAPI script failed to parse: {errors}")
 
     def test_pre_fix_escaper_would_have_failed(self):
         # Pins the bug itself: the old shell/osascript escaping produces a
         # script PowerShell cannot parse. If this ever starts parsing, the
         # regression guard above has stopped guarding anything.
-        bad = self.mod._escape_notification_string('git commit -m "fix: toast"')
+        bad = self.mod.desktop_notification._escape_notification_string('git commit -m "fix: toast"')
         script = f'$n.ShowBalloonTip(5000, "Claude Code", "{bad}", 0)'
         self.assertNotEqual("", self._parse_errors(script))
 
@@ -292,11 +293,11 @@ class TestMacOsBranch(unittest.TestCase):
         cls.mod = _load_hook_runner()
 
     def test_darwin_uses_osascript_escaper(self):
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Darwin"), \
-                mock.patch.object(self.mod.subprocess, "Popen") as popen:
+                mock.patch.object(self.mod.desktop_notification.subprocess, "Popen") as popen:
             self.assertTrue(
-                self.mod.send_desktop_notification("Claude Code", 'say "hi"')
+                self.mod.desktop_notification.send_desktop_notification("Claude Code", 'say "hi"')
             )
         cmd = popen.call_args[0][0]
         self.assertEqual(cmd[0], "osascript")
@@ -304,11 +305,11 @@ class TestMacOsBranch(unittest.TestCase):
         self.assertNotIn('`"', cmd[2])
 
     def test_darwin_dispatch_failure_returns_false(self):
-        with _LogCapture(self.mod) as log, \
+        with _LogCapture(self.mod.runner_core) as log, \
                 mock.patch.object(self.mod.platform, "system", return_value="Darwin"), \
-                mock.patch.object(self.mod.subprocess, "Popen",
+                mock.patch.object(self.mod.desktop_notification.subprocess, "Popen",
                                   side_effect=FileNotFoundError("osascript")):
-            self.assertFalse(self.mod.send_desktop_notification("Claude Code", "body"))
+            self.assertFalse(self.mod.desktop_notification.send_desktop_notification("Claude Code", "body"))
         event = log.find("desktop_notification")
         self.assertIsNotNone(event)
         self.assertEqual("error", event["level"])
@@ -321,12 +322,12 @@ class TestWslBranch(unittest.TestCase):
         cls.mod = _load_hook_runner()
 
     def test_wsl_uses_powershell_escaping(self):
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Linux"), \
-                mock.patch.object(self.mod, "is_wsl", return_value=True), \
-                _SpawnRecorder(self.mod) as spawn:
+                mock.patch.object(self.mod.desktop_notification.platform_shell, "is_wsl", return_value=True), \
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell) as spawn:
             self.assertTrue(
-                self.mod.send_desktop_notification("Claude Code", 'git -m "x" $y')
+                self.mod.desktop_notification.send_desktop_notification("Claude Code", 'git -m "x" $y')
             )
         self.assertEqual(1, len(spawn.calls))
         script = spawn.calls[0]["script"]
@@ -334,11 +335,11 @@ class TestWslBranch(unittest.TestCase):
         self.assertNotIn('\\"', script)
 
     def test_wsl_spawn_failure_returns_false(self):
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Linux"), \
-                mock.patch.object(self.mod, "is_wsl", return_value=True), \
-                _SpawnRecorder(self.mod, spawn_result=False):
-            self.assertFalse(self.mod.send_desktop_notification("Claude Code", "body"))
+                mock.patch.object(self.mod.desktop_notification.platform_shell, "is_wsl", return_value=True), \
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell, spawn_result=False):
+            self.assertFalse(self.mod.desktop_notification.send_desktop_notification("Claude Code", "body"))
 
 
 class TestWindowsBackendChain(unittest.TestCase):
@@ -352,19 +353,19 @@ class TestWindowsBackendChain(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp(prefix="echook-notify-cache-")
         self.cache = Path(self.tmpdir) / "notify_backend"
         self._patch = mock.patch.object(
-            self.mod, "_notify_backend_cache_path", return_value=self.cache
+            self.mod.desktop_notification, "_notify_backend_cache_path", return_value=self.cache
         )
         self._patch.start()
         self.addCleanup(self._patch.stop)
         self.addCleanup(shutil.rmtree, self.tmpdir, True)
 
     def test_backend_is_probed_once_then_cached(self):
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                _SpawnRecorder(self.mod) as spawn:
-            self.assertTrue(self.mod.send_desktop_notification("Claude Code", "one"))
-            self.assertTrue(self.mod.send_desktop_notification("Claude Code", "two"))
-            self.assertTrue(self.mod.send_desktop_notification("Claude Code", "three"))
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell) as spawn:
+            self.assertTrue(self.mod.desktop_notification.send_desktop_notification("Claude Code", "one"))
+            self.assertTrue(self.mod.desktop_notification.send_desktop_notification("Claude Code", "two"))
+            self.assertTrue(self.mod.desktop_notification.send_desktop_notification("Claude Code", "three"))
 
         # First call probes synchronously (wait=True); the rest are
         # fire-and-forget through the cached winner.
@@ -379,10 +380,10 @@ class TestWindowsBackendChain(unittest.TestCase):
     def test_falls_through_to_notifyicon_when_winrt_fails(self):
         # winrt fails outright, BurntToast is not installed -> tray balloon.
         # A clean *failure* (not a timeout) is a real verdict, so it is cached.
-        with _LogCapture(self.mod) as log, \
+        with _LogCapture(self.mod.runner_core) as log, \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                _SpawnRecorder(self.mod, run_result=self.mod.PROBE_FAILED):
-            self.assertTrue(self.mod.send_desktop_notification("Claude Code", "body"))
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell, run_result=self.mod.desktop_notification.platform_shell.PROBE_FAILED):
+            self.assertTrue(self.mod.desktop_notification.send_desktop_notification("Claude Code", "body"))
 
         cached = json.loads(self.cache.read_text(encoding="utf-8"))
         self.assertEqual("notifyicon", cached["backend"])
@@ -391,11 +392,11 @@ class TestWindowsBackendChain(unittest.TestCase):
         self.assertEqual("notifyicon", event["backend"])
 
     def test_all_backends_failing_returns_false_and_logs_error_code(self):
-        with _LogCapture(self.mod) as log, \
+        with _LogCapture(self.mod.runner_core) as log, \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                _SpawnRecorder(self.mod, spawn_result=False,
-                               run_result=self.mod.PROBE_FAILED):
-            self.assertFalse(self.mod.send_desktop_notification("Claude Code", "body"))
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell, spawn_result=False,
+                               run_result=self.mod.desktop_notification.platform_shell.PROBE_FAILED):
+            self.assertFalse(self.mod.desktop_notification.send_desktop_notification("Claude Code", "body"))
 
         self.assertFalse(self.cache.exists())
         event = log.find("desktop_notification")
@@ -408,27 +409,27 @@ class TestWindowsBackendChain(unittest.TestCase):
 
     def test_subprocess_failure_returns_false(self):
         # Exercises the real _spawn_powershell error path rather than a stub.
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                mock.patch.object(self.mod.subprocess, "run",
+                mock.patch.object(self.mod.desktop_notification.subprocess, "run",
                                   side_effect=OSError("no powershell")), \
-                mock.patch.object(self.mod.subprocess, "Popen",
+                mock.patch.object(self.mod.desktop_notification.subprocess, "Popen",
                                   side_effect=OSError("no powershell")):
-            self.assertFalse(self.mod.send_desktop_notification("Claude Code", "body"))
+            self.assertFalse(self.mod.desktop_notification.send_desktop_notification("Claude Code", "body"))
 
     def test_stale_cache_is_reprobed(self):
         self.cache.write_text(
             json.dumps({"backend": "winrt", "ts": 0, "release": platform.release()}),
             encoding="utf-8",
         )
-        self.assertIsNone(self.mod._read_cached_notify_backend())
+        self.assertIsNone(self.mod.desktop_notification._read_cached_notify_backend())
 
     def test_cache_from_another_os_release_is_ignored(self):
         self.cache.write_text(
             json.dumps({"backend": "winrt", "ts": self.mod.time.time(), "release": "6.1"}),
             encoding="utf-8",
         )
-        self.assertIsNone(self.mod._read_cached_notify_backend())
+        self.assertIsNone(self.mod.desktop_notification._read_cached_notify_backend())
 
     def test_unknown_backend_in_cache_is_ignored(self):
         self.cache.write_text(
@@ -436,11 +437,11 @@ class TestWindowsBackendChain(unittest.TestCase):
                         "release": platform.release()}),
             encoding="utf-8",
         )
-        self.assertIsNone(self.mod._read_cached_notify_backend())
+        self.assertIsNone(self.mod.desktop_notification._read_cached_notify_backend())
 
     def test_corrupt_cache_is_ignored(self):
         self.cache.write_text("not json", encoding="utf-8")
-        self.assertIsNone(self.mod._read_cached_notify_backend())
+        self.assertIsNone(self.mod.desktop_notification._read_cached_notify_backend())
 
     def test_unspawnable_cached_backend_is_cleared(self):
         self.cache.write_text(
@@ -448,11 +449,11 @@ class TestWindowsBackendChain(unittest.TestCase):
                         "release": platform.release()}),
             encoding="utf-8",
         )
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                _SpawnRecorder(self.mod, spawn_result=False,
-                               run_result=self.mod.PROBE_FAILED):
-            self.assertFalse(self.mod.send_desktop_notification("Claude Code", "body"))
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell, spawn_result=False,
+                               run_result=self.mod.desktop_notification.platform_shell.PROBE_FAILED):
+            self.assertFalse(self.mod.desktop_notification.send_desktop_notification("Claude Code", "body"))
         self.assertFalse(self.cache.exists())
 
 
@@ -472,7 +473,7 @@ class TestProbeBudget(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp(prefix="echook-notify-budget-")
         self.cache = Path(self.tmpdir) / "notify_backend"
         patcher = mock.patch.object(
-            self.mod, "_notify_backend_cache_path", return_value=self.cache
+            self.mod.desktop_notification, "_notify_backend_cache_path", return_value=self.cache
         )
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -491,7 +492,7 @@ class TestProbeBudget(unittest.TestCase):
                     if "timeout" in handler:
                         timeouts.add(handler["timeout"])
         self.assertTrue(timeouts, "no handler declares a timeout")
-        self.assertLess(self.mod._NOTIFY_PROBE_BUDGET_SEC, min(timeouts))
+        self.assertLess(self.mod.desktop_notification._NOTIFY_PROBE_BUDGET_SEC, min(timeouts))
 
     def test_whole_chain_fits_in_the_budget(self):
         # The per-call timeouts must *sum* to no more than the budget. If they
@@ -499,29 +500,29 @@ class TestProbeBudget(unittest.TestCase):
         # timeout, so it is never reached and a host where the earlier backends
         # fail re-probes forever instead of ever settling on a verdict.
         worst_case = (
-            self.mod._WINRT_PROBE_TIMEOUT_SEC
-            + self.mod._MODULE_QUERY_TIMEOUT_SEC
-            + self.mod._BURNTTOAST_PROBE_TIMEOUT_SEC
+            self.mod.desktop_notification._WINRT_PROBE_TIMEOUT_SEC
+            + self.mod.desktop_notification._MODULE_QUERY_TIMEOUT_SEC
+            + self.mod.desktop_notification._BURNTTOAST_PROBE_TIMEOUT_SEC
         )
-        self.assertLessEqual(worst_case, self.mod._NOTIFY_PROBE_BUDGET_SEC)
+        self.assertLessEqual(worst_case, self.mod.desktop_notification._NOTIFY_PROBE_BUDGET_SEC)
 
     def test_burnttoast_is_reachable_when_winrt_fails(self):
         # Guards the arithmetic above end to end: a clean winrt failure must
         # leave room to actually query for and try BurntToast.
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                _SpawnRecorder(self.mod, run_result=self.mod.PROBE_FAILED) as spawn:
-            self.mod.send_desktop_notification("Claude Code", "body")
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell, run_result=self.mod.desktop_notification.platform_shell.PROBE_FAILED) as spawn:
+            self.mod.desktop_notification.send_desktop_notification("Claude Code", "body")
         self.assertEqual(2, len(spawn.probes), "BurntToast was never queried")
         self.assertIn("Get-Module", spawn.probes[1]["script"])
 
     def test_timed_out_probe_caches_nothing(self):
         # An inconclusive winrt probe may just be a slow host. Show the balloon
         # so the user still gets the notification, but withhold the verdict.
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                _SpawnRecorder(self.mod, run_result=self.mod.PROBE_INCONCLUSIVE) as spawn:
-            self.assertTrue(self.mod.send_desktop_notification("Claude Code", "body"))
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell, run_result=self.mod.desktop_notification.platform_shell.PROBE_INCONCLUSIVE) as spawn:
+            self.assertTrue(self.mod.desktop_notification.send_desktop_notification("Claude Code", "body"))
 
         self.assertFalse(self.cache.exists())
         # It bailed at winrt rather than continuing down the chain.
@@ -530,11 +531,11 @@ class TestProbeBudget(unittest.TestCase):
     def test_exhausted_budget_stops_the_chain_without_caching(self):
         # Each probe burns 5s of an 8s budget: winrt fails cleanly, then there
         # is no room left to give BurntToast its full timeout.
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                _SpawnRecorder(self.mod, run_result=self.mod.PROBE_FAILED,
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell, run_result=self.mod.desktop_notification.platform_shell.PROBE_FAILED,
                                duration=5.0) as spawn:
-            self.assertTrue(self.mod.send_desktop_notification("Claude Code", "body"))
+            self.assertTrue(self.mod.desktop_notification.send_desktop_notification("Claude Code", "body"))
 
         self.assertFalse(self.cache.exists())
         self.assertEqual(1, len(spawn.probes))
@@ -546,17 +547,17 @@ class TestProbeBudget(unittest.TestCase):
 
         def run(script, timeout):
             seen.append(timeout)
-            return self.mod.PROBE_FAILED
+            return self.mod.desktop_notification.platform_shell.PROBE_FAILED
 
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                _SpawnRecorder(self.mod, run_result=run, duration=1.0):
-            self.mod.send_desktop_notification("Claude Code", "body")
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell, run_result=run, duration=1.0):
+            self.mod.desktop_notification.send_desktop_notification("Claude Code", "body")
 
         allowed = {
-            self.mod._WINRT_PROBE_TIMEOUT_SEC,
-            self.mod._MODULE_QUERY_TIMEOUT_SEC,
-            self.mod._BURNTTOAST_PROBE_TIMEOUT_SEC,
+            self.mod.desktop_notification._WINRT_PROBE_TIMEOUT_SEC,
+            self.mod.desktop_notification._MODULE_QUERY_TIMEOUT_SEC,
+            self.mod.desktop_notification._BURNTTOAST_PROBE_TIMEOUT_SEC,
         }
         self.assertTrue(seen)
         for timeout in seen:
@@ -571,15 +572,15 @@ class TestTts(unittest.TestCase):
         cls.mod = _load_hook_runner()
 
     def test_sapi_script_uses_powershell_escaping(self):
-        script = self.mod._build_sapi_script('Done: "fix" costs $5 `now`')
+        script = self.mod.text_to_speech._build_sapi_script('Done: "fix" costs $5 `now`')
         self.assertIn('Done: `"fix`" costs `$5 ``now``', script)
         self.assertNotIn('\\"', script)
 
     def test_windows_tts_goes_through_the_shared_launcher(self):
-        with _LogCapture(self.mod) as log, \
+        with _LogCapture(self.mod.runner_core) as log, \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                _SpawnRecorder(self.mod) as spawn:
-            self.assertTrue(self.mod.play_tts('say "hi" $now'))
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell) as spawn:
+            self.assertTrue(self.mod.text_to_speech.play_tts('say "hi" $now'))
         self.assertEqual(1, len(spawn.calls))
         self.assertIn('say `"hi`" `$now', spawn.calls[0]["script"])
         event = log.find("tts_dispatch")
@@ -587,43 +588,43 @@ class TestTts(unittest.TestCase):
         self.assertEqual("sapi", event["backend"])
 
     def test_wsl_tts_uses_powershell_escaping(self):
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Linux"), \
-                mock.patch.object(self.mod, "is_wsl", return_value=True), \
-                _SpawnRecorder(self.mod) as spawn:
-            self.assertTrue(self.mod.play_tts('say "hi"'))
+                mock.patch.object(self.mod.desktop_notification.platform_shell, "is_wsl", return_value=True), \
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell) as spawn:
+            self.assertTrue(self.mod.text_to_speech.play_tts('say "hi"'))
         self.assertIn('say `"hi`"', spawn.calls[0]["script"])
 
     def test_macos_say_receives_the_raw_message_as_argv(self):
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Darwin"), \
-                mock.patch.object(self.mod.subprocess, "Popen") as popen:
-            self.assertTrue(self.mod.play_tts('say "hi" $now'))
+                mock.patch.object(self.mod.desktop_notification.subprocess, "Popen") as popen:
+            self.assertTrue(self.mod.text_to_speech.play_tts('say "hi" $now'))
         cmd = popen.call_args[0][0]
         self.assertEqual(["say", 'say "hi" $now'], cmd)
 
     def test_failure_returns_false_and_emits_tts_failed(self):
-        with _LogCapture(self.mod) as log, \
+        with _LogCapture(self.mod.runner_core) as log, \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                _SpawnRecorder(self.mod, spawn_result=False):
-            self.assertFalse(self.mod.play_tts("body"))
+                _SpawnRecorder(self.mod.desktop_notification.platform_shell, spawn_result=False):
+            self.assertFalse(self.mod.text_to_speech.play_tts("body"))
         event = log.find("tts_dispatch")
         self.assertEqual("error", event["level"])
         self.assertEqual(self.mod.ErrorCode.TTS_FAILED, event["error"]["code"])
 
     def test_no_linux_engine_returns_false(self):
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Linux"), \
-                mock.patch.object(self.mod, "is_wsl", return_value=False), \
+                mock.patch.object(self.mod.desktop_notification.platform_shell, "is_wsl", return_value=False), \
                 mock.patch.object(self.mod.shutil, "which", return_value=None):
-            self.assertFalse(self.mod.play_tts("body"))
+            self.assertFalse(self.mod.text_to_speech.play_tts("body"))
 
     def test_subprocess_failure_returns_false(self):
-        with _LogCapture(self.mod), \
+        with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Windows"), \
-                mock.patch.object(self.mod.subprocess, "Popen",
+                mock.patch.object(self.mod.desktop_notification.subprocess, "Popen",
                                   side_effect=OSError("no powershell")):
-            self.assertFalse(self.mod.play_tts("body"))
+            self.assertFalse(self.mod.text_to_speech.play_tts("body"))
 
 
 class TestNotificationModeDefault(unittest.TestCase):

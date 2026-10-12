@@ -2,12 +2,18 @@
 
 Before v6.6 ``cmd_install`` defaulted to the legacy script installer and
 ignored every argument it did not recognise, so ``install --help``,
-``install --bogus`` and a bare ``install`` all ran ``install-windows.ps1`` (or
-``install-complete.sh``), rewrote ``~/.claude/settings.json`` and reported
+``install --bogus`` and a bare ``install`` all ran the PowerShell or shell
+installer, rewrote ``~/.claude/settings.json`` and reported
 ``ok: true`` — on a machine with the plugin that means double-firing hooks.
 
+7.0.0 removed that installer (and both scripts). ``install --scripts`` is now
+``SCRIPT_INSTALL_REMOVED`` and installs nothing, with or without ``--force``;
+``uninstall`` still removes a script install made by an earlier release.
+
 Every test here runs the command in-process with ``subprocess.run`` patched, so
-no installer can execute and no real home directory is written.
+nothing can be spawned and no real home directory is written;
+``TestScriptInstallIsRemoved`` also runs the real CLI in a subprocess against a
+throwaway home and compares that home byte for byte.
 """
 
 from __future__ import annotations
@@ -72,7 +78,10 @@ class TestInstallArgs(_Base):
                 rc, doc = self._call("cmd_install", [flag])
                 self.assertEqual(rc, 0)
                 self.assertTrue(doc["ok"])
-                self.assertEqual(set(doc["modes"]), {"--plugin", "--scripts", "--cursor", "--codex"})
+                self.assertEqual(set(doc["modes"]), {"--plugin", "--cursor", "--codex"})
+                self.assertNotIn("--scripts", doc["usage"])
+                self.assertEqual(set(doc["removed"]), {"--scripts"})
+                self.assertIn("SCRIPT_INSTALL_REMOVED", doc["removed"]["--scripts"])
                 self.assertIn("--force", doc["flags"])
         self.run.assert_not_called()
 
@@ -100,9 +109,10 @@ class TestInstallArgs(_Base):
         rc, doc = self._call("cmd_install", [])
         self.assertEqual(rc, 1)
         self.assertEqual(doc["error"]["code"], "INVALID_USAGE")
-        self.assertEqual(set(doc["modes"]), {"--plugin", "--scripts", "--cursor", "--codex"})
-        for flag in ("--plugin", "--scripts", "--cursor", "--codex"):
-            self.assertIn(f"audio-hooks install {flag}", doc["next_steps"])
+        self.assertEqual(set(doc["modes"]), {"--plugin", "--cursor", "--codex"})
+        self.assertEqual(doc["next_steps"],
+                         [f"audio-hooks install {flag}" for flag in ("--plugin", "--cursor", "--codex")])
+        self.assertNotIn("--scripts", json.dumps(doc))
         self.run.assert_not_called()
 
     def test_force_alone_is_not_a_mode(self) -> None:
@@ -116,22 +126,26 @@ class TestInstallArgs(_Base):
         self.assertEqual(doc["error"]["code"], "INVALID_USAGE")
         self.run.assert_not_called()
 
-    def test_scripts_refused_when_plugin_detected(self) -> None:
-        rc, doc = self._call("cmd_install", ["--scripts"], plugin_installed=True)
-        self.assertEqual(rc, 1)
-        self.assertEqual(doc["error"]["code"], "DUAL_INSTALL_DETECTED")
+    def test_scripts_is_removed_whatever_the_machine_state(self) -> None:
+        """7.0.0: no installer runs, with or without --force, plugin or no plugin."""
+        for args in (["--scripts"], ["--scripts", "--force"], ["--force", "--scripts"]):
+            for plugin_installed in (False, True):
+                with self.subTest(args=args, plugin_installed=plugin_installed):
+                    rc, doc = self._call("cmd_install", args, plugin_installed=plugin_installed)
+                    self.assertEqual(rc, 1)
+                    self.assertIs(doc["ok"], False)
+                    self.assertEqual(doc["error"]["code"], "SCRIPT_INSTALL_REMOVED")
+                    self.assertIn("7.0.0", doc["error"]["message"])
+                    self.assertIn("audio-hooks uninstall", doc["error"]["hint"])
+                    self.assertEqual(doc["error"]["suggested_command"], "audio-hooks install --plugin")
+                    self.assertEqual(doc["next_steps"], ["audio-hooks install --plugin"])
+                    self.assertNotIn("mode", doc)
         self.run.assert_not_called()
 
-    def test_scripts_runs_installer_when_plugin_absent(self) -> None:
-        rc, doc = self._call("cmd_install", ["--scripts"], plugin_installed=False)
-        self.assertEqual(rc, 0)
-        self.assertEqual(doc["mode"], "scripts")
-        self.run.assert_called_once()
-
-    def test_scripts_force_overrides_plugin_detection(self) -> None:
-        rc, doc = self._call("cmd_install", ["--scripts", "--force"], plugin_installed=True)
-        self.assertEqual(rc, 0)
-        self.run.assert_called_once()
+    def test_scripts_is_answered_without_a_project_root(self) -> None:
+        with mock.patch.object(self.cli, "require_project_root", side_effect=AssertionError("looked at the checkout")):
+            rc, doc = self._call("cmd_install", ["--scripts"])
+        self.assertEqual(doc["error"]["code"], "SCRIPT_INSTALL_REMOVED")
 
     def test_plugin_mode_lists_claude_cli_commands(self) -> None:
         rc, doc = self._call("cmd_install", ["--plugin"])
@@ -177,12 +191,12 @@ class TestUninstallArgs(_Base):
         self.assertIn("--cursor", doc["flags"]["--purge"])
         # install keeps its own text
         _, idoc = self._call("cmd_install", ["--help"])
-        self.assertIn("Refused when the plugin is installed", idoc["modes"]["--scripts"])
-        self.assertTrue(idoc["usage"].startswith("audio-hooks install --plugin|"))
+        self.assertNotIn("by content", json.dumps(idoc))
+        self.assertTrue(idoc["usage"].startswith("audio-hooks install --plugin|--cursor|--codex "))
 
     def test_bare_uninstall_is_native_on_every_platform(self) -> None:
         """The documented remedy for DUAL_INSTALL_DETECTED must work everywhere,
-        without shelling out to a scripts/uninstall.sh the plugin does not ship."""
+        without shelling out to anything."""
         import tempfile
         for system in ("Linux", "Windows", "Darwin"):
             with self.subTest(system=system), tempfile.TemporaryDirectory() as td, \
@@ -235,7 +249,7 @@ class TestDualInstallMessages(_Base):
         self.assertIn("Run `audio-hooks uninstall`", msg)
         self.assertNotIn("uninstall.sh", msg)
         self.assertNotIn("WSL", msg)
-        # ... and so does the remedy helper that status/diagnose/the install guard use.
+        # ... and so does the remedy helper that status/diagnose use.
         self.assertEqual(self.cli._script_uninstall_remedy()[1], "audio-hooks uninstall")
 
     def setUp(self) -> None:
@@ -330,14 +344,83 @@ class TestPluginDetectionIgnoresOrphans(_Base):
         self._make_version("6.5.1", orphaned=False)
         self.assertTrue(self._plugin_installed())
 
-    def test_install_scripts_not_refused_for_orphans_only(self) -> None:
-        self._make_version("6.4.0", orphaned=True)
-        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PLUGIN_ROOT"}
-        out = io.StringIO()
-        with mock.patch.dict(os.environ, env, clear=True),                 mock.patch.object(Path, "home", return_value=self.home),                 contextlib.redirect_stdout(out):
-            rc = self.cli.cmd_install(["--scripts"])
+
+def _file_bytes(root: Path):
+    """Relative path -> bytes for every file (None for a directory)."""
+    out = {}
+    for p in sorted(root.rglob("*")):
+        out[str(p.relative_to(root))] = p.read_bytes() if p.is_file() else None
+    return out
+
+
+class TestScriptInstallIsRemoved(unittest.TestCase):
+    """End to end, through ``main``: the real CLI in a subprocess, on a home that
+    holds both a plugin install and an old script install. Nothing may change in
+    the home or in the data dir, and nothing may be created."""
+
+    def setUp(self) -> None:
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        root = Path(self._td.name)
+        self.home = root / "home"
+        self.data = root / "data"
+        hooks = self.home / ".claude" / "hooks"
+        hooks.mkdir(parents=True)
+        self.data.mkdir()
+        (hooks / "hook_runner.py").write_text(RUNNER_CONTENT, encoding="utf-8")
+        (hooks / ".project_path").write_text(str(REPO), encoding="utf-8")
+        (self.home / ".claude" / "settings.json").write_text(json.dumps({
+            "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hook_runner.py stop"}]}]},
+        }, indent=2), encoding="utf-8")
+        plugins = self.home / ".claude" / "plugins"
+        plugins.mkdir()
+        (plugins / "installed_plugins.json").write_text(
+            json.dumps({"plugins": {"audio-hooks@chanmeng-audio-hooks": [{"scope": "user"}]}}), encoding="utf-8")
+
+    def _run(self, *args: str):
+        import subprocess
+        env = dict(os.environ)
+        for name in ("CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT", "PLUGIN_DATA", "CLAUDE_AUDIO_HOOKS_DATA",
+                     "CLAUDE_CONFIG_DIR", "CURSOR_VERSION"):
+            env.pop(name, None)
+        env.update({"HOME": str(self.home), "USERPROFILE": str(self.home),
+                    "CLAUDE_PLUGIN_DATA": str(self.data), "CODEX_HOME": str(self.home / ".codex")})
+        proc = subprocess.run([sys.executable, str(CLI), *args], env=env, stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=60)
+        return proc.returncode, json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def test_install_scripts_changes_nothing(self) -> None:
+        for args in (("install", "--scripts"), ("install", "--scripts", "--force")):
+            with self.subTest(args=args):
+                home_before, data_before = _file_bytes(self.home), _file_bytes(self.data)
+                self.assertIn(str(Path(".claude") / "settings.json"), home_before)
+                rc, doc = self._run(*args)
+                self.assertEqual(rc, 1)
+                self.assertIs(doc["ok"], False)
+                self.assertEqual(doc["error"]["code"], "SCRIPT_INSTALL_REMOVED")
+                self.assertEqual(doc["error"]["suggested_command"], "audio-hooks install --plugin")
+                self.assertEqual(_file_bytes(self.home), home_before)
+                self.assertEqual(_file_bytes(self.data), data_before)
+
+    def test_the_dual_install_is_still_diagnosed_with_uninstall_as_the_remedy(self) -> None:
+        _rc, doc = self._run("diagnose")
+        found = [e for e in doc["errors"] if e["code"] == "DUAL_INSTALL_DETECTED"]
+        self.assertEqual(len(found), 1, doc["errors"])
+        self.assertEqual(found[0]["suggested_command"], "audio-hooks uninstall")
+        _rc, status = self._run("status")
+        self.assertEqual(status["install"]["warning"]["code"], "DUAL_INSTALL_DETECTED")
+        self.assertIn("audio-hooks uninstall", status["install"]["warning"]["message"])
+
+    def test_the_manifest_does_not_offer_scripts_as_an_install_mode(self) -> None:
+        rc, doc = self._run("manifest")
         self.assertEqual(rc, 0)
-        self.run.assert_called_once()  # the (patched) installer, not a refusal
+        install = next(c for c in doc["subcommands"] if c["name"] == "install")
+        self.assertEqual(install["args"][0], "<--plugin|--cursor|--codex>")
+        self.assertIn("SCRIPT_INSTALL_REMOVED", install["description"])
+        self.assertEqual(doc["error_codes"]["SCRIPT_INSTALL_REMOVED"]["suggested_command"],
+                         "audio-hooks install --plugin")
+        self.assertEqual(doc["error_codes"]["DUAL_INSTALL_DETECTED"]["suggested_command"], "audio-hooks uninstall")
 
 
 class TestUpgradeArgs(_Base):
