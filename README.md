@@ -18,12 +18,11 @@ A sound, a desktop toast or a message on your phone when Claude Code, Cursor or 
 
 <br>
 
-<!-- FILM PLACEHOLDER
-     Chan: the video below is the earlier first film (89 s). Edit this file on
-     github.com, drag the echook film (60 s, 16:9) (.mp4) into the editor, and let the new
-     link replace the one below. Then delete this whole comment. Leave one
-     blank line above and below the link.
--->
+
+
+https://github.com/user-attachments/assets/eb723799-6e06-42d6-8855-addcdf74888f
+
+
 
 https://github.com/user-attachments/assets/804dff1e-56d8-49b2-b0c0-6706f3eeccd4
 
