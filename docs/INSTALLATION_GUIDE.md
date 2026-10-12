@@ -166,7 +166,7 @@ If anything is broken, the diagnose output includes a `suggested_command` for ea
 
 ## See also
 
-- [README.md](../README.md) — public introduction (features, value, mermaid diagrams)
+- [README.md](../README.md) — public introduction (one screen); [overview.md](overview.md) — features, value, mermaid diagrams
 - [docs/CLI_REFERENCE.md](CLI_REFERENCE.md) — `audio-hooks` CLI subcommands, config keys, env vars, error codes
 - [docs/NATURAL_LANGUAGE_CONTROL.md](NATURAL_LANGUAGE_CONTROL.md) — every natural-language prompt, with diagrams
 - [AGENTS.md](../AGENTS.md) — canonical AI-facing operating guide (decision tree for natural-language requests)

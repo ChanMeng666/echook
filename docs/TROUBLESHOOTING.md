@@ -448,7 +448,7 @@ Issues: https://github.com/ChanMeng666/echook/issues
 
 ## See also
 
-- [README.md](../README.md) — public introduction (features, value, mermaid diagrams)
+- [README.md](../README.md) — public introduction (one screen); [overview.md](overview.md) — features, value, mermaid diagrams
 - [docs/CLI_REFERENCE.md](CLI_REFERENCE.md) — the full `audio-hooks` CLI + config + error-code reference
 - [AGENTS.md](../AGENTS.md) — canonical AI-facing operating guide
 - [docs/ARCHITECTURE.md](ARCHITECTURE.md) — developer-facing architecture deep dive

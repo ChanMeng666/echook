@@ -25,7 +25,8 @@ If you are an AI agent operating this project, do this first:
 
 - [Architecture](docs/ARCHITECTURE.md): runner flow, hook surfaces per editor, error-code model, script inventory.
 - [Status Line](docs/STATUS_LINE.md): complete reference for track 2 — Claude Code renders 33 segments (whitelist/blacklist config; `prompt_cache` and `remote` opt-in via `extra_segments`) plus a separate per-subagent row via `subagentStatusLine` (`statusline subagent`, NDJSON keyed by task id); Codex curates a fixed item list (`statusline codex`), it cannot render custom text. Live truth: `audio-hooks statusline segments`.
-- [README](README.md): human-readable overview and platform picker.
+- [README](README.md): one-screen introduction for people.
+- [Full overview](docs/overview.md): features, the platform picker (which install prompt for which editor), hook events table, how it works.
 - [Event behaviour notes](docs/EVENT_BEHAVIOR_NOTES.md): what Claude Code's hook events actually do, measured against a running install — undocumented `Stop.background_tasks`, the `agent_completed` / `agent_needs_input` matchers that never fired, and how to capture payloads before trusting an event name.
 - [Privacy policy](PRIVACY.md): what the plugin processes and stores locally, and the one case (a user-configured webhook) in which data leaves the machine.
 - [Project status](docs/PROJECT_STATUS.md): dated snapshot — what shipped, what is waiting on someone, what is claimed but not verified, what was evaluated and deliberately not done, candidates for later. Read before proposing work.

@@ -15,7 +15,7 @@ How a change gets from a working tree to users, as it was actually done for v6.6
 
 1. Edit the canonical sources (`/hooks/`, `/bin/`, `/audio/`, `/config/`, `/cursor-hooks/`, `/codex-hooks/`). `plugins/audio-hooks/hooks/hooks.json`, `plugin.json`, `runner/run.py`, `skills/`, `evals/`, the plugin `README.md` and `.claude-plugin/icon.png` are edited in place.
 2. `bash scripts/build-plugin.sh` to sync the mirrors.
-3. Update every affected document in the same change: `CHANGELOG.md`, `AGENTS.md`, `README.md`, `llms.txt`, the files under `docs/`, the skill, and — when what the plugin runs, sends or writes has changed — `plugins/audio-hooks/README.md` and `PRIVACY.md`. A release is not split into a code commit and a later docs commit.
+3. Update every affected document in the same change: `CHANGELOG.md`, `AGENTS.md`, `README.md`, `docs/overview.md`, `llms.txt`, the files under `docs/`, the skill, and — when what the plugin runs, sends or writes has changed — `plugins/audio-hooks/README.md` and `PRIVACY.md`. A release is not split into a code commit and a later docs commit.
 4. Take counts from the CLI, not from memory: `audio-hooks manifest`, `audio-hooks hooks list --variants`, `audio-hooks statusline segments`.
 
 ### If the change adds a sound

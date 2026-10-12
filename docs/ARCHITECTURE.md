@@ -652,7 +652,7 @@ The `tests/` directory is wired into `.github/workflows/smoke.yml` and runs on e
 ## See also
 
 - [AGENTS.md](../AGENTS.md) — canonical AI-facing operating guide (`CLAUDE.md` is a one-line import of it, because Claude Code ignores `AGENTS.md` when a `CLAUDE.md` exists)
-- [README.md](../README.md) — public-facing project introduction
+- [README.md](../README.md) — public-facing project introduction (one screen); [overview.md](overview.md) — the full overview
 - [CHANGELOG.md](../CHANGELOG.md) — version history including the v5.0/v5.0.1 detail
 - [EVENT_BEHAVIOR_NOTES.md](EVENT_BEHAVIOR_NOTES.md) — observed vs documented behaviour of Claude Code's hook events
 - `audio-hooks manifest` — live machine description of every subcommand and config key

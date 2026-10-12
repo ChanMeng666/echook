@@ -9,7 +9,7 @@ If you need help with Echook, here are the available channels:
 
 ## Before You Ask
 
-- Check the [README](README.md) for setup and usage instructions.
+- Check the [README](README.md) and the [full overview](docs/overview.md) for setup and usage instructions.
 - Review the [Contributing Guide](CONTRIBUTING.md) for development and build steps.
 - Search existing [issues](https://github.com/ChanMeng666/echook/issues) and [discussions](https://github.com/ChanMeng666/echook/discussions) — your question may already be answered.
 
