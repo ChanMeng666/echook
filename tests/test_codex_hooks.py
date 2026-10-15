@@ -47,6 +47,8 @@ CODEX_TEMPLATE = REPO / "codex-hooks" / "hooks.json"
 CODEX_PLUGIN_TEMPLATE = REPO / "codex-hooks" / "plugin-hooks.json"
 CODEX_PLUGIN_MANIFEST = REPO / "plugins" / "audio-hooks" / ".codex-plugin" / "plugin.json"
 AUDIO_HOOKS_CLI = REPO / "bin" / "audio-hooks.py"
+# The only top-level keys Codex's hooks.json parser accepts (0.143.0, 0.162.1).
+CODEX_TOP_LEVEL_KEYS = {"description", "hooks"}
 
 
 def _load_module():
@@ -307,9 +309,15 @@ class TestCodexTemplateValidity(unittest.TestCase):
         with open(CODEX_TEMPLATE, "r", encoding="utf-8") as f:
             self.doc = json.load(f)
 
-    def test_template_is_managed(self):
-        self.assertTrue(self.doc.get("_audio_hooks_managed"))
-        self.assertIn("_audio_hooks_version", self.doc)
+    def test_template_has_only_keys_codex_accepts(self):
+        # Codex rejects the whole file on any other top-level key, which left
+        # every echook hook silent through 7.0.0 (see TestCodexHooksFileShape).
+        self.assertLessEqual(set(self.doc), CODEX_TOP_LEVEL_KEYS)
+
+    def test_stop_is_synchronous(self):
+        for entry in self.doc["hooks"]["Stop"]:
+            for handler in entry["hooks"]:
+                self.assertNotIn("async", handler)
 
     def test_ten_supported_events_present(self):
         events = set(self.doc.get("hooks", {}).keys())
@@ -364,6 +372,14 @@ class TestCodexPluginTemplateValidity(unittest.TestCase):
 
     def test_plugin_template_registers_codex_supported_events(self):
         self.assertEqual(set(self.doc.get("hooks", {}).keys()), self.EXPECTED_EVENTS)
+
+    def test_plugin_template_has_only_keys_codex_accepts(self):
+        self.assertLessEqual(set(self.doc), CODEX_TOP_LEVEL_KEYS)
+
+    def test_plugin_stop_is_synchronous(self):
+        for entry in self.doc["hooks"]["Stop"]:
+            for handler in entry["hooks"]:
+                self.assertNotIn("async", handler)
 
     def test_plugin_template_uses_plugin_root_runner(self):
         text = CODEX_PLUGIN_TEMPLATE.read_text(encoding="utf-8")
@@ -876,6 +892,155 @@ class TestUninstallCodex(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # 8. Editor targets reporting
 # ---------------------------------------------------------------------------
+
+# What `install --codex` wrote at the top level of hooks.json up to 7.0.0.
+LEGACY_TOP_LEVEL = {
+    "_comment": "Codex CLI hooks.json template for audio-hooks.",
+    "_schema_doc": "https://learn.chatgpt.com/docs/hooks",
+    "_audio_hooks_managed": True,
+    "_audio_hooks_version": "7.0.0",
+    "_unsupported_in_codex": ["Notification"],
+    "_unsupported_note": "Codex's hook surface covers 10 events.",
+    "_feature_flag_required": "Codex hooks are enabled by default.",
+    "_async_note": "v6.5: every handler is async.",
+}
+
+
+def _legacy_hooks_file(foreign_command: str) -> Dict[str, Any]:
+    doc: Dict[str, Any] = dict(LEGACY_TOP_LEVEL)
+    doc["hooks"] = {
+        "Stop": [
+            {"hooks": [{"type": "command", "command": "python runner stop --invoker codex",
+                        "timeout": 10, "async": True}],
+             "_managed_by": "audio-hooks"},
+            {"hooks": [{"type": "command", "command": foreign_command}]},
+        ],
+    }
+    return doc
+
+
+class TestCodexHooksFileShape(unittest.TestCase):
+    """Codex rejects a hooks.json with any top-level key besides ``description``
+    and ``hooks`` ("unknown field `_comment`"), and the rejection takes every
+    hook in the file down. Measured on Codex 0.143.0 and 0.162.1: up to 7.0.0
+    both the native install and the plugin template were refused, so echook
+    never fired under Codex. These pin the shape Codex accepts.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.codex_home = Path(self._tmp.name)
+        self.env = {"CODEX_HOME": str(self.codex_home)}
+        self.target = self.codex_home / "hooks.json"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _doc(self) -> Dict[str, Any]:
+        return json.loads(self.target.read_text(encoding="utf-8"))
+
+    def test_install_writes_only_keys_codex_accepts(self):
+        rc, stdout, _ = _run_cli(["install", "--codex"], env_extra=self.env)
+        self.assertEqual(rc, 0, stdout)
+        doc = self._doc()
+        self.assertLessEqual(set(doc), CODEX_TOP_LEVEL_KEYS)
+        for entry in doc["hooks"]["Stop"]:
+            for handler in entry["hooks"]:
+                self.assertNotIn("async", handler)
+
+    def test_reinstall_repairs_a_7_0_0_file(self):
+        doc = _legacy_hooks_file("echo user_owned")
+        doc["description"] = "my hooks"
+        self.target.write_text(json.dumps(doc), encoding="utf-8")
+        rc, stdout, _ = _run_cli(["install", "--codex"], env_extra=self.env)
+        self.assertEqual(rc, 0, stdout)
+        doc = self._doc()
+        self.assertEqual(set(doc), {"description", "hooks"})
+        self.assertEqual(doc["description"], "my hooks")
+        stop = doc["hooks"]["Stop"]
+        commands = [h["command"] for e in stop for h in e["hooks"]]
+        self.assertIn("echo user_owned", commands)
+        self.assertEqual(sum(1 for e in stop if e.get("_managed_by") == "audio-hooks"), 1)
+        self.assertNotIn("python runner stop --invoker codex", commands)
+
+    def test_uninstall_strips_every_legacy_key(self):
+        self.target.write_text(json.dumps(_legacy_hooks_file("echo user_owned")), encoding="utf-8")
+        rc, stdout, _ = _run_cli(["uninstall", "--codex"], env_extra=self.env)
+        self.assertEqual(rc, 0, stdout)
+        doc = self._doc()
+        self.assertEqual(set(doc), {"hooks"})
+        self.assertEqual(
+            [h["command"] for e in doc["hooks"]["Stop"] for h in e["hooks"]],
+            ["echo user_owned"],
+        )
+
+    def test_status_recognises_an_install_by_its_entry_tags(self):
+        _run_cli(["install", "--codex"], env_extra=self.env)
+        self.assertNotIn("_audio_hooks_managed", self._doc())
+        rc, stdout, _ = _run_cli(["status"], env_extra=self.env)
+        self.assertEqual(rc, 0)
+        codex = json.loads(stdout)["editor_targets"]["codex"]
+        self.assertIn("native", codex.get("via", []))
+
+    def test_diagnose_reports_a_rejected_file(self):
+        self.target.write_text(json.dumps(_legacy_hooks_file("echo user_owned")), encoding="utf-8")
+        _, stdout, _ = _run_cli(["diagnose"], env_extra=self.env)
+        found = [e for e in json.loads(stdout).get("errors", [])
+                 if e.get("code") == "CODEX_HOOKS_FILE_REJECTED"]
+        self.assertEqual(len(found), 1, stdout)
+        self.assertIn("_comment", found[0]["message"])
+        self.assertEqual(found[0]["suggested_command"], "audio-hooks install --codex")
+
+    def test_diagnose_is_quiet_after_install(self):
+        _run_cli(["install", "--codex"], env_extra=self.env)
+        _, stdout, _ = _run_cli(["diagnose"], env_extra=self.env)
+        codes = [e.get("code") for e in json.loads(stdout).get("errors", [])]
+        self.assertNotIn("CODEX_HOOKS_FILE_REJECTED", codes)
+
+
+class TestCodexAsyncVersionGate(unittest.TestCase):
+    """Codex runs ``async: true`` handlers from 0.148.0 and skips them before
+    that ("async hooks are not supported yet", measured on 0.143.0). The
+    native install keeps the flag only when the installed Codex runs it.
+    """
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("audio_hooks_cli", AUDIO_HOOKS_CLI)
+        assert spec is not None and spec.loader is not None
+        spec.loader.exec_module(importlib.util.module_from_spec(spec))  # puts bin/ on sys.path
+        self.mod = importlib.import_module("echook_cli.editor_installs")
+        self._tmp = tempfile.TemporaryDirectory()
+        self.codex_home = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _install_as(self, version) -> Dict[str, Any]:
+        import contextlib
+        import io
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"CODEX_HOME": str(self.codex_home)}),                 mock.patch.object(self.mod, "_codex_version", return_value=version),                 contextlib.redirect_stdout(io.StringIO()):
+            rc = self.mod._install_codex(project_root=REPO, project_version="test")
+        self.assertEqual(rc, 0)
+        return json.loads((self.codex_home / "hooks.json").read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _async_events(doc: Dict[str, Any]) -> set:
+        return {evt for evt, entries in doc["hooks"].items()
+                for e in entries for h in e["hooks"] if h.get("async")}
+
+    def test_old_codex_gets_no_async_handler(self):
+        self.assertEqual(self._async_events(self._install_as((0, 143, 0))), set())
+
+    def test_unknown_version_gets_no_async_handler(self):
+        self.assertEqual(self._async_events(self._install_as(None)), set())
+
+    def test_current_codex_keeps_async_except_stop(self):
+        events = self._async_events(self._install_as((0, 162, 1)))
+        self.assertIn("PreToolUse", events)
+        self.assertNotIn("Stop", events)
+        self.assertNotIn("SessionEnd", events)
+
 
 class TestEditorTargetsCodex(unittest.TestCase):
     def test_status_reports_codex_block(self):

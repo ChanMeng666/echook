@@ -46,6 +46,10 @@ Cursor documents `{"status": "completed" | "aborted" | "error", "loop_count": 0}
 
 Invoker detection uses the `--invoker codex` CLI flag baked into the Codex install template, parsed by `hooks/invoker.py`.
 
+### A Codex hooks file holds `hooks` (and at most `description`) at the top level, and its `Stop` is synchronous
+
+The rule in the mods entry above applies to every top-level key, not only `modules`: through 7.0.0 both Codex templates carried `_comment`, `_audio_hooks_managed` and friends, Codex refused both files, and echook never fired under Codex on any version or install route ([LIVE] on 0.143.0 and 0.162.1, 2026-10-15). Do not put documentation or markers in `codex-hooks/*.json`; ownership is the per-entry `_managed_by` tag, which Codex accepts. Do not mark `Stop` `async`: Codex before 0.148.0 skips async handlers, and `codex exec` exits before an async `Stop` runs. `install --codex` drops `async` everywhere for Codex older than 0.148.0. `tests/test_codex_hooks.py` (`TestCodexHooksFileShape`, `TestCodexAsyncVersionGate`) guards all of it; the run that found it is in `docs/EVENT_BEHAVIOR_NOTES.md`.
+
 ### Claude Code registers 30 of the 39 canonical events plus 47 matcher variants (Claude Code itself has 33 events as of 2.1.292, unchanged since 2.1.251; the three echook does not register are `PreModelSwitch`, `WorktreeCreate` and `PostModelSwitch`); Cursor (native: 19 template entries → 18 distinct events, incl. granular per-tool shell/MCP/file events; auto-bridge: 8 coarse) and Codex (11 of 39) have smaller hook surfaces and no variant support
 
 The other 9 canonical events are Cursor-only (`shell_*`, `mcp_*`, `file_read`, `agent_response`, `agent_thinking`, `workspace_open`, `tab_file_edit`) and Claude Code has no equivalent — `manifest.supported_editors["claude-code"].events` is derived from the template, not from `HOOK_CATALOG` (before v6.4.1 it was, and wrongly claimed every canonical event). Codex's 11th event, `SessionEnd`, is registered by `install --codex` **only** when the installed Codex is ≥ 0.145.0. The runner no-ops unsupported events with `skipped_no_*_equivalent` debug NDJSON.

@@ -35,8 +35,6 @@ FILES = [
     "plugins/audio-hooks/.claude-plugin/plugin.json",
     "plugins/audio-hooks/.codex-plugin/plugin.json",
     "cursor-hooks/hooks.json",
-    "codex-hooks/hooks.json",
-    "codex-hooks/plugin-hooks.json",
     "config/default_preferences.json",
     "CHANGELOG.md",
 ]
@@ -115,10 +113,10 @@ class TestBumpVersion(unittest.TestCase):
                 (self.root / rel).write_bytes(text.encode("utf-8"))
 
     def test_a_missing_target_changes_nothing(self) -> None:
-        (self.root / "codex-hooks" / "plugin-hooks.json").unlink()
+        (self.root / "cursor-hooks" / "hooks.json").unlink()
         before = self._tree_bytes()
         err = self._bump_fails("9.8.7")
-        self.assertEqual(err["file"], "codex-hooks/plugin-hooks.json")
+        self.assertEqual(err["file"], "cursor-hooks/hooks.json")
         self.assertEqual(self._tree_bytes(), before)
 
     def _read(self, rel: str) -> str:
@@ -128,7 +126,7 @@ class TestBumpVersion(unittest.TestCase):
         out = self._bump("9.8.7")
         self.assertTrue(out["ok"], out)
         self.assertEqual(out["new_version"], "9.8.7")
-        for rel in FILES[:9]:
+        for rel in FILES[:7]:
             self.assertIn(rel, out["files_changed"], f"{rel} was not stamped")
 
     def test_no_document_is_stamped(self) -> None:
@@ -158,7 +156,7 @@ class TestBumpVersion(unittest.TestCase):
     def test_the_header_comment_lists_what_the_script_does(self) -> None:
         head = SCRIPT.read_text(encoding="utf-8").split("set -euo pipefail")[0]
         self.assertNotIn("Updates 9 canonical files", head)
-        for rel in FILES[:9]:
+        for rel in FILES[:7]:
             self.assertIn(rel, head)
         for rel in UNSTAMPED_DOCS:
             self.assertNotIn(rel, head)
@@ -167,7 +165,7 @@ class TestBumpVersion(unittest.TestCase):
         """Every canonical stamp in the working tree agrees with PROJECT_VERSION right now."""
         project = re.search(r'(?m)^PROJECT_VERSION\s*=\s*"([^"]+)"',
                             (REPO / "bin" / "audio-hooks.py").read_text(encoding="utf-8")).group(1)
-        for rel in FILES[1:9]:
+        for rel in FILES[1:7]:
             self.assertIn(f'"{project}"', (REPO / rel).read_text(encoding="utf-8"), rel)
 
 

@@ -5,15 +5,13 @@
 # Usage:
 #   bash scripts/bump-version.sh [--skip-tests] <new_version>
 #
-# Updates 12 version locations in 9 canonical files:
+# Updates 10 version locations in 7 canonical files:
 #   bin/audio-hooks.py                                  PROJECT_VERSION
 #   hooks/hook_runner.py                                HOOK_RUNNER_VERSION
 #   .claude-plugin/marketplace.json                     metadata.version + plugins[0].version
 #   plugins/audio-hooks/.claude-plugin/plugin.json      version
 #   plugins/audio-hooks/.codex-plugin/plugin.json       version
 #   cursor-hooks/hooks.json                             _audio_hooks_version
-#   codex-hooks/hooks.json                              _audio_hooks_version
-#   codex-hooks/plugin-hooks.json                       _audio_hooks_version
 #   config/default_preferences.json                     _version + version + "(vX.Y.Z)" in _comment
 #
 # No documentation carries a version stamp: the docs describe behaviour, and the
@@ -196,13 +194,12 @@ def apply_all():
     bump_json_string("plugins/audio-hooks/.claude-plugin/plugin.json", '"version"', expected_count=1)
     bump_json_string("plugins/audio-hooks/.codex-plugin/plugin.json", '"version"', expected_count=1)
 
-    # 6 + 7 + 8: cursor + codex hook templates use _audio_hooks_version (NOT version,
-    # which is Cursor's own schema-version integer).
+    # 6: the cursor hook template uses _audio_hooks_version (NOT version, which is
+    # Cursor's own schema-version integer). The codex templates carry no stamp:
+    # Codex rejects a hooks file with any top-level key besides description/hooks.
     bump_json_string("cursor-hooks/hooks.json", '"_audio_hooks_version"', expected_count=1)
-    bump_json_string("codex-hooks/hooks.json", '"_audio_hooks_version"', expected_count=1)
-    bump_json_string("codex-hooks/plugin-hooks.json", '"_audio_hooks_version"', expected_count=1)
 
-    # 9: the preferences template stamps the version three ways. It is canonical
+    # 7: the preferences template stamps the version three ways. It is canonical
     #    because UserPreferences._migrate_if_needed writes _version into every
     #    user's config; leaving it stale (it sat at 5.1.5 through 6.5.0) makes every
     #    install claim a version it isn't. `"version"` cannot match inside

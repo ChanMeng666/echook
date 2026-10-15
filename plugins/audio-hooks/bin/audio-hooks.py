@@ -310,7 +310,17 @@ def _detect_codex_native_install() -> bool:
         doc = json.loads(codex_hooks.read_text(encoding="utf-8"))
     except Exception:
         return False
-    return isinstance(doc, dict) and bool(doc.get("_audio_hooks_managed"))
+    if not isinstance(doc, dict):
+        return False
+    # Files written by 7.0.0 and earlier carry a top-level marker Codex rejects;
+    # current ones are recognised by the per-entry tag alone.
+    hooks = doc.get("hooks")
+    tagged = isinstance(hooks, dict) and any(
+        isinstance(e, dict) and e.get("_managed_by") == "audio-hooks"
+        for entries in hooks.values() if isinstance(entries, list)
+        for e in entries
+    )
+    return tagged or bool(doc.get("_audio_hooks_managed"))
 
 
 def _detect_codex_plugin_install() -> Optional[str]:
@@ -1355,6 +1365,24 @@ def _check_codex_managed_hooks_only() -> Dict[str, Any]:
     return {"active": False}
 
 
+def _check_codex_hooks_file_keys() -> Dict[str, Any]:
+    """Find top-level keys that make Codex reject ``$CODEX_HOME/hooks.json``.
+
+    Codex accepts only ``description`` and ``hooks`` at the top level and
+    drops the whole file on anything else, so every hook in it goes silent.
+    ``install --codex`` up to 7.0.0 wrote ``_comment`` and friends there.
+    """
+    path = _codex_home() / "hooks.json"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"rejected": False}
+    if not isinstance(doc, dict):
+        return {"rejected": False}
+    unknown = sorted(k for k in doc if k not in ("description", "hooks"))
+    return {"rejected": bool(unknown), "keys": unknown, "path": str(path)}
+
+
 def _check_audio_files() -> Dict[str, Any]:
     if PROJECT_ROOT is None:
         return {"missing": [], "present": 0}
@@ -1575,6 +1603,22 @@ def cmd_diagnose(_args: List[str]) -> int:
                 "Ask whoever owns "
                 f"{codex_managed.get('path')} to allow user hooks, or install "
                 "echook through the Codex plugin marketplace instead."
+            ),
+            "suggested_command": "audio-hooks install --codex",
+        })
+
+    codex_keys = _check_codex_hooks_file_keys()
+    if codex_keys.get("rejected"):
+        errors.append({
+            "code": "CODEX_HOOKS_FILE_REJECTED",
+            "message": (
+                f"Codex refuses to load {codex_keys.get('path')}: it has top-level "
+                f"keys other than description and hooks ({', '.join(codex_keys['keys'])}), "
+                "so no hook in that file runs."
+            ),
+            "hint": (
+                "Re-run audio-hooks install --codex; it removes the keys echook "
+                "wrote up to 7.0.0. Move any key you added yourself out of the file."
             ),
             "suggested_command": "audio-hooks install --codex",
         })

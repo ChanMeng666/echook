@@ -131,4 +131,9 @@ CLI_ERROR_CODES: Dict[str, Dict[str, str]] = {
         "hint": "Codex allows managed hooks only, so $CODEX_HOME/hooks.json is ignored and a native --codex install never fires. Ask whoever owns the Codex policy.",
         "suggested_command": "audio-hooks diagnose",
     },
+    "CODEX_HOOKS_FILE_REJECTED": {
+        "appears_in": "diagnose",
+        "hint": "$CODEX_HOME/hooks.json has a top-level key other than description and hooks, so Codex rejects the whole file and none of its hooks run. install --codex up to 7.0.0 wrote such keys; re-running it removes them.",
+        "suggested_command": "audio-hooks install --codex",
+    },
 }
