@@ -13,6 +13,7 @@ Evidence tags follow `docs/EVENT_BEHAVIOR_NOTES.md`: **[PORTAL]** was read in th
 | Source | `ChanMeng666/echook`, branch `master`, plugin path `plugins/audio-hooks` |
 | First version submitted | v6.7.2 at commit `f692417` |
 | Status **[PORTAL 2026-10-04]** | Security scan passed. **In review**: held for content policy review, with Anthropic. Nothing is live. |
+| Status **[PORTAL 2026-10-15]** | v7.1.0 (`f1df816`) picked up from the push; security scan passed; **in review**, held for content policy review ("Files or downloads the validator couldn't inspect", "Ships executable files"). Live now: nothing published yet. |
 | Listed on | **Claude Code only** (see "Why only Claude Code") |
 | Updates | GitHub push webhook connected; the directory also polls the branch about every 6 hours |
 | Auto-publish | Not applicable while a reviewer publishes each version |
