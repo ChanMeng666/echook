@@ -54,7 +54,7 @@ An independent review by a reader who was given the code and its intent, not the
 bash scripts/bump-version.sh <new_version>
 ```
 
-It stamps the 12 canonical version locations, runs `build-plugin.sh` and the test suite, validates every target before writing anything, and reports `CHANGELOG.md` under `needs_hand_written` until its release entry is written by hand. No document carries a version stamp. Raise the version for every release that changes the plugin folder: the plugin directory requires it (see `docs/DIRECTORY_LISTING.md`).
+It stamps the 10 canonical version locations in 7 files, runs `build-plugin.sh` and the test suite, validates every target before writing anything, and reports `CHANGELOG.md` under `needs_hand_written` until its release entry is written by hand. No document carries a version stamp. Raise the version for every release that changes the plugin folder: the plugin directory requires it (see `docs/DIRECTORY_LISTING.md`).
 
 A documentation-only change that touches nothing under `plugins/audio-hooks/` does not need a version bump.
 
