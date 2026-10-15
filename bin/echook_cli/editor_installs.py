@@ -199,6 +199,35 @@ CODEX_SESSION_END_ENTRY = {
     }],
 }
 
+# The same strictness applies one level up: the top level of hooks.json takes
+# only ``description`` and ``hooks``, so one ``_comment`` key makes Codex
+# reject the whole file ("unknown field `_comment`, expected `description` or
+# `hooks`"; measured on 0.143.0 and 0.162.1). Templates up to 7.0.0 carried
+# these keys, so every echook hook was silent under Codex. Install and
+# uninstall strip them from an existing file; the per-entry ``_managed_by``
+# tag is accepted and stays.
+CODEX_LEGACY_TOP_LEVEL_KEYS = (
+    "_comment", "_schema_doc", "_audio_hooks_managed", "_audio_hooks_version",
+    "_unsupported_in_codex", "_unsupported_note", "_feature_flag_required",
+    "_async_note",
+)
+
+# Codex runs ``async: true`` handlers from 0.148.0 (#37533); older builds skip
+# them with "async hooks are not supported yet" (measured on 0.143.0). Below
+# that version, or when the version cannot be read, the flag is dropped so
+# the handler runs synchronously instead of not at all. ``Stop`` is never async
+# in the templates: ``codex exec`` exits before an async Stop handler gets past
+# interpreter start-up (measured on 0.162.1), and that is the sound people
+# wait for. A synchronous run of the runner costs about 0.3 s.
+CODEX_ASYNC_MIN_VERSION = (0, 148, 0)
+
+
+def _drop_codex_async(doc: Dict[str, Any]) -> None:
+    for entries in (doc.get("hooks") or {}).values():
+        for entry in entries:
+            for handler in entry.get("hooks", []):
+                handler.pop("async", None)
+
 
 def _install_codex(*, project_root: Path, project_version: str) -> int:
     """Install audio-hooks for Codex CLI via ``$CODEX_HOME/hooks.json``.
@@ -253,6 +282,8 @@ def _install_codex(*, project_root: Path, project_version: str) -> int:
         )
         new_doc.setdefault("hooks", {})["SessionEnd"] = [entry]
         session_end_registered = True
+    if codex_ver is None or codex_ver < CODEX_ASYNC_MIN_VERSION:
+        _drop_codex_async(new_doc)
 
     # Tag every hook entry so uninstall can find ours and leave foreign entries.
     for event_name, entries in new_doc.get("hooks", {}).items():
@@ -285,6 +316,8 @@ def _install_codex(*, project_root: Path, project_version: str) -> int:
                 for evt, entries in new_doc["hooks"].items():
                     merged_hooks.setdefault(evt, []).extend(entries)
                 existing["hooks"] = merged_hooks
+                for k in CODEX_LEGACY_TOP_LEVEL_KEYS:
+                    existing.pop(k, None)
                 new_doc = existing
 
     try:
@@ -396,11 +429,7 @@ def _uninstall_codex(*, purge: bool) -> int:
                         if keep:
                             pruned[evt] = keep
                 doc["hooks"] = pruned
-                for k in (
-                    "_audio_hooks_managed", "_audio_hooks_version",
-                    "_unsupported_in_codex", "_unsupported_note",
-                    "_feature_flag_required",
-                ):
+                for k in CODEX_LEGACY_TOP_LEVEL_KEYS:
                     doc.pop(k, None)
                 non_meta_keys = [
                     k for k in doc.keys()

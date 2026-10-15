@@ -77,6 +77,8 @@ Expected and not configurable (6.5.1+): Claude Code writes the escape only from 
 ## Codex
 
 - Silent: `audio-hooks status` -> `editor_targets.codex`. `active-but-hooks-disabled` means `[features].hooks = false` in `~/.codex/config.toml`; `active-but-config-unreadable` means TOML syntax error (hooks are on by default).
+- Silent on every event, with ``failed to parse hooks config … unknown field `_comment` `` (or `failed to parse plugin hooks config`) in Codex's output: the file was written by echook 7.0.0 or earlier, and Codex refuses the whole file. `audio-hooks diagnose` reports `CODEX_HOOKS_FILE_REJECTED`. Re-run `audio-hooks install --codex`; for the plugin route, update the plugin (`codex plugin add audio-hooks@chanmeng-audio-hooks`).
+- `skipping async hook … async hooks are not supported yet`: Codex older than 0.148.0. Re-run `audio-hooks install --codex`, which writes synchronous handlers for that version, or update Codex. The plugin route keeps only `Stop` on such a version.
 - `install --codex` succeeded but Codex never fires: a managed deployment sets `allow_managed_hooks_only` in `requirements.toml`, so `$CODEX_HOME/hooks.json` is ignored with no error (`CODEX_MANAGED_HOOKS_ONLY`, names the file). Ask the owner to permit user hooks, or install via `codex plugin marketplace add ChanMeng666/echook`; plugin hooks load by a different route.
 - Hooks fire, no audio: confirm `invoker: "codex"` on each line of `~/.codex/audio-hooks-data/logs/events.ndjson`. If it reads `unknown` or `claude-code`, `--invoker codex` is not reaching the runner; re-run `audio-hooks install --codex`.
 

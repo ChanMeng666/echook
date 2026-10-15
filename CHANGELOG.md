@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [Unreleased]
+
+echook had never been run against Codex itself. Run for the first time, it was
+silent there: Codex refused both of echook's hook files, so no Codex user heard
+anything, on any version, by either install route. This release makes it fire,
+and the run that found the fault is now recorded and repeatable.
+
+### Fixed
+
+- **Codex refused echook's hook files.** Codex accepts only `description` and
+  `hooks` at the top level of `hooks.json` and drops the whole file on any other
+  key (``unknown field `_comment`, expected `description` or `hooks` ``). Both
+  `codex-hooks/hooks.json` and `codex-hooks/plugin-hooks.json` carried
+  `_comment`, `_schema_doc`, `_audio_hooks_managed`, `_audio_hooks_version` and
+  `_async_note` there. Both now hold `hooks` and nothing else.
+  `install --codex` and `uninstall --codex` remove those keys from an existing
+  `$CODEX_HOME/hooks.json` and keep everything else in it; `status` recognises
+  an install by its `_managed_by` entry tags.
+- **Async handlers on Codex older than 0.148.0.** Those builds skip every
+  `async: true` handler. `install --codex` now writes synchronous handlers when
+  the installed Codex is older than 0.148.0 or its version cannot be read.
+- **`Stop` under `codex exec`.** `codex exec` exits before an async `Stop`
+  handler runs, so the "finished" sound never played in headless runs. `Stop`
+  is now synchronous in both Codex templates (about 0.3 s per turn).
+
+### Added
+
+- `audio-hooks diagnose` reports **`CODEX_HOOKS_FILE_REJECTED`** when
+  `$CODEX_HOME/hooks.json` has a top-level key Codex will refuse, naming the
+  keys; `audio-hooks install --codex` repairs a file echook wrote.
+
+### Changed
+
+- `scripts/bump-version.sh` no longer stamps the two Codex templates; it now
+  covers 10 version locations in 7 files.
+
+### Upgrading
+
+- Native Codex install: run `audio-hooks install --codex` once. Until then the
+  old file stays refused and `diagnose` says so.
+- Codex plugin: update the plugin from the marketplace.
+
+### Verified
+
+- [LIVE] Codex 0.143.0 and 0.162.1 on Windows 11, `codex exec` with a
+  throwaway `CODEX_HOME` and a local stand-in for the Responses API. Before the
+  fix: no echook hook ran on either version or route. After it: `Stop` played
+  and showed its toast on all four, and `SessionStart`, `UserPromptSubmit`,
+  `PreToolUse`, `PostToolUse` and (0.162.1) `SessionEnd` reached the runner.
+  Full suite: 795 tests, 2 POSIX-only skipped.
+
+### Not verified
+
+- `PermissionRequest`, `PreCompact`/`PostCompact` and the subagent events were
+  not provoked. No interactive Codex session, macOS or Linux was run.
+- Cursor is unchanged and still rests on its documentation: the Cursor CLI is
+  not on the development machine and the IDE cannot be driven headlessly.
+- On Codex older than 0.148.0 the plugin route runs only `Stop`; a plugin
+  template cannot be fitted to the installed version.
+
 ## [7.0.0] - 2026-10-13
 
 The repository was reorganised so that an AI agent can find and change one

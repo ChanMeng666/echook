@@ -18,6 +18,21 @@ Exercise the paths deliberately — long turns, `Task` subagents, background she
 
 `CLAUDE_HOOKS_DEBUG=1` also makes echook dump the last status-line stdin, but note that echook's own `hook_start` NDJSON event does **not** record raw stdin, so it cannot substitute for a shim when you need payload fields.
 
+**Codex, without an account** (used on 2026-10-15). Set `CODEX_HOME` to a throwaway directory, install echook into it (`audio-hooks install --codex`, or `codex plugin marketplace add <checkout>` then `codex plugin add audio-hooks@chanmeng-audio-hooks`), and give it a `config.toml` that points the model at a local stand-in:
+
+```toml
+model = "mock-model"
+model_provider = "mock"
+
+[model_providers.mock]
+name = "mock"
+base_url = "http://127.0.0.1:18765/v1"
+wire_api = "responses"
+supports_websockets = false
+```
+
+The stand-in answers `POST /v1/responses` with a server-sent event stream (`response.created`, `response.output_item.added`, `response.output_item.done`, `response.completed`): a `function_call` to `shell_command` when the request carries no tool output yet, an assistant `message` once it does. Then run `codex exec --dangerously-bypass-hook-trust --skip-git-repo-check "run echo hi" < /dev/null` (without the redirect it waits on stdin). Codex prints a `hook: <Event>` line per synchronous handler and a `warning:` for any hooks file it refuses; set `CLAUDE_HOOKS_DEBUG=1` to see each runner start in `$CODEX_HOME/audio-hooks-data/logs/events.ndjson`. A shim for raw payloads goes in `<project>/.codex/hooks.json` with the project marked trusted in `config.toml`.
+
 A less intrusive way to load a probe, used throughout the 2.1.288 sync: put the probe in a throwaway plugin directory outside the repo and run `claude -p "<a trivial prompt>" --plugin-dir <probe> --no-session-persistence --model haiku --settings '{"enabledPlugins":{"audio-hooks@chanmeng-audio-hooks":false}}'`. Nothing in `~/.claude/settings.json` is touched and echook stays silent for the run. It leaves an empty `~/.claude/plugins/data/<probe>-inline` directory behind; remove it afterwards. A headless run cannot show anything that belongs to the interactive terminal UI (the per-subagent status row, toasts, bands) — those need an interactive session.
 
 ---
@@ -705,6 +720,22 @@ The second run of the [re-sync procedure](#how-to-re-sync-against-a-new-claude-c
 **No experiment was run.** The procedure asks for a live check of anything echook will rely on that appears to have changed. Nothing did: the event, matcher, payload, exit-code, status-line and `terminalSequence` surfaces are byte-for-byte the same after identifier normalisation, and the one hook-runtime fix that sounded relevant (the async `Stop` loop) is, by the reading above, confined to `asyncRewake`, which echook does not use. A live run would have tested nothing echook depends on.
 
 **Limits.** The comparison is of two builds' literals and normalised minified text, not of behaviour. The 2.1.288 side is the saved extract (the 2.1.288 executable is no longer on this machine), so a change that is neither in a literal nor in a window that was diffed would be missed; the windows were: event array, notification and error unions, the matcher resolver, the per-event metadata table, the hook input schemas, the status line builder, the async spawn region and the `terminalSequence` sites. Windows only. The 2.1.288 documentation was not archived, so documentation drift was checked against echook and the binary rather than against the previous page. Issues [90997](https://github.com/anthropics/claude-code/issues/90997) and [90495](https://github.com/anthropics/claude-code/issues/90495): both still open on 2026-10-07, no comments, last updated 2026-08-31 and 2026-08-29 (`gh issue view`); neither was re-measured here.
+
+
+### Codex: the first live run, and why echook was silent there (2026-10-15)
+
+Until this date nothing in the Codex integration had been run against Codex itself: the template, the event list and the `async` flag came from the documentation and the Rust source. A third-party review marked the cross-editor claim unverified, and it was right.
+
+**[LIVE]** The real Codex binary, two versions (0.143.0, installed; 0.162.1, from npm into a scratch directory), Windows 11, `codex exec` with a throwaway `CODEX_HOME`. No account is needed: the model provider was pointed (`model_providers.<id>.base_url`, `wire_api = "responses"`) at a 60-line local stand-in for the Responses API that answers the first request with one `shell_command` call and the second with "done", so a real turn runs — `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, and `SessionEnd` on 0.162.1 — and Codex dispatches its hooks exactly as it would for a real model. `--dangerously-bypass-hook-trust` stands in for the trust prompt of an interactive session.
+
+- **The top level of `hooks.json` takes only `description` and `hooks`.** Any other key fails the whole file: ``warning: failed to parse hooks config …\hooks.json: unknown field `_comment`, expected `description` or `hooks` ``. The plugin route says the same for `plugin-hooks.json` (`failed to parse plugin hooks config`). Both echook templates carried `_comment`, `_schema_doc`, `_audio_hooks_managed`, `_audio_hooks_version` and `_async_note` at the top level, so on both versions and both install routes **no echook hook ran at all**. Codex prints the warning and carries on, so nothing looks broken. A `_managed_by` key inside an event entry is accepted.
+- **`async: true` is skipped before 0.148.0.** 0.143.0 prints `skipping async hook … async hooks are not supported yet` once per handler and runs none of them. 0.162.1 runs them.
+- **`codex exec` does not wait for an async `Stop`.** On 0.162.1 the runner's debug log shows `Hook runner started: stop` and nothing after it: the process exits within about 60 ms of interpreter start. The sync `SessionEnd` that follows completes. Run synchronously, the runner takes about 0.3 s per event.
+- **Payloads.** `SessionStart`: `session_id`, `transcript_path` (null for Codex's own memory agent), `cwd`, `hook_event_name`, `model`, `permission_mode`, `source`. `UserPromptSubmit` and `Stop` add `turn_id`; `Stop` carries `stop_hook_active` and `last_assistant_message`. The runner handled every captured payload as it handles Claude Code's.
+
+**What changed (Unreleased).** Both Codex templates now hold `hooks` and nothing else, and their `Stop` handler is synchronous. `install --codex` and `uninstall --codex` remove the old top-level keys from an existing `$CODEX_HOME/hooks.json`, keeping anything else in it; `install --codex` drops `async` when the installed Codex is older than 0.148.0 or its version cannot be read. `audio-hooks diagnose` reports `CODEX_HOOKS_FILE_REJECTED` for a file Codex will refuse. After the change, `Stop` played and showed its toast on all four combinations (0.143.0 and 0.162.1, native and plugin).
+
+**Limits.** Headless `codex exec` only, Windows only. `PermissionRequest`, `PreCompact`/`PostCompact` and the subagent events were not provoked. In an interactive session an async handler has a live process to finish in; that was not observed. The plugin route on Codex older than 0.148.0 still skips every handler except `Stop`, because a plugin template cannot be fitted to the installed version. When the Codex version on the machine changes, repeat the run: it takes a few minutes and needs no account.
 
 ---
 
