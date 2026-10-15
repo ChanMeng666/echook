@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
-## [Unreleased]
+## [7.1.0] - 2026-10-15
 
 echook had never been run against Codex itself. Run for the first time, it was
 silent there: Codex refused both of echook's hook files, so no Codex user heard

@@ -151,7 +151,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "7.0.0"
+PROJECT_VERSION = "7.1.0"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
