@@ -1202,10 +1202,10 @@ def run_hook(hook_type: str, stdin_data: dict = None, variant: Optional[str] = N
         runner_core.log_event("debug", "skipped_no_cursor_equivalent", hook=hook_type)
         return 0
 
-    # Codex supports 10 events: SessionStart, PreToolUse, PermissionRequest,
+    # Codex supports 11 events: SessionStart, PreToolUse, PermissionRequest,
     # PostToolUse, PreCompact, PostCompact, UserPromptSubmit, SubagentStart,
-    # SubagentStop, Stop. Other audio-hooks canonical events have no Codex
-    # equivalent. The
+    # SubagentStop, Stop, SessionEnd (0.145.0+). Other audio-hooks canonical
+    # events have no Codex equivalent. The
     # bundled codex-hooks/hooks.json template never registers them, but a
     # hand-edited ~/.codex/hooks.json could, and a future Codex release might
     # add equivalents — skip cleanly so the behaviour is locked-down and

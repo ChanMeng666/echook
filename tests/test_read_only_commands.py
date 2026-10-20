@@ -352,6 +352,8 @@ CORRUPT_PREFS = {
     "empty": b"",
     "array": b'[{"audio_theme": "custom"}]',
     "string": b'"custom"',
+    "number": b"42",
+    "null": b"null",
     "not_utf8": b'{"audio_theme": "\xff\xfe"}',
 }
 
@@ -403,6 +405,21 @@ class TestReadOnlyCommandsCorruptPreferences(_Base):
         self.run.assert_not_called()
         self.Popen.assert_not_called()
         self.urlopen.assert_not_called()
+
+    def test_every_read_only_command_leaves_a_non_object_file_byte_identical(self) -> None:
+        """The hook runner now repairs a non-object file; reporting commands must not."""
+        for name in ("array", "string", "number", "null"):
+            raw = CORRUPT_PREFS[name]
+            path = self._write(raw)
+            before = _snapshot(self.root)
+            for tokens in READ_ONLY + REJECTED:
+                with self.subTest(file=name, command=" ".join(tokens)):
+                    self._invoke(tokens)
+                    self.assertEqual(_snapshot(self.root), before,
+                                     f"`audio-hooks {' '.join(tokens)}` changed the home or data dir")
+            self.assertEqual(path.read_bytes(), raw)
+            self.assertFalse((self.data / "user_preferences.json.bak").exists())
+            self.assertFalse((self.data / ".user_prefs.lock").exists())
 
     def test_a_write_still_repairs_it(self) -> None:
         """The other half: detection in the reporters does not stop the repair."""

@@ -265,6 +265,11 @@ class UserPreferences:
             cfg = json.loads(self.config_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             cfg = {}
+        if not isinstance(cfg, dict):
+            # Valid JSON that is not an object (an array, string, number, null)
+            # is as unusable as a file that does not parse: run on the defaults,
+            # and outside read_only let _persist_migration repair it the same way.
+            cfg = {}
         template = self._load_template()
         cfg, did_migrate, _notes = self._migrate_if_needed(cfg, template)
         if did_migrate and not read_only:

@@ -14,6 +14,9 @@ from typing import Any, Callable, Dict, List
 
 from .output import _is_help_flag, emit, emit_error
 
+# Listed in `audio-hooks manifest` for `upgrade`.
+UPGRADE_FLAGS = ("--check-only", "--force")
+
 
 def cmd_upgrade(args: List[str], *, project_root: Path, project_version: str,
                 require_project_root: Callable[[], int],
@@ -31,7 +34,7 @@ def cmd_upgrade(args: List[str], *, project_root: Path, project_version: str,
             },
         })
         return 0
-    unknown = [a for a in args if a not in ("--check-only", "--force")]
+    unknown = [a for a in args if a not in UPGRADE_FLAGS]
     if unknown:
         return emit_error(
             "INVALID_USAGE",

@@ -30,6 +30,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   up or migrated by them. A file holding a JSON array or string made `status`,
   `diagnose` and `get` fail with `INTERNAL_ERROR`; they now report the defaults
   for it, as they already did for an unparseable file.
+- **A `user_preferences.json` holding valid JSON that is not an object made
+  echook silent.** An array, a string, a number or `null` made every hook event
+  fail in `is_hook_enabled` (`AttributeError`, no sound), and nothing replaced
+  the file. `UserPreferences.load()` now treats it exactly like a file that does
+  not parse: the event fires on the defaults and the runner replaces the file,
+  keeping the old bytes in the sibling `.bak`. Reporting commands still only
+  detect it (`PREFS_FILE_CORRUPT`) and leave it byte-identical.
+- **`audio-hooks manifest` left out flags and config keys that work.** Now
+  listed: `hooks list --variants`, `webhook set --enabled`,
+  `tts set --assistant-message-max-chars` and `--messages`,
+  `rate-limits set --seven-day-thresholds` and `--audio`, the bare `tts` and
+  `rate-limits` forms, and the config keys `filters.<hook_name>.min_duration_ms`,
+  `notification_settings.terminal_sequence.enabled|style|hook_types`,
+  `webhook_settings.headers`, `tts_settings.messages.<hook_name>`,
+  `rate_limit_alerts.audio` and `audio_files.<hook_name>`. A new test fails when
+  a parser's flags or the template's keys drift from the manifest.
+  `notification_settings.show_context` stays out: it is in the template, but no
+  code reads it.
 
 ## [7.1.0] - 2026-10-15
 
