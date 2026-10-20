@@ -22,6 +22,12 @@ def cmd_backup(args: List[str], prefs_factory: Callable[[], Any]) -> int:
         )
     sub = args[0]
     rest = args[1:]
+    # Validate before anything else runs. `list` takes nothing and `show` one
+    # id; through 7.1.0 both silently ignored whatever else they were given.
+    if sub in ("list", "show", "restore", "prune"):
+        rc = _check_args(f"backup {sub}", rest, max_positionals=1 if sub in ("show", "restore") else 0)
+        if rc is not None:
+            return rc
     prefs = prefs_factory()
     if sub == "list":
         try:
@@ -67,10 +73,6 @@ def cmd_backup(args: List[str], prefs_factory: Callable[[], Any]) -> int:
             "content": content,
         })
         return 0
-    if sub in ("restore", "prune"):
-        rc = _check_args(f"backup {sub}", rest, max_positionals=1 if sub == "restore" else 0)
-        if rc is not None:
-            return rc
     if sub == "restore":
         if not rest:
             return emit_error(

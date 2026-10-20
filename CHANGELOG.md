@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [Unreleased]
+
+### Fixed
+
+- **`logs tail` and `backup list|show` ignored arguments they do not define.**
+  `logs tail --nn 5`, a bare `logs tail --n`, `logs tail --level loud`,
+  `backup list --all` or a second id after `backup show <id>` used to run as if
+  the stray token were not there. They now answer `INVALID_USAGE` and change
+  nothing, like every other subcommand. `logs tail` accepts `--n N` (a positive
+  integer; `--n 0` and negative values used to return the whole over-read
+  window) and `--level info|warn|error|debug`; `backup list` takes no argument
+  and `backup show` exactly one id. `backup` subcommands now validate their
+  arguments before anything else runs.
+- **A corrupt `user_preferences.json` looked like the defaults.** When the file
+  is not valid JSON or not a JSON object, every setting in it is ignored, yet
+  `status` showed the defaults as if they were the user's and `diagnose` was
+  clean. `status` now carries `preferences_file` (`path`, `exists`, `corrupt`,
+  plus `problem` and a `warning` when corrupt) and `diagnose` reports the new
+  error finding `PREFS_FILE_CORRUPT`, pointing at `audio-hooks backup list`.
+  Both stay read-only: the file is detected, never repaired, rewritten, backed
+  up or migrated by them. A file holding a JSON array or string made `status`,
+  `diagnose` and `get` fail with `INTERNAL_ERROR`; they now report the defaults
+  for it, as they already did for an unparseable file.
+
 ## [7.1.0] - 2026-10-15
 
 echook had never been run against Codex itself. Run for the first time, it was
