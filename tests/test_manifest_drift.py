@@ -46,12 +46,9 @@ TEMPLATE = REPO / "config" / "default_preferences.json"
 FLAG = re.compile(r"--[a-z][a-z0-9-]*")
 
 # Template keys that are deliberately not in manifest.config_keys.
-NOT_LIVE = {
-    # In the template since before 7.0.0, but no code reads it (runner, CLI or
-    # status line): setting it changes nothing, so the manifest must not offer it.
-    "notification_settings.show_context":
-        "read by no code; context is always shown at notification_settings.detail_level",
-}
+# Empty: the one such key, ``notification_settings.show_context``, was read by
+# no code and was dropped from the template after 7.1.0 (``DROPPED_KEYS``).
+NOT_LIVE: dict = {}
 
 # manifest.config_keys entries with no template leaf. Each is read by the runner.
 NOT_IN_TEMPLATE = {
@@ -217,6 +214,34 @@ class TestManifestDrift(unittest.TestCase):
                     key.startswith(leaf + ".<") for leaf in leaves)
                 self.assertTrue(hit, f"manifest.config_keys has {key}, which the template does not ship; "
                                      "add it to NOT_IN_TEMPLATE with the code that reads it, or drop it")
+
+    def test_every_template_key_is_in_the_schema(self) -> None:
+        """``manifest --schema`` describes every template setting, down to the
+        level where the schema stops listing ``properties`` (a free-form map)."""
+        schema = self.cli._build_manifest_schema()
+        for leaf in _template_leaves(self.template):
+            if leaf in NOT_LIVE:
+                continue
+            with self.subTest(key=leaf):
+                node = schema
+                for part in leaf.split("."):
+                    props = node.get("properties")
+                    if props is None:
+                        break  # a free-form object: anything below it is allowed
+                    self.assertIn(part, props, f"{leaf} is in default_preferences.json but not in "
+                                               "bin/echook_cli/manifest_schema.py")
+                    node = props[part]
+
+    def test_schema_lists_no_key_the_template_dropped(self) -> None:
+        schema = self.cli._build_manifest_schema()
+        for dotted in self.cli.UserPreferences.DROPPED_KEYS:
+            with self.subTest(key=dotted):
+                node = schema
+                for part in dotted.split("."):
+                    node = (node.get("properties") or {}).get(part)
+                    if node is None:
+                        break
+                self.assertIsNone(node, f"{dotted} is a dropped key but the schema still describes it")
 
     def test_not_live_keys_are_really_unread(self) -> None:
         sources = [p for p in (REPO / "hooks").glob("*.py")] + list((REPO / "bin").rglob("*.py"))

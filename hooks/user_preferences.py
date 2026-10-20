@@ -99,6 +99,7 @@ class UserPreferences:
     DROPPED_KEYS = (
         "focus_flow",                     # removed in 6.0.0 — out of scope (wellness/timers)
         "enabled_hooks.worktree_create",  # removed in 6.3.4 — a provider hook, not a notification
+        "notification_settings.show_context",  # removed after 7.1.0 — no code ever read it
     )
 
     def __init__(self, project_dir: Path, *, script_path: Optional[Path] = None):

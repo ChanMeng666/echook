@@ -78,7 +78,6 @@
   "notification_settings": {
     "_comment": "Desktop notification mode: audio_only, notification_only, audio_and_notification, disabled",
     "mode": "audio_only",
-    "show_context": true,
     "_comment_detail": "Notification detail: 'minimal' (hook name only), 'standard' (tool + brief context), 'verbose' (full sanitized summary — code blocks and secrets auto-stripped)",
     "detail_level": "standard",
     "_comment_per_hook": "Override the global mode for specific hooks. Omit a hook to use the global mode.",

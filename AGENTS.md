@@ -39,9 +39,9 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 | `hooks.json`, a new event or matcher | Upstream editor behaviour; Events, variants and sounds | `tests/test_plugin_hooks_contract.py` |
 | A new variant | Events, variants and sounds (`SYNTHETIC_VARIANT_DEFAULTS`, `VARIANT_INTRODUCED`, a distinct sound in both themes) | `tests/test_variant_migration.py` |
 | `run_hook` order, escaping, notification dispatch, a runner module | Hook runner | `tests/test_filter_debounce_order.py`, `tests/test_desktop_notification.py`, `tests/test_runner_modules.py` |
-| A CLI subcommand or flag | CLI contract (`--help` side-effect-free, unknown arguments are `INVALID_USAGE`, reporting commands are read-only, every code catalogued) | `tests/test_read_only_commands.py`, `tests/test_cli_error_codes.py` |
+| A CLI subcommand or flag | CLI contract (`--help` side-effect-free, unknown arguments are `INVALID_USAGE`, reporting commands are read-only, every code catalogued, every flag in the manifest) | `tests/test_read_only_commands.py`, `tests/test_cli_error_codes.py`, `tests/test_manifest_drift.py` |
 | Install / uninstall | `docs/INSTALLATION_GUIDE.md`; CLI contract | `tests/test_install_arg_safety.py`, `tests/test_uninstall_scripts_native.py` |
-| Config keys, migration, version stamps | Configuration and migration | `tests/test_migration.py`, `tests/test_bump_version.py` |
+| Config keys, migration, version stamps | Configuration and migration; CLI contract (every key in the manifest and `manifest --schema`) | `tests/test_migration.py`, `tests/test_bump_version.py`, `tests/test_manifest_drift.py` |
 | Cursor or Codex paths | Upstream editor behaviour | `tests/test_cursor_bridge.py`, `tests/test_codex_hooks.py` |
 | Anything under `plugins/audio-hooks/` | Repository and release; `docs/DIRECTORY_LISTING.md` | `tests/test_plugin_packaging.py` |
 | A new test module | Tests | `tests/test_isolation_guard.py` |
