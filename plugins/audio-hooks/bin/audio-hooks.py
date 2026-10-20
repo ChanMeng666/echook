@@ -527,14 +527,10 @@ def _load_config_raw() -> Dict[str, Any]:
         return {}
     try:
         prefs = _prefs()
-        cfg = prefs.load(read_only=_READ_ONLY)
-        if not isinstance(cfg, dict):
-            # A stored JSON array or string comes back as-is (load() only falls
-            # back to {} when the file does not parse) and crashed every caller
-            # with INTERNAL_ERROR. Use the defaults, as for an unparseable file;
-            # _check_prefs_file() reports it as PREFS_FILE_CORRUPT.
-            cfg = prefs._apply_plugin_overlay(prefs._migrate_if_needed({}, prefs._load_template())[0])
-        return cfg
+        # load() runs a corrupt file (unparseable, or valid JSON that is not an
+        # object) on the defaults; _check_prefs_file() reports it as
+        # PREFS_FILE_CORRUPT.
+        return prefs.load(read_only=_READ_ONLY)
     except Exception:
         return {}
 
@@ -910,7 +906,7 @@ def cmd_hooks(args: List[str]) -> int:
         # the row count by default would cost every caller context it does not
         # need. They surface under their own key so callers that index "hooks"
         # see no shape change.
-        if "--variants" in rest:
+        if _HOOKS_LIST_FLAGS[0] in rest:
             rows = _hooks_state(include_variants=True)
             emit({"ok": True,
                   "hooks": [r for r in rows if not r["is_variant"]],
@@ -1075,7 +1071,7 @@ def cmd_webhook(args: List[str]) -> int:
     if sub in ("set", "clear", "test"):
         rc = _check_args(
             f"webhook {sub}", rest,
-            valued=("--url", "--format", "--hook-types", "--enabled") if sub == "set" else (),
+            valued=_WEBHOOK_SET_FLAGS if sub == "set" else (),
             max_positionals=0,
         )
         if rc is not None:
@@ -1174,6 +1170,12 @@ def _both_spellings(*flags: str) -> Tuple[str, ...]:
     return tuple(dict.fromkeys(out))
 
 
+# The flags each subcommand accepts. `audio-hooks manifest` lists the same ones;
+# tests/test_manifest_drift.py fails when the two disagree.
+_HOOKS_LIST_FLAGS = ("--variants",)
+_WEBHOOK_SET_FLAGS = ("--url", "--format", "--hook-types", "--enabled")
+_LOGS_TAIL_FLAGS = ("--n", "--level")
+_MANIFEST_FLAGS = ("--schema",)
 _TTS_SET_FLAGS = _both_spellings("--enabled", "--speak-assistant-message", "--assistant-message-max-chars", "--messages")
 _RATE_LIMITS_SET_FLAGS = _both_spellings("--enabled", "--five-hour-thresholds", "--seven-day-thresholds", "--audio")
 
@@ -1497,11 +1499,11 @@ def _check_prefs_schema() -> Dict[str, Any]:
 def _check_prefs_file() -> Dict[str, Any]:
     """Detect a user_preferences.json that is not a JSON object. Never repairs it.
 
-    ``load()`` treats an unparseable file (or a JSON array, string, ...) as
-    empty and merges the template under it, so through 7.1.0 ``status`` showed
-    such a file as the defaults and ``diagnose`` was clean. A hook event or a
-    write replaces an unparseable file with the defaults; this check reads the
-    file and changes nothing.
+    ``load()`` treats an unparseable file (or a JSON array, string, number,
+    null) as empty and merges the template under it, so through 7.1.0
+    ``status`` showed such a file as the defaults and ``diagnose`` was clean. A
+    hook event or a write replaces either kind with the defaults; this check
+    reads the file and changes nothing.
     """
     try:
         path = _config_path()
@@ -1534,7 +1536,7 @@ def _prefs_file_corrupt_finding(check: Dict[str, Any]) -> Dict[str, Any]:
             "Restore an earlier copy with `audio-hooks backup restore <id>` (the ids "
             "are in `audio-hooks backup list`); the restore backs up the corrupt file "
             "first. A hook event or a write such as `audio-hooks set` instead replaces "
-            "an unparseable file with the defaults. Reporting commands never change it."
+            "it with the defaults. Reporting commands never change it."
         ),
         "suggested_command": "audio-hooks backup list",
     }
@@ -1895,7 +1897,7 @@ def cmd_logs(args: List[str]) -> int:
     if sub == "tail":
         # Through 7.1.0 tail skipped any token it did not recognise (and a bare
         # `--n`), so a typo silently returned the default 50 events.
-        rc = _check_args("logs tail", args[1:], valued=("--n", "--level"), max_positionals=0)
+        rc = _check_args("logs tail", args[1:], valued=_LOGS_TAIL_FLAGS, max_positionals=0)
         if rc is not None:
             return rc
         hint = "Accepted flags: --n N (a positive integer), --level info|warn|error|debug"
@@ -2305,7 +2307,7 @@ def _build_manifest() -> Dict[str, Any]:
             {"name": "status", "args": [], "description": "Full project state snapshot (theme, enabled hooks, snooze, webhook, tts, rate limits)"},
             {"name": "get", "args": ["<dotted.key>"], "description": "Read any user_preferences.json key"},
             {"name": "set", "args": ["<dotted.key>", "<value>"], "description": "Write any user_preferences.json key (auto-coerces bool/int/JSON)"},
-            {"name": "hooks list", "args": [], "description": "List all hooks with current state"},
+            {"name": "hooks list", "args": ["[--variants]"], "description": "List all hooks with current state. --variants adds a separate `variants` array (each matcher-scoped variant with its own enabled state)"},
             {"name": "hooks enable", "args": ["<name>"], "description": "Enable a hook"},
             {"name": "hooks disable", "args": ["<name>"], "description": "Disable a hook"},
             {"name": "hooks enable-only", "args": ["<name>...", ], "description": "Enable only the listed hooks, disable all others"},
@@ -2315,11 +2317,13 @@ def _build_manifest() -> Dict[str, Any]:
             {"name": "snooze off", "args": [], "description": "Cancel snooze"},
             {"name": "snooze status", "args": [], "description": "Snooze remaining time"},
             {"name": "webhook", "args": [], "description": "Show webhook config"},
-            {"name": "webhook set", "args": ["[--url <url>]", "[--format <slack|discord|teams|ntfy|raw>]", "[--hook-types <a,b,c>]"], "description": "Configure webhook (enables automatically when --url is set)"},
+            {"name": "webhook set", "args": ["[--url <url>]", "[--format <slack|discord|teams|ntfy|raw>]", "[--hook-types <a,b,c>]", "[--enabled <true|false>]"], "description": "Configure webhook (enables automatically when --url is set)"},
             {"name": "webhook clear", "args": [], "description": "Disable webhook"},
             {"name": "webhook test", "args": [], "description": "POST a test payload to the configured webhook"},
-            {"name": "tts set", "args": ["[--enabled <true|false>]", "[--speak-assistant-message <true|false>]"], "description": "Configure TTS"},
-            {"name": "rate-limits set", "args": ["[--enabled <true|false>]", "[--five-hour-thresholds <80,95>]"], "description": "Configure rate-limit alerts"},
+            {"name": "tts", "args": [], "description": "Show TTS config"},
+            {"name": "tts set", "args": ["[--enabled <true|false>]", "[--speak-assistant-message <true|false>]", "[--assistant-message-max-chars <N>]", "[--messages <JSON object of hook_name: text>]"], "description": "Configure TTS. --messages replaces the whole tts_settings.messages object; use `set tts_settings.messages.<hook_name> <text>` to change one message"},
+            {"name": "rate-limits", "args": [], "description": "Show rate-limit alert config"},
+            {"name": "rate-limits set", "args": ["[--enabled <true|false>]", "[--five-hour-thresholds <80,95>]", "[--seven-day-thresholds <80,95>]", "[--audio <sound file name, e.g. notification-urgent.mp3>]"], "description": "Configure rate-limit alerts"},
             {"name": "test", "args": ["<hook_name|all>"], "description": "Run a hook with synthetic stdin and verify it fires"},
             {"name": "diagnose", "args": [], "description": "System diagnostic: settings.json, audio player, audio files, errors, warnings"},
             {"name": "logs tail", "args": ["[--n N]", "[--level info|warn|error|debug]"], "description": "Tail recent NDJSON log events"},
@@ -2373,8 +2377,13 @@ def _build_manifest() -> Dict[str, Any]:
             "notification_settings.mode",
             "notification_settings.detail_level",
             "notification_settings.per_hook.<hook_name>",
+            "notification_settings.terminal_sequence.enabled",
+            "notification_settings.terminal_sequence.style",
+            "notification_settings.terminal_sequence.hook_types",
+            "audio_files.<hook_name>",
             "filters.<hook_name>.<field_name>",
             "filters.<hook_name>.<field_name>_exclude",
+            "filters.<hook_name>.min_duration_ms",
             "filters.stop.skip_if_background_tasks_running",
             "filters.stop.skip_if_session_crons_scheduled",
             "filters.stop.skip_if_aborted",
@@ -2383,13 +2392,16 @@ def _build_manifest() -> Dict[str, Any]:
             "webhook_settings.url",
             "webhook_settings.format",
             "webhook_settings.hook_types",
+            "webhook_settings.headers",
             "webhook_settings.include_user_email",
             "tts_settings.enabled",
             "tts_settings.speak_assistant_message",
             "tts_settings.assistant_message_max_chars",
+            "tts_settings.messages.<hook_name>",
             "rate_limit_alerts.enabled",
             "rate_limit_alerts.five_hour_thresholds",
             "rate_limit_alerts.seven_day_thresholds",
+            "rate_limit_alerts.audio",
             "statusline_settings.visible_segments",
             "statusline_settings.hidden_segments",
             "statusline_settings.extra_segments",
@@ -2531,7 +2543,7 @@ def _build_manifest() -> Dict[str, Any]:
 def cmd_manifest(args: List[str]) -> int:
     if require_project_root() != 0:
         return 1
-    if args and args[0] == "--schema":
+    if args and args[0] in _MANIFEST_FLAGS:
         emit(_build_manifest_schema())
         return 0
     emit(_build_manifest())

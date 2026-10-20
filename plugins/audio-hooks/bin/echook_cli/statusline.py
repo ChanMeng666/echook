@@ -275,6 +275,10 @@ def _codex_config_path() -> Path:
     return _codex_home() / "config.toml"
 
 
+# Listed in `audio-hooks manifest` for `statusline codex preview|apply`.
+CODEX_STATUSLINE_FLAGS = ("--preset", "--items", "--target")
+
+
 def _cmd_statusline_codex(args: List[str]) -> int:
     """`audio-hooks statusline codex <show|preview|apply>` — curate Codex's fixed
     [tui] arrays (status_line and/or terminal_title) so they stop truncating."""
@@ -282,7 +286,7 @@ def _cmd_statusline_codex(args: List[str]) -> int:
     rest = args[1:]
     if action in ("preview", "apply"):
         rc = _check_args(f"statusline codex {action}", rest,
-                         valued=("--preset", "--items", "--target"), max_positionals=0)
+                         valued=CODEX_STATUSLINE_FLAGS, max_positionals=0)
         if rc is not None:
             return rc
     preset = None
