@@ -46,10 +46,10 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 
 ## Known limits that are accepted for now
 
-- `audio-hooks status` shows a corrupt preferences file as the defaults and `audio-hooks diagnose` does not flag it. The next hook event replaces the file.
 - The preferences migration that keeps new variants silent for `hooks enable-only` users cannot recognise an enumeration made before an earlier variant addition it never answered; those users keep inheriting the parent.
 - `audio-hooks uninstall` does not strip or report a registration that reaches an echook script through command substitution, a variable whose name contains neither `HOME` nor `USERPROFILE`, `~user/…`, or a relative path. It reports the other unrecognised spellings and removes them with `--remove-unmatched`.
-- Most read-only commands (`status`, `diagnose`, `get`, `version`, `update`, `manifest`, `hooks list`, `theme list`, `statusline show|segments`, `logs tail`, `backup list|show`) still ignore unknown flags. They are read-only.
+- A `user_preferences.json` that is valid JSON but not an object (an array or a string) makes every hook event fail in `is_hook_enabled` (`AttributeError`, no sound), and the runner never replaces it; `UserPreferences.load()` only falls back to `{}` when the file does not parse. `diagnose` reports it as `PREFS_FILE_CORRUPT` and any `audio-hooks set` repairs it. An unparseable file is not affected: the next hook event replaces it.
+- Most read-only commands (`status`, `diagnose`, `get`, `version`, `update`, `manifest`, `hooks list`, `theme list`, `statusline show|segments`) still ignore unknown flags. They are read-only. `logs tail` and `backup list|show` reject them.
 - `uninstall --purge` is rejected for the script and plugin modes; it applies to `--cursor` and `--codex`.
 - The plugin can be listed only for Claude Code: a top-level `bin/` directory rules out Cowork and the Claude apps.
 
