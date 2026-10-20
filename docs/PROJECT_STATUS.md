@@ -42,14 +42,12 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 **Unknown**
 - Whether the classic status line renders in the Claude Desktop app. This decides whether a separate "band" mod for Desktop users would have any purpose.
 - Whether `model_refusal_fallback` ever fires as a `Notification`. It is declared in the binary; no emitter was found, so it is not registered.
-- What the plugin directory does with a new commit to `plugins/audio-hooks/` while the first version is still with a reviewer. (A documentation-only push outside that folder was observed once not to create a new version; see `docs/DIRECTORY_LISTING.md`.)
+- What a reviewer does with the versions that piled up while the first one was in review. Observed on 2026-10-21: **every** push to `master` became a new version, each scanned and then "Held by directory policy", 14 by then, from v6.7.2 at `f692417` to v7.1.0 at `1979632`, including two pushes that changed nothing in `plugins/audio-hooks/` (`c5e1b66`, `a148c71`). Whether the reviewer reviews the newest, the first, or each one is not known; see `docs/DIRECTORY_LISTING.md`.
 
 ## Known limits that are accepted for now
 
 - The preferences migration that keeps new variants silent for `hooks enable-only` users cannot recognise an enumeration made before an earlier variant addition it never answered; those users keep inheriting the parent.
 - `audio-hooks uninstall` does not strip or report a registration that reaches an echook script through command substitution, a variable whose name contains neither `HOME` nor `USERPROFILE`, `~user/…`, or a relative path. It reports the other unrecognised spellings and removes them with `--remove-unmatched`.
-- `notification_settings.show_context` is in `config/default_preferences.json` but no code reads it, so `audio-hooks manifest` does not list it (`tests/test_manifest_drift.py`, `NOT_LIVE`). Dropping it from the template means a `DROPPED_KEYS` entry and a template change.
-- `audio-hooks manifest --schema` (`bin/echook_cli/manifest_schema.py`) still describes fewer keys than `config_keys`: it has no `audio_files`, `notification_settings.terminal_sequence`, `webhook_settings.include_user_email` or `statusline_settings`, and lists `show_context`. It allows additional properties, so nothing is rejected; it is only incomplete.
 - Most read-only commands (`status`, `diagnose`, `get`, `version`, `update`, `manifest`, `hooks list`, `theme list`, `statusline show|segments`) still ignore unknown flags. They are read-only. `logs tail` and `backup list|show` reject them.
 - `uninstall --purge` is rejected for the script and plugin modes; it applies to `--cursor` and `--codex`.
 - The plugin can be listed only for Claude Code: a top-level `bin/` directory rules out Cowork and the Claude apps.

@@ -30,12 +30,25 @@ def _build_manifest_schema() -> Dict[str, Any]:
                 "type": "object",
                 "properties": {
                     "mode": {"type": "string", "enum": ["audio_only", "notification_only", "audio_and_notification", "disabled"]},
-                    "show_context": {"type": "boolean"},
                     "detail_level": {"type": "string", "enum": ["minimal", "standard", "verbose"]},
                     "per_hook": {"type": "object"},
+                    "terminal_sequence": {
+                        "type": "object",
+                        "description": "Claude Code only; inert for async hooks (see `audio-hooks diagnose`).",
+                        "properties": {
+                            "enabled": {"type": "boolean"},
+                            "style": {"type": "string", "enum": ["osc9", "osc777", "title", "bell"]},
+                            "hook_types": {"type": "array", "items": {"type": "string"}},
+                        },
+                    },
                 },
             },
             "filters": {"type": "object", "description": "Per-hook regex filters on stdin fields."},
+            "audio_files": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+                "description": "Per-hook sound file override, a path under audio/. Keys are hook names.",
+            },
             "webhook_settings": {
                 "type": "object",
                 "properties": {
@@ -44,6 +57,7 @@ def _build_manifest_schema() -> Dict[str, Any]:
                     "format": {"type": "string", "enum": ["slack", "discord", "teams", "ntfy", "raw"]},
                     "hook_types": {"type": "array", "items": {"type": "string"}},
                     "headers": {"type": "object"},
+                    "include_user_email": {"type": "boolean"},
                 },
             },
             "tts_settings": {
@@ -62,6 +76,15 @@ def _build_manifest_schema() -> Dict[str, Any]:
                     "five_hour_thresholds": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 100}},
                     "seven_day_thresholds": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 100}},
                     "audio": {"type": "string"},
+                },
+            },
+            "statusline_settings": {
+                "type": "object",
+                "properties": {
+                    "visible_segments": {"type": "array", "items": {"type": "string"}},
+                    "hidden_segments": {"type": "array", "items": {"type": "string"}},
+                    "extra_segments": {"type": "array", "items": {"type": "string"}},
+                    "max_width": {"type": "integer", "minimum": 0},
                 },
             },
         },

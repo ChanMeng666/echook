@@ -48,6 +48,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a parser's flags or the template's keys drift from the manifest.
   `notification_settings.show_context` stays out: it is in the template, but no
   code reads it.
+- **`audio-hooks manifest --schema` described fewer keys than the template.** It
+  now covers `audio_files`, `notification_settings.terminal_sequence`,
+  `webhook_settings.include_user_email` and `statusline_settings`, and a test
+  fails when a template key is missing from it. `config/user_preferences.schema.json`
+  is regenerated.
+
+### Removed
+
+- **`notification_settings.show_context`.** It shipped in the template but no
+  code ever read it, so setting it changed nothing. It is now a dropped key:
+  migration deletes it from existing preference files and reports it under
+  `removed[]`.
 
 ## [7.1.0] - 2026-10-15
 
