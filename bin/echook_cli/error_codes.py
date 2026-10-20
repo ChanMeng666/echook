@@ -106,6 +106,11 @@ CLI_ERROR_CODES: Dict[str, Dict[str, str]] = {
         "hint": "user_preferences.json is stamped with an older version or carries keys this version removed. The next hook event or any state-changing command migrates it; read-only commands (status, diagnose, get) do not. `audio-hooks migrate` does it on demand.",
         "suggested_command": "audio-hooks migrate",
     },
+    "PREFS_FILE_CORRUPT": {
+        "appears_in": "diagnose",
+        "hint": "user_preferences.json is not valid JSON or not a JSON object, so every setting in it is ignored and the defaults apply. Reported by diagnose and as status.preferences_file.warning; neither changes the file. `audio-hooks backup restore <id>` brings back an earlier copy.",
+        "suggested_command": "audio-hooks backup list",
+    },
     "STALE_PLUGIN_CACHE": {
         "appears_in": "diagnose",
         "hint": "installed_plugins.json records a version or install path that is not the code now running.",

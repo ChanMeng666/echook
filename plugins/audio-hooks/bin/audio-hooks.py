@@ -526,7 +526,15 @@ def _load_config_raw() -> Dict[str, Any]:
     if PROJECT_ROOT is None:
         return {}
     try:
-        return _prefs().load(read_only=_READ_ONLY)
+        prefs = _prefs()
+        cfg = prefs.load(read_only=_READ_ONLY)
+        if not isinstance(cfg, dict):
+            # A stored JSON array or string comes back as-is (load() only falls
+            # back to {} when the file does not parse) and crashed every caller
+            # with INTERNAL_ERROR. Use the defaults, as for an unparseable file;
+            # _check_prefs_file() reports it as PREFS_FILE_CORRUPT.
+            cfg = prefs._apply_plugin_overlay(prefs._migrate_if_needed({}, prefs._load_template())[0])
+        return cfg
     except Exception:
         return {}
 
@@ -684,6 +692,10 @@ def cmd_status(_args: List[str]) -> int:
     rl = cfg.get("rate_limit_alerts", {}) or {}
     sl = cfg.get("statusline_settings", {}) or {}
     install = _detect_install_mode()
+    prefs_file = _check_prefs_file()
+    if prefs_file.get("corrupt"):
+        # Everything above is the defaults, not the user's settings; say so.
+        prefs_file["warning"] = _prefs_file_corrupt_finding(prefs_file)
 
     # Resolve the effective plugin data dir even when CLAUDE_PLUGIN_DATA isn't set.
     # When this CLI binary lives inside a plugin layout (parent.parent has
@@ -737,6 +749,8 @@ def cmd_status(_args: List[str]) -> int:
             "max_width": sl.get("max_width", 0),
         },
         "customizations": customizations,
+        # A corrupt file was (through 7.1.0) indistinguishable from the defaults here.
+        "preferences_file": prefs_file,
     })
     return 0
 
@@ -1480,6 +1494,52 @@ def _check_prefs_schema() -> Dict[str, Any]:
     }
 
 
+def _check_prefs_file() -> Dict[str, Any]:
+    """Detect a user_preferences.json that is not a JSON object. Never repairs it.
+
+    ``load()`` treats an unparseable file (or a JSON array, string, ...) as
+    empty and merges the template under it, so through 7.1.0 ``status`` showed
+    such a file as the defaults and ``diagnose`` was clean. A hook event or a
+    write replaces an unparseable file with the defaults; this check reads the
+    file and changes nothing.
+    """
+    try:
+        path = _config_path()
+    except Exception:
+        return {"corrupt": False}
+    result: Dict[str, Any] = {"path": str(path), "exists": path.is_file(), "corrupt": False}
+    if not result["exists"]:
+        return result
+    try:
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as e:  # JSONDecodeError and UnicodeDecodeError
+        result.update(corrupt=True, problem=f"not valid JSON: {e}")
+        return result
+    except OSError:
+        return result  # unreadable is not "corrupt"; load() reports nothing either
+    if not isinstance(cfg, dict):
+        result.update(corrupt=True, problem=f"not a JSON object (a JSON {type(cfg).__name__})")
+    return result
+
+
+def _prefs_file_corrupt_finding(check: Dict[str, Any]) -> Dict[str, Any]:
+    """The PREFS_FILE_CORRUPT entry ``diagnose`` and ``status`` report."""
+    return {
+        "code": "PREFS_FILE_CORRUPT",
+        "message": (
+            f"{check.get('path')} is {check.get('problem')}. Every setting in it is "
+            "ignored: hooks and the status line run on the defaults."
+        ),
+        "hint": (
+            "Restore an earlier copy with `audio-hooks backup restore <id>` (the ids "
+            "are in `audio-hooks backup list`); the restore backs up the corrupt file "
+            "first. A hook event or a write such as `audio-hooks set` instead replaces "
+            "an unparseable file with the defaults. Reporting commands never change it."
+        ),
+        "suggested_command": "audio-hooks backup list",
+    }
+
+
 def _check_plugin_record() -> Dict[str, Any]:
     """Compare the installed-plugin record against the code actually running.
 
@@ -1642,6 +1702,10 @@ def cmd_diagnose(_args: List[str]) -> int:
             "missing_count": len(audio_files["missing"]),
         })
 
+    prefs_file = _check_prefs_file()
+    if prefs_file.get("corrupt"):
+        errors.append(_prefs_file_corrupt_finding(prefs_file))
+
     cfg = _load_config_raw()
     if not cfg:
         warnings.append({
@@ -1795,6 +1859,7 @@ def cmd_diagnose(_args: List[str]) -> int:
         "editor_targets": editor_targets,
         "completion_signal": completion_signal,
         "terminal_sequence": terminal_sequence,
+        "prefs_file": prefs_file,
         "prefs_schema": prefs_schema,
         "plugin_record": plugin_record,
         "hook_shell": hook_shell,
@@ -1807,6 +1872,9 @@ def cmd_diagnose(_args: List[str]) -> int:
 # ---------------------------------------------------------------------------
 # Subcommand: logs tail / clear
 # ---------------------------------------------------------------------------
+
+_LOG_LEVELS = ("info", "warn", "error", "debug")
+
 
 def cmd_logs(args: List[str]) -> int:
     if require_project_root() != 0:
@@ -1822,6 +1890,31 @@ def cmd_logs(args: List[str]) -> int:
         rc = _check_args("logs clear", args[1:], max_positionals=0)
         if rc is not None:
             return rc
+    n = 50
+    level_filter: Optional[str] = None
+    if sub == "tail":
+        # Through 7.1.0 tail skipped any token it did not recognise (and a bare
+        # `--n`), so a typo silently returned the default 50 events.
+        rc = _check_args("logs tail", args[1:], valued=("--n", "--level"), max_positionals=0)
+        if rc is not None:
+            return rc
+        hint = "Accepted flags: --n N (a positive integer), --level info|warn|error|debug"
+        i = 1
+        while i < len(args):
+            if args[i] == "--n":
+                try:
+                    n = int(args[i + 1])
+                except ValueError:
+                    n = 0
+                if n < 1:
+                    return emit_error("INVALID_USAGE", f"--n requires a positive integer, got {args[i + 1]!r}. Nothing was changed.",
+                                      hint=hint, suggested_command="audio-hooks logs --help")
+            else:  # --level
+                level_filter = args[i + 1]
+                if level_filter not in _LOG_LEVELS:
+                    return emit_error("INVALID_USAGE", f"Unknown --level value: {level_filter!r}. Nothing was changed.",
+                                      hint=hint, suggested_command="audio-hooks logs --help")
+            i += 2
     # Neither subcommand needs the log directory to exist (tail of a missing log
     # is empty, clear of a missing log is a no-op), so take the path without
     # the mkdir that HR.runner_core.get_log_dir() performs.
@@ -1835,20 +1928,6 @@ def cmd_logs(args: List[str]) -> int:
         emit({"ok": True, "cleared": True, "file": str(log_file)})
         return 0
     if sub == "tail":
-        n = 50
-        level_filter: Optional[str] = None
-        i = 1
-        while i < len(args):
-            if args[i] == "--n" and i + 1 < len(args):
-                try:
-                    n = int(args[i + 1])
-                except ValueError:
-                    return emit_error("INVALID_USAGE", "--n requires an integer")
-                i += 2; continue
-            if args[i] == "--level" and i + 1 < len(args):
-                level_filter = args[i + 1]
-                i += 2; continue
-            i += 1
         if not log_file.exists():
             emit({"ok": True, "events": [], "file": str(log_file)})
             return 0

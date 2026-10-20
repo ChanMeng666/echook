@@ -66,6 +66,8 @@ READ_ONLY = [
     ["statusline", "codex", "preview"],
     ["logs", "tail"],
     ["logs", "tail", "--n", "5"],
+    ["logs", "tail", "--level", "error"],
+    ["logs", "tail", "--level", "debug", "--n", "1"],
     ["backup", "list"],
     ["backup", "show", "latest-sibling"],   # not found is fine; it must not create anything
     ["update"],
@@ -107,6 +109,25 @@ STATE_CHANGING = [
     ["statusline", "codex", "apply"],
     ["backup", "restore", "latest"],
     ["backup", "prune"],
+]
+
+# Read-only forms given something their grammar does not define. Each must be
+# INVALID_USAGE and change nothing; through 7.1.0 these were silently ignored.
+REJECTED = [
+    ["logs", "tail", "--bogus"],
+    ["logs", "tail", "extra"],
+    ["logs", "tail", "--n"],
+    ["logs", "tail", "--n", "five"],
+    ["logs", "tail", "--n", "0"],
+    ["logs", "tail", "--n", "-3"],
+    ["logs", "tail", "--level"],
+    ["logs", "tail", "--level", "loud"],
+    ["logs", "tail", "--n", "5", "--level", "info", "--follow"],
+    ["backup", "list", "--all"],
+    ["backup", "list", "extra"],
+    ["backup", "show", "--json"],
+    ["backup", "show", "latest-sibling", "extra"],
+    ["backup", "show", "latest-sibling", "--raw"],
 ]
 
 OLD_PREFS = {
@@ -192,6 +213,18 @@ class _Base(unittest.TestCase):
         self.assertTrue(text, f"{tokens}: no output")
         return rc, json.loads(text.splitlines()[-1])
 
+    def _assert_rejected_and_inert(self) -> None:
+        before = _snapshot(self.root)
+        for tokens in REJECTED:
+            with self.subTest(command=" ".join(tokens)):
+                rc, doc = self._invoke(tokens)
+                self.assertEqual(rc, 1, doc)
+                self.assertFalse(doc["ok"])
+                self.assertEqual(doc["error"]["code"], "INVALID_USAGE", doc)
+                self.assertIn("Nothing was changed", doc["error"]["message"])
+                self.assertEqual(_snapshot(self.root), before,
+                                 f"rejected `audio-hooks {' '.join(tokens)}` changed the home or data dir")
+
 
 class TestReadOnlyCommandsFreshHome(_Base):
     def test_read_only_commands_leave_home_and_data_dir_untouched(self) -> None:
@@ -209,6 +242,17 @@ class TestReadOnlyCommandsFreshHome(_Base):
         self.run.assert_not_called()
         self.Popen.assert_not_called()
         self.urlopen.assert_not_called()
+
+    def test_unknown_arguments_are_rejected_and_change_nothing(self) -> None:
+        self._assert_rejected_and_inert()
+        self.assertFalse(self.data.exists(), "the data dir was created")
+
+    def test_a_valid_preferences_state_is_not_reported_corrupt(self) -> None:
+        rc, doc = self._invoke(["status"])
+        self.assertFalse(doc["preferences_file"]["corrupt"])
+        self.assertNotIn("warning", doc["preferences_file"])
+        rc, doc = self._invoke(["diagnose"])
+        self.assertNotIn("PREFS_FILE_CORRUPT", [e["code"] for e in doc["errors"] + doc["warnings"]])
 
     def test_a_fresh_home_reports_template_defaults(self) -> None:
         rc, doc = self._invoke(["get", "audio_theme"])
@@ -267,6 +311,17 @@ class TestReadOnlyCommandsOlderPreferences(_Base):
         self.assertFalse((self.data / "user_preferences.json.bak").exists())
         self.assertFalse((self.data / ".user_prefs.lock").exists())
 
+    def test_unknown_arguments_are_rejected_and_change_nothing(self) -> None:
+        """A rejected call must not migrate the stale file on its way out either."""
+        self._assert_rejected_and_inert()
+        self.assertFalse((self.data / "user_preferences.json.bak").exists())
+
+    def test_an_older_but_valid_file_is_not_reported_corrupt(self) -> None:
+        rc, doc = self._invoke(["status"])
+        self.assertFalse(doc["preferences_file"]["corrupt"])
+        rc, doc = self._invoke(["diagnose"])
+        self.assertNotIn("PREFS_FILE_CORRUPT", [e["code"] for e in doc["errors"] + doc["warnings"]])
+
     def test_reports_merge_the_stored_file_over_the_defaults(self) -> None:
         """No migration on disk does not mean a stale view: new keys appear in
         memory, and the user's own values win."""
@@ -288,6 +343,96 @@ class TestReadOnlyCommandsOlderPreferences(_Base):
         prefs = json.loads((self.data / "user_preferences.json").read_text(encoding="utf-8"))
         self.assertNotEqual(prefs["_version"], OLD_PREFS["_version"])
         self.assertEqual(prefs["audio_theme"], "default")
+
+
+# Stored preferences that load() silently treats as empty. Through 7.1.0
+# `status` showed each as the defaults and `diagnose` reported nothing.
+CORRUPT_PREFS = {
+    "truncated": b'{"audio_theme": "custom", "enabled_hooks": {"stop": fal',
+    "empty": b"",
+    "array": b'[{"audio_theme": "custom"}]',
+    "string": b'"custom"',
+    "not_utf8": b'{"audio_theme": "\xff\xfe"}',
+}
+
+
+class TestReadOnlyCommandsCorruptPreferences(_Base):
+    """Detected, never repaired: a reporting command leaves the bytes alone."""
+
+    def _write(self, raw: bytes) -> Path:
+        self.data.mkdir(exist_ok=True)
+        path = self.data / "user_preferences.json"
+        path.write_bytes(raw)
+        return path
+
+    def test_status_and_diagnose_report_it_and_change_nothing(self) -> None:
+        for name, raw in CORRUPT_PREFS.items():
+            with self.subTest(file=name):
+                path = self._write(raw)
+                before = _snapshot(self.root)
+                rc, doc = self._invoke(["status"])
+                self.assertEqual(rc, 0, doc)
+                pf = doc["preferences_file"]
+                self.assertTrue(pf["corrupt"], pf)
+                self.assertEqual(pf["path"], str(path))
+                self.assertEqual(pf["warning"]["code"], "PREFS_FILE_CORRUPT")
+                self.assertEqual(pf["warning"]["suggested_command"], "audio-hooks backup list")
+
+                rc, doc = self._invoke(["diagnose"])
+                self.assertEqual(rc, 1, "a corrupt preferences file is an error finding")
+                self.assertFalse(doc["ok"])
+                codes = [e["code"] for e in doc["errors"]]
+                self.assertEqual(codes.count("PREFS_FILE_CORRUPT"), 1, doc["errors"])
+                self.assertTrue(doc["prefs_file"]["corrupt"])
+
+                self.assertEqual(_snapshot(self.root), before)
+                self.assertEqual(path.read_bytes(), raw)
+
+    def test_every_read_only_command_leaves_it_byte_identical(self) -> None:
+        raw = CORRUPT_PREFS["truncated"]
+        path = self._write(raw)
+        before = _snapshot(self.root)
+        for tokens in READ_ONLY + REJECTED:
+            with self.subTest(command=" ".join(tokens)):
+                self._invoke(tokens)
+                self.assertEqual(_snapshot(self.root), before,
+                                 f"`audio-hooks {' '.join(tokens)}` changed the home or data dir")
+        self.assertEqual(path.read_bytes(), raw)
+        self.assertFalse((self.data / "user_preferences.json.bak").exists())
+        self.assertFalse((self.data / ".user_prefs.lock").exists())
+        self.run.assert_not_called()
+        self.Popen.assert_not_called()
+        self.urlopen.assert_not_called()
+
+    def test_a_write_still_repairs_it(self) -> None:
+        """The other half: detection in the reporters does not stop the repair."""
+        self._write(CORRUPT_PREFS["truncated"])
+        rc, doc = self._invoke(["hooks", "disable", "stop"])
+        self.assertEqual(rc, 0, doc)
+        rc, doc = self._invoke(["status"])
+        self.assertFalse(doc["preferences_file"]["corrupt"])
+
+
+class TestReadOnlyCommandsRealProcessCorruptPreferences(_Base):
+    patch_spawn = False
+
+    def test_status_and_diagnose_flag_it_without_touching_it(self) -> None:
+        env = {k: v for k, v in os.environ.items()
+               if k in ("PATH", "SYSTEMROOT", "TEMP", "TMP", "PATHEXT", "COMSPEC")}
+        env.update(HOME=str(self.home), USERPROFILE=str(self.home),
+                   CLAUDE_PLUGIN_DATA=str(self.data), CODEX_HOME=str(self.home / ".codex"))
+        self.data.mkdir()
+        raw = CORRUPT_PREFS["truncated"]
+        (self.data / "user_preferences.json").write_bytes(raw)
+        before = _snapshot(self.root)
+        for tokens, rc_expected in ((["status"], 0), (["diagnose"], 1)):
+            with self.subTest(command=" ".join(tokens)):
+                r = subprocess.run([sys.executable, str(CLI), *tokens], env=env,
+                                   capture_output=True, text=True, timeout=120)
+                self.assertEqual(r.returncode, rc_expected, r.stderr[-300:])
+                self.assertIn("PREFS_FILE_CORRUPT", r.stdout)
+                self.assertEqual(_snapshot(self.root), before)
+        self.assertEqual((self.data / "user_preferences.json").read_bytes(), raw)
 
 
 class TestClassification(_Base):
