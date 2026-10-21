@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A switched-off event no longer starts the whole runner.** Claude Code spawns
+  `runner/run.py` for every registered handler (70 of them, on 30 events) and
+  only three events are on by default, so most spawns ended at the DISABLED
+  gate after importing every runner module. `run.py` now reads
+  `user_preferences.json` with `json` and `os` alone and exits 0 when
+  `enabled_hooks` switches the event off (or, for a matcher variant without a
+  key of its own, its parent). A disabled event costs about 120 ms instead of
+  about 320 ms on the measured Windows machine (bare `python -c pass` is about
+  70 ms). It runs the full path, exactly as before, whenever there is any doubt:
+  no data directory in `CLAUDE_PLUGIN_DATA` / `PLUGIN_DATA` /
+  `CLAUDE_AUDIO_HOOKS_DATA`, a missing, unparseable or non-object preferences
+  file, a `_version` that differs from the template (so migration still runs), a
+  missing or non-boolean key, `CLAUDE_HOOKS_DEBUG` on, and under Cursor the
+  `session_start` env override and `stop` (which can be rerouted to
+  `stop_failure`). Nothing else in `run_hook` runs before the enabled gate, so no
+  alert, toast, webhook or status-line state is skipped. One visible difference:
+  a fast-path event no longer appends its `hook_status` / `DISABLED` line to
+  `events.ndjson` (set `CLAUDE_HOOKS_DEBUG=1` to get it back); the full path,
+  and `audio-hooks logs tail`, are otherwise unchanged. `run.py` also stopped
+  importing `pathlib`.
+- **The skill description is 271 characters, down from about 1,250.** The
+  `audio-hooks` skill's frontmatter description is loaded into every session;
+  the long list of trigger phrases cost context on every turn. The body is
+  unchanged.
+- **Event counts say what they count.** The plugin and marketplace descriptions
+  said "39 hook events"; Claude Code registers 30 of the 39 (the other nine are
+  Cursor-only), so they now read "39 hook events across Claude Code, Cursor and
+  Codex (30 registered on Claude Code)".
+
 ### Fixed
 
 - **`logs tail` and `backup list|show` ignored arguments they do not define.**
