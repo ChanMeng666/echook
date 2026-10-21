@@ -1,6 +1,6 @@
 ---
 name: audio-hooks
-description: Configure, test, mute/snooze, or troubleshoot echook (audio-hooks): sound, desktop-toast, TTS and webhook notifications plus the status line for Claude Code, Cursor and Codex. Use when the user wants to be notified, silenced, or to change the status line/context display.
+description: "Configure, test, mute/snooze, or troubleshoot echook (audio-hooks): sound, desktop-toast, TTS and webhook notifications plus the status line for Claude Code, Cursor and Codex. Use when the user wants to be notified, silenced, or to change the status line/context display."
 ---
 
 # audio-hooks skill

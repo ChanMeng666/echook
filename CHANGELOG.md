@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The audio-hooks skill loads again.** The shortened skill description added
+  in this release contained an unquoted `: `, which made the SKILL.md
+  frontmatter invalid YAML, and Claude Code silently dropped the skill. The
+  description is now quoted, and `tests/test_skill_frontmatter.py` fails on any
+  frontmatter that does not parse.
+
 ### Changed
 
 - **A switched-off event no longer starts the whole runner.** Claude Code spawns
