@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [7.2.2] - 2026-10-31
+
+### Fixed
+
+- **A status line installed from the plugin cache survives an upgrade.** The
+  registration named a folder with the version in it, which Claude Code removes
+  some time after an upgrade, and `claude plugin update` touches no settings, so
+  the line would stop, with no error. An install from the cache now registers
+  `statusline-launcher.py` in the plugin's data directory, which finds the current
+  version on every run. The same goes for the per-subagent row. `audio-hooks
+  upgrade` moves an old registration across and reports it as
+  `status_line_repointed`, and `statusline show` flags one in `next_steps`. An
+  install from a checkout still registers its own script.
+- **`statusline install` keeps a `padding` you chose.** It used to reset it to 0.
+
+### Verified
+
+- **A teammate's view**, live on Claude Code 2.1.314 on Windows: the line showed
+  the teammate's model and name and came back. Its transcript is
+  `subagents/agent-a<name>-<hash>.jsonl`, under the id the view reports.
+- **A workflow agent has no view to follow.** A workflow opens its own full-screen
+  panel, which has no status line, and the module sees no change of view.
+- **The Cursor auto-bridge ignores `modules`**, read in the installed Cursor's
+  `cursor-agent-exec`: it recognises a Claude Code file by the shape of `hooks` and
+  reads only that key. Not run live.
+
+**Still not run:** a live session on macOS or Linux.
+
 ## [7.2.1] - 2026-10-31
 
 ### Changed

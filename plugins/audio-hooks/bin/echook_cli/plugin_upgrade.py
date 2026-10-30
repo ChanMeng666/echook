@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
+from . import statusline
 from .output import _is_help_flag, emit, emit_error
 
 # Listed in `audio-hooks manifest` for `upgrade`.
@@ -201,6 +202,12 @@ def cmd_upgrade(args: List[str], *, project_root: Path, project_version: str,
     except Exception as e:
         migration_info = {"warning": f"migration_skipped: {e}"}
 
+    # 9. A status line registered by version would stop when that folder goes
+    try:
+        repointed = statusline.repoint_cached_registrations(Path.home() / ".claude" / "settings.json")
+    except OSError:
+        repointed = []
+
     emit({
         "ok": True,
         "from_version": current_version,
@@ -209,5 +216,6 @@ def cmd_upgrade(args: List[str], *, project_root: Path, project_version: str,
         "data_preserved": True,
         "via": used_path,
         "config": migration_info,
+        "status_line_repointed": repointed,
     })
     return 0

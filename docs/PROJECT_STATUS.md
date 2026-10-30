@@ -1,6 +1,6 @@
 # Project status
 
-**Snapshot taken 2026-10-31, at v7.2.0 with 7.2.1 prepared and not yet released.** v7.2.0 is the last release that changed the plugin folder. This page says where the project stands: what shipped recently, what is waiting on someone, what is claimed but not verified, and what was looked at and deliberately left alone. Everything here can go stale; each section says how to re-check it. When you change something listed here, update this page in the same commit.
+**Snapshot taken 2026-10-31, at v7.2.2.** v7.2.2 is the last release that changed the plugin folder. This page says where the project stands: what shipped recently, what is waiting on someone, what is claimed but not verified, and what was looked at and deliberately left alone. Everything here can go stale; each section says how to re-check it. When you change something listed here, update this page in the same commit.
 
 For how the code works, read `AGENTS.md`. For measured upstream behaviour, `docs/EVENT_BEHAVIOR_NOTES.md`. For the release mechanics, `docs/RELEASING.md`. For the directory listing, `docs/DIRECTORY_LISTING.md`.
 
@@ -18,7 +18,7 @@ The cycle began with an incident, and most of 6.6.0 follows from it. On 2026-10-
 |---|---|---|
 | Plugin directory review. Submitted 2026-10-04; security scan passed; held for content policy review. | Anthropic reviewer, then the maintainer selects **Publish** | The plugin page in the developer portal (`docs/DIRECTORY_LISTING.md`) |
 | GitGuardian incident 37836366, a false positive on a sound-file mapping in `hooks/hook_runner.py` (see `docs/RELEASING.md`). It stays open until resolved in the dashboard. | Maintainer | GitGuardian dashboard |
-| A reviewer's decision on `hooks/view-sensor.ts`. Read in the portal on 2026-10-31: the scan passed and the module was not refused, but it adds holds, listed in `docs/DIRECTORY_LISTING.md`. Every version was already waiting for a reviewer. If it is refused, removing the `modules` line from `hooks.json` restores the old behaviour and nothing else depends on it. | Anthropic reviewer | The plugin page in the developer portal |
+| A reviewer's decision on `hooks/view-sensor.ts`. Read in the portal on 2026-10-31 for 7.2.0 and 7.2.1: the scans passed and the module was not refused, but it adds holds, listed in `docs/DIRECTORY_LISTING.md`. Every version was already waiting for a reviewer. If it is refused, removing the `modules` line from `hooks.json` restores the old behaviour and nothing else depends on it. | Anthropic reviewer | The plugin page in the developer portal |
 | The six sound files added in 6.7.0 have not been listened to by a person. They are valid, distinct and of normal length. | Maintainer | Play `audio/default/{notif-auth-storage,fail-cloud-credential,fail-verification}.mp3` and `audio/custom/chime-*` counterparts |
 
 ## Claimed but not verified
@@ -42,7 +42,7 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 - The Codex status-line item list (6.8.0): read from the Rust source at `rust-v0.160.1`; Codex itself was not run, and the releases that introduced `hostname` and `thread-name` were bracketed by sampling tags, not pinned.
 - The skill eval suite: two single runs on the smallest model. One case (`pomodoro-out-of-scope`) passed once and failed once on the same skill.
 
-- The status line following the viewed agent (7.2.0): measured on Claude Code 2.1.314, Windows, interactive through a pseudo-terminal, one background subagent, with `--plugin-dir`, through a directory-source marketplace, and from a cached 7.2.0 installed from GitHub. Not run: a teammate's view, a workflow agent's view, macOS and Linux were not run. The module key in `hooks.json` has not been run past the Cursor auto-bridge; the file already has an extra top-level `description` key, so a parser that rejects unknown keys is not expected, but that is an inference.
+- The status line following the viewed agent (7.2.0): measured on Claude Code 2.1.314, Windows, interactive through a pseudo-terminal, one background subagent, with `--plugin-dir`, through a directory-source marketplace, and from a cached 7.2.0 installed from GitHub; a teammate's view too. A workflow's agents have no view to follow. Not run: a live session on macOS or Linux. The Cursor auto-bridge ignores the `modules` key by its source, read but not run.
 
 **Unknown**
 - Whether the classic status line renders in the Claude Desktop app. This decides whether a separate "band" mod for Desktop users would have any purpose.
@@ -54,7 +54,6 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 - The preferences migration that keeps new variants silent for `hooks enable-only` users cannot recognise an enumeration made before an earlier variant addition it never answered; those users keep inheriting the parent.
 - `audio-hooks uninstall` does not strip or report a registration that reaches an echook script through command substitution, a variable whose name contains neither `HOME` nor `USERPROFILE`, `~user/…`, or a relative path. It reports the other unrecognised spellings and removes them with `--remove-unmatched`.
 - Most read-only commands (`status`, `diagnose`, `get`, `version`, `update`, `manifest`, `hooks list`, `theme list`, `statusline show|segments`) still ignore unknown flags. They are read-only. `logs tail` and `backup list|show` reject them.
-- `audio-hooks statusline install` from a cached install writes a path with the version in it, and `upgrade` does not rewrite it, so the line can stop when an old cache folder is removed. The maintainer's machine avoids this by pointing the line at the checkout.
 - `uninstall --purge` is rejected for the script and plugin modes; it applies to `--cursor` and `--codex`.
 - The plugin can be listed only for Claude Code: a top-level `bin/` directory rules out Cowork and the Claude apps.
 

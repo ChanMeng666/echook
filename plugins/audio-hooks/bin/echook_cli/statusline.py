@@ -467,6 +467,80 @@ def _cmd_statusline_codex(args: List[str]) -> int:
 # length: Claude Code aborts a run still going at the next refresh.
 STATUSLINE_REFRESH_SEC = 2
 
+# A cached plugin lives in a folder named for its version, which Claude Code
+# removes some time after an upgrade, and `claude plugin update` touches no
+# settings. A registration naming that folder would stop drawing, silently. So an
+# install from the cache registers this launcher, kept in the plugin's data
+# directory, which finds the current version on every run.
+_PLUGIN_KEY = "audio-hooks@chanmeng-audio-hooks"
+_LAUNCHER_NAME = "statusline-launcher.py"
+_LAUNCHER_SOURCE = f'''#!/usr/bin/env python3
+"""Written by `audio-hooks statusline install`. Runs the installed version's script."""
+import json
+import os
+import runpy
+import sys
+
+try:
+    with open(os.path.join(os.path.expanduser("~"), ".claude", "plugins", "installed_plugins.json"), encoding="utf-8") as f:
+        installs = json.load(f)["plugins"]["{_PLUGIN_KEY}"]
+    install = next((i for i in installs if i.get("scope") == "user"), installs[0])
+    script = os.path.join(install["installPath"], "bin", os.path.basename(sys.argv[1]))
+except Exception:
+    sys.exit(0)  # a status line must never take the session down with it
+sys.argv = [script]
+runpy.run_path(script, run_name="__main__")
+'''
+
+
+def _is_cached_install(project_root: Path) -> bool:
+    return "plugins/cache/" in project_root.as_posix()
+
+
+def _names_a_cached_version(command: Any) -> bool:
+    return isinstance(command, str) and bool(re.search(r"plugins[\\\\/]+cache[\\\\/]", command))
+
+
+def _launcher_path() -> Path:
+    return Path.home() / ".claude" / "plugins" / "data" / "audio-hooks-chanmeng-audio-hooks" / _LAUNCHER_NAME
+
+
+def _launcher_command(script_name: str) -> str:
+    launcher = _launcher_path()
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    launcher.write_text(_LAUNCHER_SOURCE, encoding="utf-8")
+    interpreter = "python" if platform.system() == "Windows" else "python3"
+    return f'{interpreter} "{launcher}" {script_name}'
+
+
+def _registration_command(project_root: Path, script_name: str) -> str:
+    """What settings.json runs: the launcher from the cache, the script from a checkout."""
+    if _is_cached_install(project_root):
+        return _launcher_command(script_name)
+    script = project_root / "bin" / script_name
+    # On Windows the script needs the python interpreter prefix to run
+    return f'python "{script}"' if platform.system() == "Windows" else str(script)
+
+
+def repoint_cached_registrations(settings_path: Path) -> List[str]:
+    """Move registrations that name a cached version to the launcher; returns the keys moved.
+
+    Called by `upgrade`, which is the moment such a path starts to go stale.
+    """
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return []
+    moved = []
+    for key, script_name in (("statusLine", "audio-hooks-statusline.py"), ("subagentStatusLine", "audio-hooks-subagent-statusline.py")):
+        entry = settings.get(key)
+        if isinstance(entry, dict) and _names_a_cached_version(entry.get("command")):
+            entry["command"] = _launcher_command(script_name)
+            moved.append(key)
+    if moved:
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    return moved
+
 
 def _cmd_statusline_subagent(args: List[str], project_root: Path) -> int:
     """Manage `subagentStatusLine` — Claude Code's per-subagent row.
@@ -515,7 +589,7 @@ def _cmd_statusline_subagent(args: List[str], project_root: Path) -> int:
         try:
             settings_path.parent.mkdir(parents=True, exist_ok=True)
             settings = _read_settings()
-            cmd_str = f'python "{script}"' if platform.system() == "Windows" else str(script)
+            cmd_str = _registration_command(project_root, script.name)
             # Only type + command are accepted here; unlike statusLine there is
             # no padding/refreshInterval on this key.
             settings["subagentStatusLine"] = {"type": "command", "command": cmd_str}
@@ -587,6 +661,7 @@ def cmd_statusline(args: List[str], project_root: Path) -> int:
         ).get("statusLine")
         refresh = registration.get("refreshInterval") if isinstance(registration, dict) else None
         lags = registration is not None and not (isinstance(refresh, (int, float)) and refresh <= STATUSLINE_REFRESH_SEC)
+        pinned = isinstance(registration, dict) and _names_a_cached_version(registration.get("command"))
         emit({
             "ok": True,
             "script": str(statusline_script),
@@ -594,10 +669,13 @@ def cmd_statusline(args: List[str], project_root: Path) -> int:
             "settings_file": str(settings_path),
             "registered": registration is not None,
             "refresh_interval": refresh,
-            "next_steps": [
+            "next_steps": ([
                 "Run `audio-hooks statusline install` so the line follows a switch to another agent's view "
                 f"within {STATUSLINE_REFRESH_SEC} seconds (refreshInterval is {refresh})."
-            ] if lags else [],
+            ] if lags else []) + ([
+                "Run `audio-hooks statusline install`: the registration names one cached version, "
+                "so the line will stop when Claude Code removes that folder."
+            ] if pinned else []),
         })
         return 0
 
@@ -613,15 +691,16 @@ def cmd_statusline(args: List[str], project_root: Path) -> int:
                     settings = json.loads(settings_path.read_text(encoding="utf-8")) or {}
                 except json.JSONDecodeError:
                     settings = {}
-            # On Windows the script needs the python interpreter prefix to run
-            cmd_str = f'python "{statusline_script}"' if platform.system() == "Windows" else str(statusline_script)
+            cmd_str = _registration_command(project_root, statusline_script.name)
+            previous = settings.get("statusLine")
             settings["statusLine"] = {
                 "type": "command",
                 "command": cmd_str,
                 # padding 0 lets the line use the full terminal width; the
                 # script's own WIDTH_SAFETY_MARGIN reserves the edge so nothing
                 # is truncated. (1 indented the line and shrank usable width.)
-                "padding": 0,
+                # A value the user already chose is theirs.
+                "padding": previous.get("padding", 0) if isinstance(previous, dict) else 0,
                 "refreshInterval": STATUSLINE_REFRESH_SEC,
             }
             settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")

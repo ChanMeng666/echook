@@ -80,11 +80,19 @@ When the person switches the main view to a subagent's transcript (the agent lis
 
 **The context window is partly an estimate.** A transcript records the tokens but not the window. When the agent runs the main conversation's model, the main window is exact. Otherwise it is 200K, or 1M if the request asked for `[1m]` or the agent has already passed 200K, and the figure shows as `~200K`. The per-subagent row (`statusline subagent`) has the exact value because Claude Code hands it that one.
 
-**Known limits.** Before an agent's first response there is no record, so the model reads `[▸ agent]` and no context shows. An agent whose transcript is not on disk (session persistence off) shows its name only. A teammate's view has not been run; if its id does not name a transcript file, it falls into that same name-only case. The sidecar has no heartbeat: `session.start` clears it, but if the module is removed while an agent is in view, that session's line keeps naming the agent.
+**Teammates and workflows.** A teammate in the same process is followed like a subagent (measured: `[▸ Haiku 5.5] | 🤖 ▸ scout`). A workflow's agents are not: a workflow opens its own full-screen panel, which has no status line, and the view reported to the module stays on the main conversation.
+
+**Known limits.** Before an agent's first response there is no record, so the model reads `[▸ agent]` and no context shows. An agent whose transcript is not on disk (session persistence off) shows its name only. The sidecar has no heartbeat: `session.start` clears it, but if the module is removed while an agent is in view, that session's line keeps naming the agent.
 
 **Cost of the short refresh.** Python starts every 2 seconds in every session with the status line, whether or not an agent is ever viewed, and a detached refresher runs at most once per cache expiry. Only `statusline install` sets this; a hand-written registration keeps its own interval.
 
 Measured live on Claude Code 2.1.314, Windows 11, interactive session through a pseudo-terminal, with `--plugin-dir` and from a cached 7.2.0 installed from GitHub, Sonnet main conversation and Haiku subagent: main → agent → main → agent, each switch shown within about 3 seconds.
+
+## Staying registered across upgrades (v7.2.2)
+
+A cached plugin's folder is named for its version and removed some time after an upgrade, and `claude plugin update` changes no settings, so a registration naming that folder would stop drawing with no error. `statusline install` and `statusline subagent install`, run from the cache, therefore register `statusline-launcher.py` in the plugin's data directory, with the script's name as its argument. It reads `installPath` from `~/.claude/plugins/installed_plugins.json` on every run and runs that version's script in its own process, so it costs no second Python start. It exits quietly if nothing is installed.
+
+From a checkout, install registers the checkout's script, so a developer's line runs what is checked out. `upgrade` moves a registration that names a cached version (`status_line_repointed` in its result); it does this after the update, in the old version's code, so the first upgrade to carry this does not. `statusline show` reports such a registration in `next_steps` either way.
 
 ## Upstream fields added in v6.7.0
 
