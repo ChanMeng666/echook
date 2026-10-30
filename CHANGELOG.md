@@ -21,9 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   site) and writes it to a sidecar file, and the script reads the agent's own
   transcript. The module draws nothing. Mods arrived in Claude Code 2.1.287 and
   the release that added the `view` prop was not pinned; on a build without it
-  the line stays on the main conversation. Measured live on Claude Code 2.1.314 on Windows with
-  `--plugin-dir`, with a Sonnet main conversation and a Haiku subagent.
-  **Not verified:** a marketplace install of the module, a teammate's view, the
+  the line stays on the main conversation. Measured live on Claude Code 2.1.314 on Windows, with
+  `--plugin-dir` and from an installed 7.2.0 (a directory-source marketplace),
+  with a Sonnet main conversation and a Haiku subagent.
+  **Not verified:** a GitHub-source marketplace install, a teammate's view, the
   Cursor auto-bridge reading a `hooks.json` that has a `modules` key, macOS and
   Linux, and what the plugin directory's rules for hooks modules say about it.
   The context window of an agent on a different model from the main conversation

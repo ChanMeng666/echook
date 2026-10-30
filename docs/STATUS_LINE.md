@@ -80,7 +80,7 @@ When the person switches the main view to a subagent's transcript (the agent lis
 
 **Known limits.** Before an agent's first response there is no record, so the model reads `[▸ agent]` and no context shows. An agent whose transcript is not on disk (session persistence off) shows its name only. A teammate's view has not been run; if its id does not name a transcript file, it falls into that same name-only case. The sidecar has no heartbeat: `session.start` clears it, but if the module is removed while an agent is in view, that session's line keeps naming the agent.
 
-Measured live on Claude Code 2.1.314, Windows 11, interactive session through a pseudo-terminal, `--plugin-dir`, Sonnet main conversation and Haiku subagent: main → agent → main → agent, each switch shown within about 3 seconds.
+Measured live on Claude Code 2.1.314, Windows 11, interactive session through a pseudo-terminal, with `--plugin-dir` and from an installed 7.2.0, Sonnet main conversation and Haiku subagent: main → agent → main → agent, each switch shown within about 3 seconds.
 
 ## Upstream fields added in v6.7.0
 
