@@ -37,6 +37,20 @@ Do not put `"hooks": "./hooks/hooks.json"` in `plugin.json`. Claude Code auto-di
 
 `bin/audio-hooks` is a bash wrapper that probes `python3` / `python` / `py` with a `-c "import sys"` test and execs the first that works. It exists because Git Bash on Windows does not reliably handle Python shebangs, and the Microsoft Store `python3` stub at `WindowsApps\python3.exe` exits 49 silently when invoked; probing, rather than checking for existence, is what skips it. If all candidates fail it prints `PYTHON_NOT_FOUND` JSON.
 
+## Status line: where a viewed agent's figures come from
+
+```mermaid
+flowchart LR
+    V[Switch of view] --> S[view-sensor.ts]
+    S --> F[(viewed_agent.session.json)]
+    T[refreshInterval tick] --> R[audio-hooks-statusline.py]
+    F --> R
+    J[(subagents/agent-id.jsonl)] --> R
+    R --> L([Status line])
+```
+
+Two independent triggers meet at the sidecar, because nothing connects a switch to a run of the script. `_apply_viewed_agent` rewrites the session document before any segment reads it, so no segment knows about views except for the `▸` mark. Reasons and limits: `docs/STATUS_LINE.md`, "Following the viewed agent". Slow work leaves the run through `_refresh_in_background`: `docs/INVARIANTS.md`, "A status line run must never do slow work in the foreground".
+
 ## Status line: context-usage numerator
 
 When stdin carries both `context_window.used_percentage` and `context_window.context_window_size`, the segment shows absolute counts, e.g. `Context: 83% (166K/200K)`. The numerator is derived as `int(round(used_percentage * context_window_size / 100))` (v5.1.3+). It deliberately does not use `total_input_tokens`: that field counts only literal input tokens, excluding `cache_read_input_tokens` / `cache_creation_input_tokens`, and understates real context usage by about 30x in cache-heavy sessions such as Claude Code itself. Deriving from the percentage keeps the displayed math self-consistent. A missing, malformed or non-positive `context_window_size` falls back silently to `Context: 83%`. Guard: `tests/test_statusline.py::TestContextSegment`.

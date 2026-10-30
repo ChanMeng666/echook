@@ -31,6 +31,7 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 - Release: `bash scripts/bump-version.sh <version>`, then follow `docs/RELEASING.md`.
 - Verify an install: `audio-hooks status`, `audio-hooks diagnose`, `audio-hooks test all`.
 - Running the CLI from a checkout: set `CLAUDE_PLUGIN_DATA` to a scratch directory first, or it resolves the real install's data.
+- With a directory-source marketplace, every Claude Code session runs hooks from this checkout, on whatever branch it is on (`docs/EVENT_BEHAVIOR_NOTES.md`).
 
 ## Before you change… read
 
@@ -53,6 +54,7 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 - `docs/EVENT_BEHAVIOR_NOTES.md` — what Claude Code's events actually do, measured. Read before trusting an event name.
 - `docs/ARCHITECTURE.md` — design decisions and the checklist for adding an event.
 - `docs/STATUS_LINE.md` — track 2. `docs/TROUBLESHOOTING.md` — symptoms whose cause is upstream.
+- `docs/LIVE_TESTING.md` — driving a real interactive session from a script. Use it before calling terminal behaviour verified.
 - `docs/PROJECT_STATUS.md` — what is waiting, unverified, or deliberately not done. Read before proposing work; update it in the same commit as anything it lists.
 - `docs/RELEASING.md`, `docs/DIRECTORY_LISTING.md` — release mechanics and the rules the directory listing puts on the plugin folder.
 - `plugins/audio-hooks/skills/audio-hooks/SKILL.md` — how to map a user's plain-language request to commands.

@@ -14,7 +14,7 @@ A sound, a desktop toast or a message on your phone when Claude Code, Cursor or 
 
 <br>
 
-<a href="#try-it"><img src="./.github/readme/card.svg" width="100%" alt="echook is an open-source notification system for the AI coding agents Claude Code, Cursor and Codex. The card shows a terminal session recreated in code from the product's own output: a permission request reaches you as a sound, a desktop toast and a phone notification, a setting is changed by asking the agent (“mute audio for an hour”), and the status line's quota and context bars change colour as they fill."></a>
+<a href="#try-it"><img src="./.github/readme/card.svg" width="100%" alt="echook is an open-source notification system for the AI coding agents Claude Code, Cursor and Codex. The card shows a terminal session recreated in code from the product's own output: a permission request reaches you as a sound, a desktop toast and a phone notification, a subagent is opened and the status line follows it from Sonnet 5.5 to Haiku 5.5 and from 76K/200K to 29K/~200K of context, and a setting is changed by asking the agent (“mute audio for an hour”)."></a>
 
 <br>
 
@@ -48,6 +48,9 @@ After that, every setting is a sentence:
 - **You choose what you hear.** 39 hook events, each with its own sound. Three are on by default.
 - **Settings are sentences.** Your agent runs one `audio-hooks` command for each. There is no config file to edit by hand.
 - **It reaches you away from the screen.** A sound at your desk, a desktop toast, a spoken summary, or a webhook to Slack, Discord, Teams or ntfy.
+- **The status line shows the agent you are watching.** Open a subagent in Claude Code and the line switches to that agent's model, effort and context. Claude Code alone keeps showing the main agent's.
+
+<img src="./.github/readme/feature-viewed-agent.svg" width="100%" alt="The echook status line follows the agent in view: opening the Explore subagent changes the line from [Sonnet 5.5] to [▸ Haiku 5.5], with that agent's own effort and context. Task shown: find how retries are configured.">
 
 ```mermaid
 flowchart LR

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [7.2.1] - 2026-10-31
+
+### Changed
+
+- **The plugin description names the status line's new behaviour**, and the
+  status line script's docstring no longer claims a two-line maximum, which
+  stopped being true when reflow arrived.
+
+### Documentation
+
+- **The plugin README names the file `hooks/view-sensor.ts` writes**, which the
+  plugin directory's validator asks for.
+- **A README feature strip and a rebuilt card.** The card now shows the status
+  line following a subagent, carries no version number, and uses the README's
+  tagline. Its source is `scripts/cards/echook.mjs` in the maintainer's profile
+  repository, fed by `echook-promo-studio`; `docs/RELEASING.md` says how to
+  rebuild it.
+- **Corrected a claim in the 7.2.0 entry.** The second live run was recorded as
+  coming "from an installed 7.2.0". On a directory-source marketplace Claude Code
+  runs the plugin from the directory, not the cached copy, so that run exercised
+  the checkout. A cached 7.2.0 from a GitHub-source marketplace was then measured
+  on 2026-10-31: hooks ran from `plugins/cache/`, and the line followed a subagent
+  there and back.
+- **Traced why a 7.1.0 install was stamped 7.2.0 before the release.** The same
+  behaviour: a hook in another open session ran the checkout's runner just after
+  `bump-version.sh` changed the template. See `docs/EVENT_BEHAVIOR_NOTES.md`.
+
 ## [7.2.0] - 2026-10-30
 
 ### Added
@@ -22,9 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transcript. The module draws nothing. Mods arrived in Claude Code 2.1.287 and
   the release that added the `view` prop was not pinned; on a build without it
   the line stays on the main conversation. Measured live on Claude Code 2.1.314 on Windows, with
-  `--plugin-dir` and from an installed 7.2.0 (a directory-source marketplace),
-  with a Sonnet main conversation and a Haiku subagent.
-  **Not verified:** a GitHub-source marketplace install, a teammate's view, the
+  `--plugin-dir` and through a directory-source marketplace, with a Sonnet main
+  conversation and a Haiku subagent; both ran the checkout (see 7.2.1).
+  **Not verified:** a cached install from a GitHub-source marketplace, a teammate's view, the
   Cursor auto-bridge reading a `hooks.json` that has a `modules` key, macOS and
   Linux, and what the plugin directory's rules for hooks modules say about it.
   The context window of an agent on a different model from the main conversation
