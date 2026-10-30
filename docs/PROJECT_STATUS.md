@@ -40,7 +40,7 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 - The Codex status-line item list (6.8.0): read from the Rust source at `rust-v0.160.1`; Codex itself was not run, and the releases that introduced `hostname` and `thread-name` were bracketed by sampling tags, not pinned.
 - The skill eval suite: two single runs on the smallest model. One case (`pomodoro-out-of-scope`) passed once and failed once on the same skill.
 
-- The status line following the viewed agent (7.2.0): measured on Claude Code 2.1.314, Windows, interactive through a pseudo-terminal, loaded with `--plugin-dir`, one background subagent. A marketplace install, a teammate's view, a workflow agent's view, macOS and Linux were not run. The module key in `hooks.json` has not been run past the Cursor auto-bridge; the file already has an extra top-level `description` key, so a parser that rejects unknown keys is not expected, but that is an inference.
+- The status line following the viewed agent (7.2.0): measured on Claude Code 2.1.314, Windows, interactive through a pseudo-terminal, one background subagent, loaded with `--plugin-dir` and again from a real install of 7.2.0 (this machine's directory-source marketplace, through `audio-hooks upgrade`). A GitHub-source marketplace install, a teammate's view, a workflow agent's view, macOS and Linux were not run. The module key in `hooks.json` has not been run past the Cursor auto-bridge; the file already has an extra top-level `description` key, so a parser that rejects unknown keys is not expected, but that is an inference.
 
 **Unknown**
 - Whether the classic status line renders in the Claude Desktop app. This decides whether a separate "band" mod for Desktop users would have any purpose.
