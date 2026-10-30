@@ -151,7 +151,7 @@ def require_project_root() -> int:
 # Project state — version, install detection, hook catalogue
 # ---------------------------------------------------------------------------
 
-PROJECT_VERSION = "7.2.1"
+PROJECT_VERSION = "7.2.2"
 
 # Canonical hook catalogue. Order matches CLAUDE.md and the install scripts.
 HOOK_CATALOG: List[Dict[str, Any]] = [
@@ -2331,7 +2331,7 @@ def _build_manifest() -> Dict[str, Any]:
             {"name": "install", "args": ["<--plugin|--cursor|--codex>", "[--force]", "[--help]"], "description": "Install non-interactively. A mode flag is required (no default); unknown arguments are rejected with INVALID_USAGE and change nothing. --plugin lists the `claude plugin` commands to run. --cursor writes ~/.cursor/hooks.json for Cursor IDE users. --codex writes $CODEX_HOME/hooks.json for Codex CLI users. --force overrides the DUPLICATE_BRIDGE check (--cursor). The script installer was removed in 7.0.0: --scripts returns SCRIPT_INSTALL_REMOVED and installs nothing."},
             {"name": "uninstall", "args": ["[--plugin|--scripts|--cursor|--codex]", "[--purge]", "[--remove-unmatched]", "[--help]"], "description": "Uninstall non-interactively. Bare `uninstall` (= --scripts) removes a script install made before 7.0.0 (the installer itself is gone) natively on every platform: it backs up to ~/.claude/backups/audio-hooks-uninstall-<ts>/, edits settings.json / settings.local.json (only entries that reference ~/.claude/hooks/<known script>), then deletes only the files echook installed; it leaves the temp queue directory alone. Files are judged by content, not name; an incomplete result is ok:false / UNINSTALL_INCOMPLETE and --remove-unmatched finishes it (read unmatched_references first). Unknown arguments are rejected with INVALID_USAGE. --cursor / --codex remove audio-hooks-managed entries from the corresponding hooks.json (--purge also removes the audio-hooks-data directory)."},
             {"name": "statusline show", "args": [], "description": "Show Claude Code status line registration state, refresh_interval, and next_steps when that interval is too slow to follow a switch to a subagent's view"},
-            {"name": "statusline install", "args": [], "description": "Register the echook status line in ~/.claude/settings.json (refreshInterval 2, so it follows a switch to a subagent's view)"},
+            {"name": "statusline install", "args": [], "description": "Register the echook status line in ~/.claude/settings.json (refreshInterval 2, so it follows a switch to a subagent's view). From the plugin cache it registers a launcher that finds the current version, so an upgrade cannot strand it"},
             {"name": "statusline uninstall", "args": [], "description": "Remove the echook status line registration"},
             {"name": "statusline segments", "args": [], "description": "List every Claude Code status line segment (name, line, source field, conditional) for configuring visible_segments / hidden_segments"},
         {"name": "statusline subagent show|install|uninstall", "args": [], "description": "Manage Claude Code's per-subagent status line (subagentStatusLine) — one rendered row per task in the agent panel. Separate settings key and a different output contract (NDJSON keyed by task id) from the main status line."},
