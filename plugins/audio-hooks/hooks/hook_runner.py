@@ -146,7 +146,7 @@ import terminal_sequence  # type: ignore  # noqa: E402
 
 # Version used for auto-sync: when the installed copy in ~/.claude/hooks/
 # detects a newer version in the project directory, it self-updates.
-HOOK_RUNNER_VERSION = "7.1.0"
+HOOK_RUNNER_VERSION = "7.2.0"
 
 
 # Stable error code enum. Add new codes here, never rename existing ones.

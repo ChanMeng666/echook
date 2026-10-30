@@ -7,7 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
-## [Unreleased]
+## [7.2.0] - 2026-10-30
+
+### Added
+
+- **The status line follows the agent you are viewing.** Switch to a subagent's
+  transcript and the line shows that agent's model, reasoning effort and context
+  use, marked `▸`; switch back and it shows the main conversation again, within
+  a refresh (about 3 seconds in the measured run). Cost and quota segments stay,
+  because they are session-wide. Claude Code gives a status line script neither
+  the viewed agent nor a refresh on a switch, so a small module,
+  `hooks/view-sensor.ts`, reads the view (`e.props.view` at the `AbovePrompt`
+  site) and writes it to a sidecar file, and the script reads the agent's own
+  transcript. The module draws nothing. Mods arrived in Claude Code 2.1.287 and
+  the release that added the `view` prop was not pinned; on a build without it
+  the line stays on the main conversation. Measured live on Claude Code 2.1.314 on Windows with
+  `--plugin-dir`, with a Sonnet main conversation and a Haiku subagent.
+  **Not verified:** a marketplace install of the module, a teammate's view, the
+  Cursor auto-bridge reading a `hooks.json` that has a `modules` key, macOS and
+  Linux, and what the plugin directory's rules for hooks modules say about it.
+  The context window of an agent on a different model from the main conversation
+  is not recorded anywhere a script can read, so it is estimated and shown as
+  `~200K`.
+
+### Changed
+
+- **`audio-hooks statusline install` registers `refreshInterval: 2` instead of
+  60**, which is what lets the line follow a switch of view. `statusline show`
+  now reports `refresh_interval` and a `next_steps` entry when an existing
+  registration is slower, because that interval is not migrated.
+- **A status line run no longer does slow work itself.** Claude Code aborts a
+  run still going at the next refresh, so a cache miss that took longer than the
+  interval could kill itself on every tick and freeze the line. `audio-hooks
+  status` took 2.9 s and bare Python up to 1.3 s on the measured machine under
+  load. A stale cache is now served at once while a detached process replaces
+  it, and `git status` runs only in that process (with a 10 s timeout rather than
+  2 s), so the `git_dirty` segment is omitted on the very first render.
 
 ### Fixed
 

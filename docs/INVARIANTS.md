@@ -28,6 +28,8 @@ v6.3.4 was an emergency rollback because `WorktreeCreate` turned out to be a *pr
 
 ### Claude Code mods are not an echook surface, and a `modules` key must never reach a file Codex reads
 
+The one exception is `hooks/view-sensor.ts`, and it must stay a sensor: it reads the view, writes one file, draws nothing. It exists only because the view can be read nowhere else (`docs/STATUS_LINE.md`, "Following the viewed agent"). The array holds one entry, so anything else a module might do would have to share that file; that is a reason to say no, not to extend it. Sound, notification and rendering stay in Python, and the status line must work unchanged when the module is absent.
+
 Claude Code 2.1.287 added "Claude Mods": a top-level `"modules"` array in `hooks/hooks.json` (one entry at most). Investigated at 2.1.288 and adopted for neither track — `$.audio.play` resolved without sound on Windows in a headless run and the binary only has a macOS player, `$.ui.toast` is an in-app notification bar rather than an OS notification, a mod has no terminal write and so cannot revive `terminalSequence`, and none of its render sites is the status line. Codex's hooks-file parser rejects unknown keys (`deny_unknown_fields`), and a hooks file that fails to parse disables every hook, so a `modules` key in a file Codex reads would take all of Codex's hooks down. echook is insulated only because `.codex-plugin/plugin.json` points at `codex-hooks/plugin-hooks.json`; do not repoint it at the Claude Code `hooks.json`, and do not add `modules` to the Cursor or Codex templates. Interactive sessions and the Desktop app were not tested. Detail in `docs/EVENT_BEHAVIOR_NOTES.md`.
 
 ### `userConfig.webhook_url` is `sensitive: true`; do not add `options` to any `userConfig` field
@@ -53,6 +55,10 @@ The rule in the mods entry above applies to every top-level key, not only `modul
 ### Claude Code registers 30 of the 39 canonical events plus 47 matcher variants (Claude Code itself has 33 events as of 2.1.292, unchanged since 2.1.251; the three echook does not register are `PreModelSwitch`, `WorktreeCreate` and `PostModelSwitch`); Cursor (native: 19 template entries → 18 distinct events, incl. granular per-tool shell/MCP/file events; auto-bridge: 8 coarse) and Codex (11 of 39) have smaller hook surfaces and no variant support
 
 The other 9 canonical events are Cursor-only (`shell_*`, `mcp_*`, `file_read`, `agent_response`, `agent_thinking`, `workspace_open`, `tab_file_edit`) and Claude Code has no equivalent — `manifest.supported_editors["claude-code"].events` is derived from the template, not from `HOOK_CATALOG` (before v6.4.1 it was, and wrongly claimed every canonical event). Codex's 11th event, `SessionEnd`, is registered by `install --codex` **only** when the installed Codex is ≥ 0.145.0. The runner no-ops unsupported events with `skipped_no_*_equivalent` debug NDJSON.
+
+### A status line run must never do slow work in the foreground
+
+Claude Code aborts a status line run still going when the next refresh fires (`refreshInterval`, plus any event). If a run's slow step only finishes its cache write at the end, an interval shorter than that step kills it every time: nothing is ever cached and the line freezes, with no error anywhere. Measured under load on Windows: bare Python up to 1.3 s, `audio-hooks status` 2.9 s. So a run serves what is cached and asks a detached process (`_refresh_in_background`, one at a time per session through a lock it removes when it ends) for the rest; only a first render, with nothing to serve, waits, for less than a refresh, and the detached process finishes even if that run is aborted. A new segment that needs a subprocess or a large read goes through the same route. Keep `refreshInterval` at 2 or above.
 
 ## Hook runner
 

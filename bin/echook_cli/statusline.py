@@ -462,6 +462,12 @@ def _cmd_statusline_codex(args: List[str]) -> int:
     return 0
 
 
+# Nothing tells a status line that the view changed, so this interval is how
+# soon it can follow a switch to another agent. It must stay well above a run's
+# length: Claude Code aborts a run still going at the next refresh.
+STATUSLINE_REFRESH_SEC = 2
+
+
 def _cmd_statusline_subagent(args: List[str], project_root: Path) -> int:
     """Manage `subagentStatusLine` — Claude Code's per-subagent row.
 
@@ -576,14 +582,22 @@ def cmd_statusline(args: List[str], project_root: Path) -> int:
 
     if sub == "show":
         statusline_script = project_root / "bin" / "audio-hooks-statusline.py"
+        registration = None if not settings_path.exists() else (
+            json.loads(settings_path.read_text(encoding="utf-8")) or {}
+        ).get("statusLine")
+        refresh = registration.get("refreshInterval") if isinstance(registration, dict) else None
+        lags = registration is not None and not (isinstance(refresh, (int, float)) and refresh <= STATUSLINE_REFRESH_SEC)
         emit({
             "ok": True,
             "script": str(statusline_script),
             "exists": statusline_script.exists(),
             "settings_file": str(settings_path),
-            "registered": False if not settings_path.exists() else (
-                "statusLine" in (json.loads(settings_path.read_text(encoding="utf-8")) or {})
-            ),
+            "registered": registration is not None,
+            "refresh_interval": refresh,
+            "next_steps": [
+                "Run `audio-hooks statusline install` so the line follows a switch to another agent's view "
+                f"within {STATUSLINE_REFRESH_SEC} seconds (refreshInterval is {refresh})."
+            ] if lags else [],
         })
         return 0
 
@@ -608,7 +622,7 @@ def cmd_statusline(args: List[str], project_root: Path) -> int:
                 # script's own WIDTH_SAFETY_MARGIN reserves the edge so nothing
                 # is truncated. (1 indented the line and shrank usable width.)
                 "padding": 0,
-                "refreshInterval": 60,
+                "refreshInterval": STATUSLINE_REFRESH_SEC,
             }
             settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
             emit({"ok": True, "registered": True, "settings_file": str(settings_path), "command": cmd_str})
