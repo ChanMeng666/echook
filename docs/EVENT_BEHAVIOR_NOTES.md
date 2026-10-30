@@ -635,6 +635,24 @@ Two events say so in other words: `StopFailure` is *"Fire-and-forget — hook ou
 
 These are descriptions in a metadata table, which appears to be what the `/hooks` menu is built from; they are Claude Code's own statement of each contract, not a trace of the dispatch code. Two further contract notes from the same table: `PostModelSwitch` exit 0 — *"stdout shown to Claude on the next request"*; `PreCompact` exit 0 — *"stdout appended as custom compact instructions"*. A handler on either must not print.
 
+### A directory-source marketplace runs the plugin from the directory, not the cache
+
+**[LIVE, 2.1.314, Windows, 2026-10-31]** With the marketplace registered as `"source": "directory"`, `installed_plugins.json` and `claude plugin list --json` both report `installPath` under `plugins/cache/…/<version>`. The hook that actually runs is in the directory: a Windows process watcher during `claude -p "reply ok"`, from an unrelated folder, caught `python.exe D:/github_repository/claude-code-audio-hooks/plugins/audio-hooks/runner/run.py`. No path under `plugins/cache` appeared.
+
+Consequences on a machine set up this way, which is the maintainer's:
+
+- **Every open Claude Code session runs the checkout**, in any project, whichever branch is checked out. A half-finished edit under `plugins/audio-hooks/` is live at once, and a broken one breaks hooks everywhere. `audio-hooks upgrade` and `installed_plugins.json` say nothing about what is running.
+- **A version bump reaches the real preferences before any release.** This explains 2026-10-30: `bump-version.sh` changed the template at 23:11:55, and at 23:12:16 an idle notification in a session open in another project migrated `user_preferences.json` to 7.2.0 while the installed version was still 7.1.0.
+- **A run from a directory-source install does not measure a cached copy.** Only a GitHub-source install does.
+
+How the 2026-10-30 stamp was traced, in a fake home with a 7.1.0 preferences file: the cached 7.1.0 runner left it alone; the checkout's runner stamped it, even for a disabled event, because `run.py` skips its fast path on a version mismatch; `audio-hooks status` and the status line script left it alone; the whole test suite left it alone. The stamp changed `_version`, `version` and `_comment` and nothing else, so it did no harm.
+
+**[LIVE, 2.1.314, Windows, 2026-10-31]** After moving this machine to a GitHub-source marketplace, the watcher caught `C:/Users/0/.claude/plugins/cache/chanmeng-audio-hooks/audio-hooks/7.2.0/runner/run.py`, and the line followed a subagent there and back with the module loaded from that cache. A session already open when the source changes keeps what it loaded until it restarts.
+
+**Changing the source destroys the plugin's data.** `claude plugin marketplace remove` says *"The removal also deletes their saved options, secrets and data where it can"*, and it did: `user_preferences.json` and the whole `logs/` folder went, and the next hook re-created the file from the template. The preferences came back from a copy taken first; the log history did not. Copy the data directory before removing a marketplace, and restore it after the reinstall.
+
+`--plugin-dir` is separate: it also runs the folder, with its data in `plugins/data/audio-hooks-inline/`, not the real data directory.
+
 ### Mods: investigated, not adopted
 
 **[CHANGELOG 2.1.287]** *"Added Claude Mods: plugins may now modify deeper behavior"*. A mod is declared by a top-level `"modules"` array in `hooks/hooks.json` — **[BIN]** at most one entry (schema near offset 204564686). Investigated against both of echook's tracks and adopted for neither:

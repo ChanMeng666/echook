@@ -7,6 +7,7 @@ How a change gets from a working tree to users, as it was actually done for v6.6
 ## Before you start
 
 - **Work in a git worktree inside the repository**, at `.claude/worktrees/<name>`, on its own branch. The main checkout stays on `master`. Several agents can work in sibling worktrees and their branches merge cleanly when file ownership is agreed first; v6.7.0 was three such branches merged without a conflict.
+- **A directory-source marketplace runs the checkout in every open session**, on whatever branch is checked out, and a bump stamps the real `user_preferences.json` (`docs/EVENT_BEHAVIOR_NOTES.md`). The maintainer's machine moved to a GitHub source on 2026-10-31 to stop this, so test a change with `--plugin-dir`, which keeps its data apart. Its status line still runs from the checkout. Do not change a marketplace's source without copying the data directory first: removing one deletes it.
 - **Never run `audio-hooks install`, `uninstall` or `upgrade` while developing**, and never run the CLI from a checkout against the real data directory: set `CLAUDE_PLUGIN_DATA` to a scratch directory first. The test suite isolates itself (`tests/_isolation.py`); a hand-run CLI does not.
 - **Do not print the whole environment** (`env`, `set`, `os.environ`) in a test, a script or a debugging aid. A developer's shell can hold credentials, and a full dump puts them in a log.
 - **Write files with an editor or a script file, not a shell heredoc, when the content contains backslashes.** In the Bash tool used for this project a heredoc collapsed `\\` to `\` and turned `\x89` into a raw byte, which silently corrupted a test file twice. Python source with escapes, regexes and Windows paths are the usual victims.
@@ -42,7 +43,7 @@ claude plugin validate --strict plugins/audio-hooks
 claude plugin validate .
 ```
 
-Run the suite once **without** any data-directory override and confirm the real `user_preferences.json`, its `.bak` and `~/.claude/settings.json` hash the same before and after. That is the check that caught the suite writing to the real plugin data directory before v6.6.0.
+Run the suite once **without** any data-directory override and confirm the real `user_preferences.json`, its `.bak` and `~/.claude/settings.json` hash the same before and after. A difference needs reading rather than alarm: a live Claude Code session can write the file during the run. On 2026-10-30 a hook in another open session stamped `_version` while the suite ran, because it ran the checkout's runner, and the only changed keys were the version stamps. To tell a leak from that, run the suite with `HOME` and `USERPROFILE` pointing at a fake home that holds an older preferences file. That is the check that caught the suite writing to the real plugin data directory before v6.6.0.
 
 For anything that edits a user's files or deletes things (the uninstall path was the case in point), exercise it end to end in a **contained fake home** before trusting unit tests: a throwaway copy of the project, `env -i` with `HOME`, `USERPROFILE`, `HOMEDRIVE`/`HOMEPATH`, `TEMP`, `TMP` and `TMPDIR` all pointed inside the scratch directory, a path audit of the code first, and a hash of the real files before and after every run. On Windows the embedded Python reads `USERPROFILE` while the shell reads `HOME`, so both must be redirected.
 
@@ -54,7 +55,7 @@ An independent review by a reader who was given the code and its intent, not the
 bash scripts/bump-version.sh <new_version>
 ```
 
-It stamps the 10 canonical version locations in 7 files, runs `build-plugin.sh` and the test suite, validates every target before writing anything, and reports `CHANGELOG.md` under `needs_hand_written` until its release entry is written by hand. No document carries a version stamp. Raise the version for every release that changes the plugin folder: the plugin directory requires it (see `docs/DIRECTORY_LISTING.md`).
+Read its result, not its exit message: `"ok": false` can mean the suite failed after every file was stamped. Run the suite yourself to see why, then re-run with `--skip-tests`. It stamps the 10 canonical version locations in 7 files, runs `build-plugin.sh` and the test suite, validates every target before writing anything, and reports `CHANGELOG.md` under `needs_hand_written` until its release entry is written by hand. No document carries a version stamp. Raise the version for every release that changes the plugin folder: the plugin directory requires it (see `docs/DIRECTORY_LISTING.md`).
 
 A documentation-only change that touches nothing under `plugins/audio-hooks/` does not need a version bump.
 
@@ -67,6 +68,8 @@ gh pr checks <number> --watch
 ```
 
 CI is `.github/workflows/smoke.yml`: the unit tests on Ubuntu, Windows and macOS with Python 3.9, 3.12 and 3.13, `build-plugin.sh --check`, and a `plugin-validate` job that installs the latest Claude Code and runs its validator. Read a job's log rather than trusting its colour at least once per release; `gh run view <run> --job <job> --log` shows the test count and the validator's own "Validation passed" line. The CI matrix is the only place the suite runs on Linux and macOS.
+
+**A `plugin-validate` failure may not be about the plugin.** On 2026-10-30 `npm install -g @anthropic-ai/claude-code` took 10 minutes on the runner and hit the job's timeout, so the validator never ran. Read the log, then `gh run rerun <run> --failed`. Do not merge on the assumption: this job is the only check against the latest Claude Code.
 
 **GitGuardian also runs on every pull request**, and it has produced one false positive. In v6.7.0 it reported "Authentication Tuple" for the `SYNTHETIC_EVENT_MAP` entry of the `notification_auth_storage_failure` variant in `hooks/hook_runner.py`: a key containing `auth` whose value is a tuple of two strings, the parent event and a sound file name. That is a variant name mapped to a sound file, not a credential. The line is not reproduced here on purpose — the first draft of this page quoted it verbatim and the scanner flagged the documentation too, under the same incident. When it happens: confirm what was flagged (`gh api repos/<owner>/<repo>/commits/<sha>/check-runs`), confirm no real secret is in the branch, and report it to the maintainer. Do not merge past a failing secret scan on your own, and do not reword the code to slip under the detector; the maintainer decides, and resolves the incident in the GitGuardian dashboard. `master` has no branch protection, so nothing technical stops a merge — which is exactly why the decision has to be explicit.
 
@@ -84,9 +87,31 @@ Release titles and notes are written as a short narrative of what changed and wh
 
 **A push to `master` is no longer a private event.** A webhook tells Anthropic's plugin directory about it within minutes and the directory scans the new commit. See `docs/DIRECTORY_LISTING.md` before merging anything that changes what the plugin runs, sends or writes.
 
+For a change to anything drawn in the terminal, also run it in a real session: `docs/LIVE_TESTING.md`.
+
+## Rebuilding the README's animated pictures
+
+`.github/readme/card.svg` and `feature-viewed-agent.svg` are generated, and text in them is outlines, so they cannot be edited by hand. Their source is outside this repository:
+
+| What | Where |
+|---|---|
+| The card and the strip | `scripts/cards/echook.mjs` and `echook-strip.mjs` in `ChanMeng666/ChanMeng666` |
+| Rules for a card | `docs/animated-svg-cards.md`, same repository |
+| Status rows, counts, sounds, demo session | `ChanMeng666/echook-promo-studio`, cloned beside this repository |
+
+From the parent folder of the three checkouts:
+
+```bash
+(cd echook-promo-studio && node scripts/bake-product-data.mjs)     # runs this repo's real scripts in a throwaway home
+(cd ChanMeng666 && node scripts/build-readme-cards.mjs echook && node scripts/build-echook-strip.mjs)
+cp ChanMeng666/public/cards/echook.svg claude-code-audio-hooks/.github/readme/card.svg
+```
+
+Then copy each picture's `<title>` into the `alt` in `README.md`. Rebuild when the status line's output, the counts or the tagline change. A new release alone does not need it: the pictures carry no version number. The bake needs `ffmpeg` and `ffprobe`. It calls this repository's internals, so a refactor can break it (`scripts/bake-probe-runner.py` had to follow the split of `hook_runner.py`).
+
 ## 6. After the release
 
-- **A machine with the plugin installed keeps running its cached copy.** `audio-hooks upgrade` moves it to the new version (data preserved), and `/reload-plugins` must then be typed in each Claude Code session that is already open — there is no command-line equivalent, and a session started afterwards needs no reload. Verify with `audio-hooks status`, `audio-hooks diagnose` and `audio-hooks hooks list --variants`.
+- **A machine with the plugin installed from GitHub keeps running its cached copy.** (One with a directory-source marketplace runs the directory.) `audio-hooks upgrade` moves it to the new version (data preserved), and `/reload-plugins` must then be typed in each Claude Code session that is already open — there is no command-line equivalent, and a session started afterwards needs no reload. Verify with `audio-hooks status`, `audio-hooks diagnose` and `audio-hooks hooks list --variants`.
 - **The preferences file is migrated by the first hook event or state-changing command**, or on request by `audio-hooks migrate`. `status` and `diagnose` no longer do it.
 - **Check the directory.** The plugin page shows whether the new commit was picked up, scanned and held or passed.
 - **Clean up scratch files.** Keep the raw evidence behind anything recorded in `docs/EVENT_BEHAVIOR_NOTES.md` that cannot be regenerated — a carved binary extract disappears when Claude Code updates, and documentation pages change — and delete the rest.

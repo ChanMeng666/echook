@@ -76,7 +76,7 @@ Hard rules:
   - No interactive prompts.
   - All errors degrade gracefully (silent fallback to a single line).
   - Output is plain text (with optional ANSI colors) — never JSON.
-  - Maximum two lines, no trailing newline noise.
+  - Two logical lines, each reflowed into as many rows as the terminal needs.
 """
 
 from __future__ import annotations

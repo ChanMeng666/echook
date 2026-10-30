@@ -1,12 +1,14 @@
 # Project status
 
-**Snapshot taken 2026-10-13, at v7.0.0.** v7.0.0 is the last release that changed the plugin folder. This page says where the project stands: what shipped recently, what is waiting on someone, what is claimed but not verified, and what was looked at and deliberately left alone. Everything here can go stale; each section says how to re-check it. When you change something listed here, update this page in the same commit.
+**Snapshot taken 2026-10-31, at v7.2.0 with 7.2.1 prepared and not yet released.** v7.2.0 is the last release that changed the plugin folder. This page says where the project stands: what shipped recently, what is waiting on someone, what is claimed but not verified, and what was looked at and deliberately left alone. Everything here can go stale; each section says how to re-check it. When you change something listed here, update this page in the same commit.
 
 For how the code works, read `AGENTS.md`. For measured upstream behaviour, `docs/EVENT_BEHAVIOR_NOTES.md`. For the release mechanics, `docs/RELEASING.md`. For the directory listing, `docs/DIRECTORY_LISTING.md`.
 
 ## What shipped in this cycle
 
 Per-version detail is in `CHANGELOG.md`; counts come from `audio-hooks manifest`.
+
+The latest piece is 7.2.0 (2026-10-30, PR #33, `3c573f7`): the status line follows the agent in view, through the first hooks module echook has shipped, `hooks/view-sensor.ts`. The module exists because Claude Code gives a status line script no way to know the view. The same work moved slow steps out of a status line run, because a shorter refresh interval could otherwise have frozen the line. `docs/STATUS_LINE.md` has the design and `docs/LIVE_TESTING.md` the method.
 
 The cycle began with an incident, and most of 6.6.0 follows from it. On 2026-10-03 an AI agent probing for usage ran `audio-hooks install --help` on a machine that already had the plugin. The command ignored the flag, ran the legacy script installer and registered every hook a second time in `~/.claude/settings.json`. Following that thread found that `upgrade --help` ran a real upgrade, that several `set`-style commands wrote config when probed, that `uninstall` did nothing on Windows while reporting success, that the uninstall script could delete a user's own hooks, and that the test suite wrote to the real plugin data directory. All of those are fixed; the reasoning is in the 6.6.0 changelog entry and in `docs/INVARIANTS.md`.
 
@@ -16,7 +18,7 @@ The cycle began with an incident, and most of 6.6.0 follows from it. On 2026-10-
 |---|---|---|
 | Plugin directory review. Submitted 2026-10-04; security scan passed; held for content policy review. | Anthropic reviewer, then the maintainer selects **Publish** | The plugin page in the developer portal (`docs/DIRECTORY_LISTING.md`) |
 | GitGuardian incident 37836366, a false positive on a sound-file mapping in `hooks/hook_runner.py` (see `docs/RELEASING.md`). It stays open until resolved in the dashboard. | Maintainer | GitGuardian dashboard |
-| Whether the plugin directory accepts `hooks/view-sensor.ts`. `claude plugin validate` says the directory has rules of its own for hooks modules and does not apply them. Read the portal's validation of the first push that carries it; if it is refused, removing the `modules` line from `hooks.json` restores the old behaviour and nothing else depends on it. | Maintainer | The plugin page in the developer portal |
+| A reviewer's decision on `hooks/view-sensor.ts`. Read in the portal on 2026-10-31: the scan passed and the module was not refused, but it adds holds, listed in `docs/DIRECTORY_LISTING.md`. Every version was already waiting for a reviewer. If it is refused, removing the `modules` line from `hooks.json` restores the old behaviour and nothing else depends on it. | Anthropic reviewer | The plugin page in the developer portal |
 | The six sound files added in 6.7.0 have not been listened to by a person. They are valid, distinct and of normal length. | Maintainer | Play `audio/default/{notif-auth-storage,fail-cloud-credential,fail-verification}.mp3` and `audio/custom/chime-*` counterparts |
 
 ## Claimed but not verified
@@ -40,7 +42,7 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 - The Codex status-line item list (6.8.0): read from the Rust source at `rust-v0.160.1`; Codex itself was not run, and the releases that introduced `hostname` and `thread-name` were bracketed by sampling tags, not pinned.
 - The skill eval suite: two single runs on the smallest model. One case (`pomodoro-out-of-scope`) passed once and failed once on the same skill.
 
-- The status line following the viewed agent (7.2.0): measured on Claude Code 2.1.314, Windows, interactive through a pseudo-terminal, one background subagent, loaded with `--plugin-dir` and again from a real install of 7.2.0 (this machine's directory-source marketplace, through `audio-hooks upgrade`). A GitHub-source marketplace install, a teammate's view, a workflow agent's view, macOS and Linux were not run. The module key in `hooks.json` has not been run past the Cursor auto-bridge; the file already has an extra top-level `description` key, so a parser that rejects unknown keys is not expected, but that is an inference.
+- The status line following the viewed agent (7.2.0): measured on Claude Code 2.1.314, Windows, interactive through a pseudo-terminal, one background subagent, with `--plugin-dir`, through a directory-source marketplace, and from a cached 7.2.0 installed from GitHub. Not run: a teammate's view, a workflow agent's view, macOS and Linux were not run. The module key in `hooks.json` has not been run past the Cursor auto-bridge; the file already has an extra top-level `description` key, so a parser that rejects unknown keys is not expected, but that is an inference.
 
 **Unknown**
 - Whether the classic status line renders in the Claude Desktop app. This decides whether a separate "band" mod for Desktop users would have any purpose.
@@ -52,6 +54,7 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 - The preferences migration that keeps new variants silent for `hooks enable-only` users cannot recognise an enumeration made before an earlier variant addition it never answered; those users keep inheriting the parent.
 - `audio-hooks uninstall` does not strip or report a registration that reaches an echook script through command substitution, a variable whose name contains neither `HOME` nor `USERPROFILE`, `~user/…`, or a relative path. It reports the other unrecognised spellings and removes them with `--remove-unmatched`.
 - Most read-only commands (`status`, `diagnose`, `get`, `version`, `update`, `manifest`, `hooks list`, `theme list`, `statusline show|segments`) still ignore unknown flags. They are read-only. `logs tail` and `backup list|show` reject them.
+- `audio-hooks statusline install` from a cached install writes a path with the version in it, and `upgrade` does not rewrite it, so the line can stop when an old cache folder is removed. The maintainer's machine avoids this by pointing the line at the checkout.
 - `uninstall --purge` is rejected for the script and plugin modes; it applies to `--cursor` and `--codex`.
 - The plugin can be listed only for Claude Code: a top-level `bin/` directory rules out Cowork and the Claude apps.
 
@@ -82,7 +85,10 @@ None of these is committed to. They are what the investigation left on the table
 - **A second, minimal synchronous handler** that only emits `terminalSequence`, beside the async one — the recorded design for making the terminal bell and title work. Any synchronous handler must never exit with code 2 (the per-event effects are tabulated in `docs/EVENT_BEHAVIOR_NOTES.md`).
 - **Notification triggers from `turn.complete` / `session.measure`** (turn duration, rate-limit movement) if mods leave early access. They would need a mod-to-Python hand-off.
 - **Unused hook payload fields**: `prompt_id` (one id per user prompt, a candidate for de-duplication), `is_interrupt` on `PostToolUseFailure`, `session_title` and the resume fields on `SessionStart`.
-- **Unused status line fields**: `model.id`, `context_window.remaining_percentage`, `pr.url`, `worktree.original_branch`.
+- **Unused status line fields**: `context_window.remaining_percentage`, `pr.url`, `worktree.original_branch`. `model.id` is now read, for the viewed agent's context window.
+- **An exact context window for a viewed agent.** `subagentStatusLine` is the one place that receives `contextWindowSize`. Its script could leave the value where the main script can read it, removing `~200K` for people who install that row. Not done because the row is optional and not installed by default.
+- **A `diagnose` finding for a directory-source install**, saying that the reported install path is not what runs. It would have saved the 2026-10-30 trace.
+- **Replacing the sensor if upstream ships #96895** (see "Upstream items being watched"). A `viewed_agent` field and a repaint on switch would remove the module, the sidecar and the need for a short `refreshInterval`.
 - **A status line for the Cursor CLI.** Its `statusLine` entry in `~/.cursor/cli-config.json` (`{"type": "command", "command": …}`, JSON on stdin, since about CLI v2026.06.22) has the same shape as Claude Code's, and echook has no Cursor status line. Not started because the entry is absent from Cursor's configuration reference, the payload is unpublished and reported to be thin, a custom command replaces the native footer, and the Cursor CLI is not installed on the maintainer's machine. The first step is to capture a real payload.
 - **A native Cursor plugin** (`.cursor-plugin/plugin.json`, which can carry hooks, with a reviewed marketplace) in place of `install --cursor` writing `~/.cursor/hooks.json`. Unknown: the variable a plugin hook command uses for its root, where plugin data lives, and how it interacts with the Claude Code bridge (both present would double-fire again).
 - **Making the skill fire for a status-line request.** On 2026-10-13 the eval case `statusline-context-only` scored 0 of 3 with Haiku because the skill was never invoked, identically on v6.8.0 and on the shortened 7.0.0 skill, so it is a triggering problem in the description, not in the body. The other six cases passed (one run each).
@@ -96,6 +102,7 @@ None of these is committed to. They are what the investigation left on the table
 |---|---|---|
 | [anthropics/claude-code#90997](https://github.com/anthropics/claude-code/issues/90997) — `terminalSequence` dropped for async hooks | Open, no maintainer reply | If fixed, the `terminal_sequence` feature starts working without any echook change |
 | [anthropics/claude-code#90495](https://github.com/anthropics/claude-code/issues/90495) — hooks `args` dropped on Windows | Open, no maintainer reply (re-checked 2026-10-07); did not reproduce on 2.1.288 | Part of the reason `hooks.json` stays in shell form |
+| [anthropics/claude-code#96895](https://github.com/anthropics/claude-code/issues/96895) — expose the viewed agent to the status line and repaint on a switch | Open on 2026-10-30, opened at 2.1.282, one comment, no maintainer reply | The exact gap `hooks/view-sensor.ts` works around. If it ships, drop the module and go back to a slower refresh |
 | Claude Code mods | Early access since 2.1.287 | Re-evaluate if the API is declared stable or gains an OS-level notification or a Windows audio player |
 
 Re-check with `gh issue view <n> --repo anthropics/claude-code --json state,updatedAt`.
@@ -116,4 +123,4 @@ Not surveyed: the Claude Desktop app's notifications, and Codex's desktop app, I
 
 ## The next upstream sync
 
-echook is synced against Claude Code **2.1.292** (2026-10-07; nothing echook registers or reads had changed since 2.1.288). When a newer version is installed, follow "How to re-sync against a new Claude Code release" in `docs/EVENT_BEHAVIOR_NOTES.md`. The range to read starts at 2.1.293. One lead from that sync: `claude plugin install <name> --marketplace <source>` (new in 2.1.292, read from `--help`, not run) might replace the two-command Claude Code install; try it in a throwaway `CLAUDE_CONFIG_DIR` first.
+echook is synced against Claude Code **2.1.292** (2026-10-07; nothing echook registers or reads had changed since 2.1.288). 7.2.0 read the status line and mods parts of the 2.1.314 binary and documentation only; that was not a full sync. When a newer version is installed, follow "How to re-sync against a new Claude Code release" in `docs/EVENT_BEHAVIOR_NOTES.md`. The range to read starts at 2.1.293. One lead from that sync: `claude plugin install <name> --marketplace <source>` (new in 2.1.292, read from `--help`, not run) might replace the two-command Claude Code install; try it in a throwaway `CLAUDE_CONFIG_DIR` first.

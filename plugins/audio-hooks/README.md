@@ -31,7 +31,7 @@ The webhook URL is declared as a sensitive plugin option, so Claude Code keeps i
 
 - **Its data directory** (`${CLAUDE_PLUGIN_DATA}`, normally `~/.claude/plugins/data/audio-hooks-chanmeng-audio-hooks/`): `user_preferences.json`, a rotated `logs/events.ndjson` (event names, outcomes, errors; with text-to-speech on, the first 100 characters of what was spoken), a `queue/` folder of snooze and debounce markers, and status line caches. Setting `CLAUDE_HOOKS_DEBUG=1` additionally writes the latest status line payload there.
 - **Preference backups** in `~/.claude-audio-hooks-backups/`, made when you change a setting through the CLI.
-- **`claude_audio_hooks_queue/viewed_agent.<session id>.json` in the system temp directory**: the id, name and type of the subagent you last viewed in that session. Written only once you view one.
+- **`claude_audio_hooks_queue/viewed_agent.<session id>.json` in the system temp directory**, written by the module `hooks/view-sensor.ts` and read only by the status line: the id, name and type of the subagent you last viewed in that session. Written only once you view one. It is plain JSON that no other tool runs or obeys.
 - **`~/.claude/settings.json`**, only when you run `audio-hooks statusline install` (or `uninstall`, or the `subagent` form), or `audio-hooks uninstall` to remove a script install from before 7.0.0 (which also edits `settings.local.json` and backs up to `~/.claude/backups/`). The hooks themselves never edit settings.
 - **`~/.cursor/hooks.json` or `$CODEX_HOME/hooks.json`**, plus that editor's `audio-hooks-data/` directory, only when you run `audio-hooks install --cursor` or `--codex`.
 - **`$CODEX_HOME/config.toml`** (after a `.echook-*.bak` copy), only when you run `audio-hooks statusline codex apply`.

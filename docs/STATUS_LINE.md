@@ -3,7 +3,7 @@
 > Orientation for echook's **second track**, the status line. The live source of
 > truth is the CLI: `audio-hooks statusline segments` (Claude Code catalogue) and
 > `audio-hooks statusline codex show` (Codex state). This page keeps only what
-> those commands do not say. Current as of **v6.7.0**.
+> those commands do not say. Current as of **v7.2.0**.
 
 ## The one thing to understand first
 
@@ -62,7 +62,9 @@ When the person switches the main view to a subagent's transcript (the agent lis
 
 `▸` marks whatever describes the viewed agent. Swapped: `model`, `agent`, `effort`, `context`, `tokens`. Dropped, having no counterpart for an agent: `thinking`, `fast_mode`, `prompt_cache`, `exceeds_200k`, and the `/compact` hint. Unchanged: everything session-wide, so `cost` is still the whole session's and not the agent's share.
 
-**Why it needs a module.** Read in the 2.1.314 binary **[BIN]**: the status line's stdin is built from `mainLoopModel` and the main conversation's messages whatever is on screen, `viewingAgentTaskId` is in neither it nor the `subagentStatusLine` payload, and it is not among the inputs that re-run the command. No command hook fires on a switch. The only published reading of the view is `e.props.view` at a `ui.render` site, so `plugins/audio-hooks/hooks/view-sensor.ts` hooks `AbovePrompt`, draws nothing, and writes `{"agent_id": …, "name": …, "type": …}` when the view changes.
+**To switch:** `↓` to the agent list, `↓` to the agent, `Enter`. To come back: `↑` to `main`, `Enter`. `Esc` only clears the selection and leaves the view where it is.
+
+**Why it needs a module.** Upstream request: [anthropics/claude-code#96895](https://github.com/anthropics/claude-code/issues/96895), open, which proposes a `viewed_agent` field and a repaint on switch. If it ships, the module, the sidecar and the short refresh can go. Read in the 2.1.314 binary **[BIN]**: the status line's stdin is built from `mainLoopModel` and the main conversation's messages whatever is on screen, `viewingAgentTaskId` is in neither it nor the `subagentStatusLine` payload, and it is not among the inputs that re-run the command. No command hook fires on a switch. The only published reading of the view is `e.props.view` at a `ui.render` site, so `plugins/audio-hooks/hooks/view-sensor.ts` hooks `AbovePrompt`, draws nothing, and writes `{"agent_id": …, "name": …, "type": …}` when the view changes.
 
 **The pieces.**
 
@@ -80,7 +82,9 @@ When the person switches the main view to a subagent's transcript (the agent lis
 
 **Known limits.** Before an agent's first response there is no record, so the model reads `[▸ agent]` and no context shows. An agent whose transcript is not on disk (session persistence off) shows its name only. A teammate's view has not been run; if its id does not name a transcript file, it falls into that same name-only case. The sidecar has no heartbeat: `session.start` clears it, but if the module is removed while an agent is in view, that session's line keeps naming the agent.
 
-Measured live on Claude Code 2.1.314, Windows 11, interactive session through a pseudo-terminal, with `--plugin-dir` and from an installed 7.2.0, Sonnet main conversation and Haiku subagent: main → agent → main → agent, each switch shown within about 3 seconds.
+**Cost of the short refresh.** Python starts every 2 seconds in every session with the status line, whether or not an agent is ever viewed, and a detached refresher runs at most once per cache expiry. Only `statusline install` sets this; a hand-written registration keeps its own interval.
+
+Measured live on Claude Code 2.1.314, Windows 11, interactive session through a pseudo-terminal, with `--plugin-dir` and from a cached 7.2.0 installed from GitHub, Sonnet main conversation and Haiku subagent: main → agent → main → agent, each switch shown within about 3 seconds.
 
 ## Upstream fields added in v6.7.0
 
@@ -105,7 +109,7 @@ The rest of `prompt_cache` (`requests`, `misses`, `expected_rebuilds`, `hit_rati
 
 `subagentStatusLine` is a **second, separate** settings key from `statusLine`. It renders one row per task in the agent panel rather than one line for the session. Manage it with `audio-hooks statusline subagent show|install|uninstall`; installing one status line does not install the other.
 
-**The output contract differs from the main status line, and getting it wrong produces silence rather than an error.** Claude Code pipes one JSON object on stdin (`columns`, `tasks[]` with `id`, `name`, `type`, `status`, `description`, `label`, `startTime`, `model`, `effort`, `contextWindowSize`, `tokenCount`, `tokenSamples`, `cwd`, plus session fields) and expects **NDJSON** back, one object per line: `{"id": "<the task's id>", "content": "<rendered row>"}`.
+**The output contract differs from the main status line, and getting it wrong produces silence rather than an error.** Claude Code pipes one JSON object on stdin (`columns`, `tasks[]` with `id`, `name`, `type`, `agentType` (2.1.293+), `status`, `description`, `label`, `startTime`, `model`, `effort`, `contextWindowSize`, `tokenCount`, `tokenSamples`, `cwd`, plus session fields) and expects **NDJSON** back, one object per line: `{"id": "<the task's id>", "content": "<rendered row>"}`.
 
 Claude Code keys the result by `id`, so a row whose `id` does not match a task is dropped. A line that is not JSON is logged as *"subagentStatusLine emitted non-JSON line"*; one that parses but lacks `id`/`content` is *"emitted invalid schema"*. The timeout is **5 s**, so the renderer does no I/O beyond stdin. The row is compact — status icon, model, reasoning effort, context used (with window size), elapsed — and every field is data-gated:
 
@@ -140,4 +144,4 @@ It is not implemented because **`cursor-agent` is not installable on the machine
 
 **To pick this up:** install `cursor-agent`, run `/statusline`, capture the stdin payload with a shim that appends stdin to a file and exits 0, and compare it against Claude Code's schema. If it matches, wiring it is mostly a matter of pointing a second registration at `bin/audio-hooks-statusline.py`.
 
-Code: `bin/audio-hooks-statusline.py` (renderer), `bin/echook_cli/statusline.py` (`STATUSLINE_SEGMENTS`, `CODEX_*_PRESETS`, the `statusline` subcommands), tests `tests/test_statusline.py` and `tests/test_codex_statusline.py`; internals in [ARCHITECTURE.md](ARCHITECTURE.md).
+Code: `bin/audio-hooks-statusline.py` (renderer), `plugins/audio-hooks/hooks/view-sensor.ts` (the view), `bin/echook_cli/statusline.py` (`STATUSLINE_SEGMENTS`, `CODEX_*_PRESETS`, the `statusline` subcommands), tests `tests/test_statusline.py` and `tests/test_codex_statusline.py`; internals in [ARCHITECTURE.md](ARCHITECTURE.md).

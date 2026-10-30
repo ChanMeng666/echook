@@ -5,6 +5,8 @@
 - Live truth for every subcommand, hook, config key, error code and env var: run `audio-hooks manifest`.
 - [Agent guide](AGENTS.md): the rules, a map of the repository, and which document to read before changing each area.
 - [Install, upgrade, remove](docs/INSTALLATION_GUIDE.md): the commands per editor and the one step a person must type.
+- [Status line](docs/STATUS_LINE.md): the second track. On Claude Code it follows the agent in view, showing a subagent's own model, effort and context.
+- [Project status](docs/PROJECT_STATUS.md): what is waiting, unverified or deliberately not done.
 - [Mapping a plain-language request to commands](plugins/audio-hooks/skills/audio-hooks/SKILL.md).
 - [Privacy](PRIVACY.md): what is stored locally, and the one case (a webhook the user configured) in which data leaves the machine.
 - [Changelog](CHANGELOG.md).
