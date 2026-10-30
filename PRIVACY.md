@@ -30,6 +30,7 @@ If you install the optional status line, your editor also passes echook a summar
 | Preferences | `user_preferences.json` in the plugin data directory (normally `~/.claude/plugins/data/audio-hooks-chanmeng-audio-hooks/`) | Your settings, including a webhook URL if you set one through the `audio-hooks` command line |
 | Event log | `logs/events.ndjson` in the same directory, rotated by size | Event names, outcomes and errors. If text-to-speech is on, the first 100 characters of what was spoken |
 | Short-lived state | `queue/` in the same directory, and `statusline.*` files beside it | Snooze and debounce markers, and status line caches |
+| Viewed agent | `claude_audio_hooks_queue/viewed_agent.<session id>.json` in the system temp directory | The id, name and type of the subagent you last viewed in that session. Nothing else from the session |
 | Preference backups | `~/.claude-audio-hooks-backups/` | Earlier copies of your preferences, made when you change a setting |
 | Uninstall backups | `~/.claude/backups/` | Copies of files that `audio-hooks uninstall` is about to change |
 

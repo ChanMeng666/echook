@@ -8,7 +8,8 @@ This file describes what the plugin runs, what it can send and where, and what i
 
 - **A Python hook runner on lifecycle events.** `hooks/hooks.json` registers one handler per event (30 Claude Code event types, 47 matcher variants). Each runs `python "${CLAUDE_PLUGIN_ROOT}/runner/run.py" <event>`, asynchronously, and reads the event payload Claude Code passes on stdin. By default only `notification`, `stop` and `permission_request` make a sound; every other event is off until you switch it on with `audio-hooks hooks enable <name>`.
 - **The `audio-hooks` CLI** (`bin/`), which reads and writes the plugin's own settings. A bundled skill teaches Claude when to call it (for example "snooze for 30 minutes" or "Claude is too loud").
-- **A status line script, only if you ask for it.** `audio-hooks statusline install` registers it; until then it is never run.
+- **A status line script, only if you ask for it.** `audio-hooks statusline install` registers it; until then it is never run. When it runs it also reads the transcript of the subagent you are viewing, for that agent's model and context use.
+- **A small hooks module, `hooks/view-sensor.ts`.** It runs in every Claude Code session that supports modules (2.1.287 or later), whether or not the status line is installed. It draws nothing, and only notes which agent's transcript is on screen so the status line can follow it.
 - **Local helpers for sound and notifications:** PowerShell (Windows media player, toast and speech), `afplay`, `say` and `osascript` (macOS), `mpg123`/`ffplay`/`paplay`/`aplay`, `notify-send` and `espeak`/`spd-say` (Linux). `git` is run by the status line to show the branch.
 
 ## What it can send, and where
@@ -30,6 +31,7 @@ The webhook URL is declared as a sensitive plugin option, so Claude Code keeps i
 
 - **Its data directory** (`${CLAUDE_PLUGIN_DATA}`, normally `~/.claude/plugins/data/audio-hooks-chanmeng-audio-hooks/`): `user_preferences.json`, a rotated `logs/events.ndjson` (event names, outcomes, errors; with text-to-speech on, the first 100 characters of what was spoken), a `queue/` folder of snooze and debounce markers, and status line caches. Setting `CLAUDE_HOOKS_DEBUG=1` additionally writes the latest status line payload there.
 - **Preference backups** in `~/.claude-audio-hooks-backups/`, made when you change a setting through the CLI.
+- **`claude_audio_hooks_queue/viewed_agent.<session id>.json` in the system temp directory**: the id, name and type of the subagent you last viewed in that session. Written only once you view one.
 - **`~/.claude/settings.json`**, only when you run `audio-hooks statusline install` (or `uninstall`, or the `subagent` form), or `audio-hooks uninstall` to remove a script install from before 7.0.0 (which also edits `settings.local.json` and backs up to `~/.claude/backups/`). The hooks themselves never edit settings.
 - **`~/.cursor/hooks.json` or `$CODEX_HOME/hooks.json`**, plus that editor's `audio-hooks-data/` directory, only when you run `audio-hooks install --cursor` or `--codex`.
 - **`$CODEX_HOME/config.toml`** (after a `.echook-*.bak` copy), only when you run `audio-hooks statusline codex apply`.

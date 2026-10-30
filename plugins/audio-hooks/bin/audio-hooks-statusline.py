@@ -58,6 +58,15 @@ Example user configuration (via ``audio-hooks set``):
   audio-hooks set statusline_settings.visible_segments '["context","api_quota","branch"]'
   audio-hooks set statusline_settings.visible_segments '[]'   # show all (default)
 
+Viewed agent
+------------
+Claude Code always pipes the main conversation here, whichever transcript the
+person is viewing. ``hooks/view-sensor.ts`` writes the viewed agent's id to a
+sidecar file; ``_apply_viewed_agent`` then swaps the agent's own model, effort
+and context (read from its transcript) into the session document, so every
+segment renders from it unchanged. Session-wide segments (cost, quotas) stay.
+A ``▸`` marks whatever now describes the viewed agent rather than the main one.
+
 Context window thresholds (agent-safety):
   GREEN  < 50%  — safe for autonomous agent work
   YELLOW 50-80% — should /compact or /clear ("agent dumb zone" starts ~60%)
@@ -82,7 +91,14 @@ import sys
 import time
 import unicodedata
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
+
+_AGENT_ID_RE = re.compile(r"^[\w.@-]+$")
+_MODEL_ID_RE = re.compile(r"^claude-([a-z]+)-(\d{1,2})(?:-(\d{1,2}))?(?:-\d{8})?(?:\[.*\])?$")
+AGENT_TAIL_BYTES = 256 * 1024
+AGENT_TAIL_MAX_BYTES = 4 * 1024 * 1024
+DEFAULT_CONTEXT_WINDOW = 200_000
+VIEWED_MARK = "\u25b8 "
 
 # ANSI color codes (degrade silently on terminals that don't support them)
 GREEN = "\033[32m"
@@ -93,6 +109,14 @@ DIM = "\033[2m"
 RESET = "\033[0m"
 
 CACHE_TTL_SEC = 5
+# Claude Code aborts a run still going at the next refresh, so a slow step in the
+# foreground can keep killing itself and freeze the line. Cache misses are
+# therefore refreshed by a detached process. It removes this lock when it ends,
+# so this only bounds a process that died: it outlasts both of its 10 s timeouts.
+REFRESH_LOCK_SEC = 30
+# How long a first render, which has nothing older to show, waits for that process.
+# Under the 2 s refresh, or a status that keeps failing would abort every run.
+COLD_STATUS_WAIT_SEC = 1.0
 
 # Columns held back from the detected terminal width when packing lines.
 # `COLUMNS` reports the *full* terminal width, but the *usable* width is
@@ -193,39 +217,106 @@ def _state_dir() -> Path:
     return d
 
 
-def _get_status(session_id: str) -> Dict[str, Any]:
-    """Return cached `audio-hooks status` JSON, refreshing every CACHE_TTL_SEC."""
-    cache_file = _state_dir() / f"statusline.cache.{session_id or 'default'}"
-    now = time.time()
-    if cache_file.exists():
+def _refresh_in_background(session_id: str, cwd: Optional[str]) -> None:
+    """Rebuild the caches in a detached process that outlives an aborted run."""
+    lock = _state_dir() / f"statusline.refreshing.{session_id or 'default'}"
+    try:
+        if time.time() - lock.stat().st_mtime < REFRESH_LOCK_SEC:
+            return
+    except OSError:
+        pass
+    try:
+        lock.touch()
+        if os.name == "nt":
+            detach: Dict[str, Any] = {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}
+        else:
+            detach = {"start_new_session": True}
+        subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__), "--refresh-cache", session_id, cwd or ""],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            **detach,
+        )
+    except (OSError, ValueError):
+        pass
+
+
+def _refresh_caches(session_id: str, cwd: str) -> None:
+    """The detached process's whole job."""
+    try:
+        _fetch_status(session_id)
+        if cwd:
+            _fetch_git_dirty(cwd)
+    finally:
         try:
-            mtime = cache_file.stat().st_mtime
-            if now - mtime < CACHE_TTL_SEC:
-                return json.loads(cache_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            (_state_dir() / f"statusline.refreshing.{session_id or 'default'}").unlink()
+        except OSError:
             pass
 
+
+def _read_status_cache(cache_file: Path) -> Optional[Dict[str, Any]]:
+    try:
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _get_status(session_id: str, cwd: Optional[str] = None) -> Dict[str, Any]:
+    """Return cached `audio-hooks status` JSON, refreshing every CACHE_TTL_SEC.
+
+    A stale cache is served at once while a detached process replaces it. Only a
+    first render, with nothing to serve, waits for that process.
+    """
+    cache_file = _state_dir() / f"statusline.cache.{session_id or 'default'}"
+    cached = _read_status_cache(cache_file)
+    if cached is not None:
+        try:
+            if time.time() - cache_file.stat().st_mtime >= CACHE_TTL_SEC:
+                _refresh_in_background(session_id, cwd)
+        except OSError:
+            pass
+        return cached
+
+    if _resolve_audio_hooks_binary() is None:
+        return {}
+    _refresh_in_background(session_id, cwd)
+    deadline = time.time() + COLD_STATUS_WAIT_SEC
+    while time.time() < deadline:
+        time.sleep(0.05)
+        cached = _read_status_cache(cache_file)
+        if cached is not None:
+            return cached
+    return {}
+
+
+def _fetch_status(session_id: str) -> None:
+    """Replace the status cache. Runs in the detached process."""
     binary = _resolve_audio_hooks_binary()
     if binary is None:
-        return {}
+        return
     try:
         proc = subprocess.run(
             [sys.executable, str(binary), "status"],
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
-            timeout=3,
+            timeout=10,
         )
         if proc.returncode != 0 or not proc.stdout.strip():
-            return {}
+            return
         data = json.loads(proc.stdout)
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
-        return {}
+        return
+    # Write then rename: a render reading mid-write would otherwise see a torn file.
+    cache_file = _state_dir() / f"statusline.cache.{session_id or 'default'}"
+    temp = cache_file.with_name(f"{cache_file.name}.{os.getpid()}.tmp")
     try:
-        cache_file.write_text(json.dumps(data), encoding="utf-8")
+        temp.write_text(json.dumps(data), encoding="utf-8")
+        os.replace(str(temp), str(cache_file))
     except OSError:
         pass
-    return data
 
 
 def _format_remaining(seconds: int) -> str:
@@ -253,14 +344,21 @@ def _format_duration_ms(ms: Any) -> str:
     return _format_remaining(seconds)
 
 
-def _git_dirty(cwd: Optional[str]) -> Optional[int]:
+def _git_cache_file(cwd: str) -> Path:
+    # hashlib (not the salted built-in hash()) so the cache filename is stable
+    # across the separate processes Claude Code spawns per refresh.
+    key = hashlib.md5(os.fsencode(cwd)).hexdigest()[:12]
+    return _state_dir() / f"statusline.git.{key}"
+
+
+def _git_dirty(cwd: Optional[str], session_id: str = "") -> Optional[int]:
     """Return the number of uncommitted changes in ``cwd``'s git repo.
 
     ``branch`` already comes from the session JSON (``workspace.git_worktree``);
     the *dirty count* is not piped, so this is the one segment that shells out.
-    The result is cached per-cwd for ``CACHE_TTL_SEC`` exactly like
-    ``_get_status`` so a fast-refreshing status line doesn't spawn ``git`` on
-    every keystroke.
+    It does so from the detached process (see ``_refresh_in_background``), so a
+    slow repo cannot hold up a render: this only reads the cache, asking for a
+    refresh once it is ``CACHE_TTL_SEC`` old, and the first render omits it.
 
     Returns ``None`` when ``cwd`` is missing, ``git`` is unavailable, or the
     directory is not a repo (that case is cached as ``-1`` so non-repos don't
@@ -268,18 +366,19 @@ def _git_dirty(cwd: Optional[str]) -> Optional[int]:
     """
     if not cwd:
         return None
-    # hashlib (not the salted built-in hash()) so the cache filename is stable
-    # across the separate processes Claude Code spawns per refresh.
-    key = hashlib.md5(os.fsencode(cwd)).hexdigest()[:12]
-    cache = _state_dir() / f"statusline.git.{key}"
-    now = time.time()
-    if cache.exists():
-        try:
-            if now - cache.stat().st_mtime < CACHE_TTL_SEC:
-                v = int(cache.read_text(encoding="utf-8").strip())
-                return None if v < 0 else v
-        except (OSError, ValueError):
-            pass
+    cache = _git_cache_file(cwd)
+    try:
+        value = int(cache.read_text(encoding="utf-8").strip())
+        if time.time() - cache.stat().st_mtime >= CACHE_TTL_SEC:
+            _refresh_in_background(session_id, cwd)
+        return None if value < 0 else value
+    except (OSError, ValueError):
+        _refresh_in_background(session_id, cwd)
+        return None
+
+
+def _fetch_git_dirty(cwd: str) -> None:
+    """Replace the dirty-count cache. Runs in the detached process."""
     count = -1
     git = shutil.which("git")
     if git:
@@ -289,17 +388,16 @@ def _git_dirty(cwd: Optional[str]) -> Optional[int]:
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
-                timeout=2,
+                timeout=10,
             )
             if proc.returncode == 0:
                 count = sum(1 for line in proc.stdout.splitlines() if line.strip())
         except (subprocess.SubprocessError, OSError):
             count = -1
     try:
-        cache.write_text(str(count), encoding="utf-8")
+        _git_cache_file(cwd).write_text(str(count), encoding="utf-8")
     except OSError:
         pass
-    return None if count < 0 else count
 
 
 _MONTH_ABBR = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -579,6 +677,147 @@ def _abbrev_path(cwd: str, max_len: int = 40) -> str:
         return cwd
 
 
+def _viewed_agent_file(session_id: str) -> Path:
+    """The sidecar hooks/view-sensor.ts writes.
+
+    Not ``_state_dir()``: that follows CLAUDE_PLUGIN_DATA, which only one of the
+    two sides has, and both sides must arrive at the same path.
+    """
+    base = os.environ.get("TEMP") or os.environ.get("TMP") or os.environ.get("TMPDIR") or "/tmp"
+    return Path(base) / "claude_audio_hooks_queue" / f"viewed_agent.{session_id}.json"
+
+
+def _read_viewed_agent(session_id: str) -> Optional[Dict[str, Any]]:
+    """The agent in view, or None while the main conversation is."""
+    try:
+        data = json.loads(_viewed_agent_file(session_id).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    agent_id = data.get("agent_id")
+    if not (isinstance(agent_id, str) and _AGENT_ID_RE.match(agent_id)):
+        return None
+    return data
+
+
+def _agent_transcript(transcript_path: Any, agent_id: str) -> Optional[Path]:
+    """``<session>/subagents/agent-<id>.jsonl``, or under ``workflows/<run>/``."""
+    if not (isinstance(transcript_path, str) and transcript_path):
+        return None
+    folder = Path(transcript_path).with_suffix("") / "subagents"
+    direct = folder / f"agent-{agent_id}.jsonl"
+    if direct.is_file():
+        return direct
+    try:
+        return next((folder / "workflows").glob(f"*/agent-{agent_id}.jsonl"), None)
+    except OSError:
+        return None
+
+
+def _last_agent_turn(path: Path) -> Optional[Dict[str, Any]]:
+    """The newest assistant record carrying usage, read from the end of the file.
+
+    A transcript can reach megabytes and this runs on every refresh, so only the
+    tail is read, widening when one huge tool result fills it.
+    """
+    try:
+        size = path.stat().st_size
+        with open(path, "rb") as f:
+            span = AGENT_TAIL_BYTES
+            while True:
+                f.seek(max(0, size - span))
+                lines = f.read(span).split(b"\n")
+                if span < size:
+                    lines = lines[1:]  # starts mid-record
+                for raw in reversed(lines):
+                    if b'"assistant"' not in raw or b'"usage"' not in raw:
+                        continue
+                    try:
+                        record = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if not isinstance(record, dict):
+                        continue
+                    message = record.get("message")
+                    if (
+                        record.get("type") == "assistant"
+                        and isinstance(message, dict)
+                        and isinstance(message.get("usage"), dict)
+                        and not str(message.get("model") or "").startswith("<")  # <synthetic>
+                    ):
+                        return record
+                if span >= size or span >= AGENT_TAIL_MAX_BYTES:
+                    return None
+                span *= 4
+    except OSError:
+        return None
+
+
+def _model_label(model_id: str) -> str:
+    """``claude-haiku-5-5`` -> ``Haiku 5.5``; anything else stays as it came."""
+    match = _MODEL_ID_RE.match(model_id)
+    if not match:
+        return model_id
+    family, major, minor = match.groups()
+    return f"{family.capitalize()} {major}.{minor}" if minor else f"{family.capitalize()} {major}"
+
+
+def _agent_window(model: str, requested: str, used: int, session: Dict[str, Any]) -> Tuple[int, bool]:
+    """The agent's context window, and whether that figure is exact.
+
+    Transcripts do not record it. The main conversation's is exact for the same
+    model; otherwise 200k is Claude Code's default, unless the request asked for
+    1M or the agent has already gone past 200k.
+    """
+    main = session.get("model") if isinstance(session.get("model"), dict) else {}
+    ctx = session.get("context_window") if isinstance(session.get("context_window"), dict) else {}
+    main_window = _num(ctx.get("context_window_size"))
+    if main_window and requested.split("[")[0] == str(main.get("id") or "").split("[")[0]:
+        return int(main_window), True
+    asked_1m = "[1m]" in requested.lower()
+    if asked_1m or used > DEFAULT_CONTEXT_WINDOW:
+        return 1_000_000, asked_1m
+    return DEFAULT_CONTEXT_WINDOW, False
+
+
+def _apply_viewed_agent(session: Dict[str, Any], viewed: Dict[str, Any]) -> Dict[str, Any]:
+    """The session document as it reads with ``viewed`` in place of the main loop.
+
+    Fields that describe the main loop and have no counterpart for the agent are
+    dropped rather than left beside its model. Until the agent's first response
+    there is no record, so its model reads ``agent`` and context renders nothing.
+    """
+    out = dict(session)
+    for key in ("context_window", "effort", "exceeds_200k_tokens", "fast_mode", "prompt_cache", "thinking"):
+        out.pop(key, None)
+    out["agent"] = {"name": str(viewed.get("name") or viewed.get("type") or viewed["agent_id"])}
+    out["model"] = {"display_name": "agent"}
+
+    path = _agent_transcript(session.get("transcript_path"), viewed["agent_id"])
+    record = _last_agent_turn(path) if path else None
+    if record is None:
+        return out
+
+    message = record["message"]
+    model = str(message.get("model") or "")
+    requested = str(record.get("requestedModel") or model)
+    out["model"] = {"id": model, "display_name": _model_label(model)}
+    if isinstance(record.get("effort"), str):
+        out["effort"] = {"level": record["effort"]}
+
+    usage = message["usage"]
+    used = sum(int(_num(usage.get(k)) or 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+    window, exact = _agent_window(model, requested, used, session)
+    out["context_window"] = {
+        "context_window_size": window,
+        "used_percentage": used * 100.0 / window,
+        "current_usage": usage,
+        "window_is_estimate": not exact,
+    }
+    return out
+
+
 def _maybe_dump_session(session: Dict[str, Any]) -> None:
     """When CLAUDE_HOOKS_DEBUG is enabled, persist the latest session JSON for
     inspection (used to diagnose status line input — e.g. context_window_size
@@ -769,6 +1008,13 @@ def main() -> int:
     session = _read_session_input()
     _maybe_dump_session(session)
     session_id = str(session.get("session_id") or "default")
+    viewed = _read_viewed_agent(session_id)
+    if viewed:
+        try:
+            session = _apply_viewed_agent(session, viewed)
+        except Exception:  # a transcript is not ours; the main line still prints
+            viewed = None
+    viewing = VIEWED_MARK if viewed else ""
     model = (session.get("model") or {}).get("display_name", "Claude")
     # Reasoning effort (only present on models that support it) and Claude
     # Code's own version — both straight from the stdin session, distinct from
@@ -806,7 +1052,7 @@ def main() -> int:
         cwd = workspace.get("current_dir") or workspace.get("project_dir")
     cwd = cwd if isinstance(cwd, str) and cwd else None
 
-    status = _get_status(session_id)
+    status = _get_status(session_id, cwd)
 
     # Determine which segments to show. `visible_segments` is a whitelist
     # (back-compat: when set, only those show). When it is empty the default is
@@ -852,11 +1098,11 @@ def main() -> int:
     # Build Line 1 from visible segments
     l1_parts = []
     if show("model"):
-        l1_parts.append(f"{CYAN}[{model}]{RESET}")
+        l1_parts.append(f"{CYAN}[{viewing}{model}]{RESET}")
     if show("session_name") and session_name:
         l1_parts.append(f"\U0001f3f7 {session_name}")
     if show("agent") and isinstance(agent_name, str) and agent_name:
-        l1_parts.append(f"\U0001f916 {agent_name}")
+        l1_parts.append(f"\U0001f916 {viewing}{agent_name}")
     if show("remote"):
         text = _fmt_remote(session.get("remote"))
         if text:
@@ -906,7 +1152,7 @@ def main() -> int:
         parts.append(f"\U0001f33f {git_worktree}")
 
     if show("git_dirty") and cwd:
-        dirty = _git_dirty(cwd)
+        dirty = _git_dirty(cwd, session_id)
         if dirty is not None:
             if dirty:
                 parts.append(f"{YELLOW}±{dirty}{RESET}")
@@ -962,7 +1208,9 @@ def main() -> int:
             try:
                 ctx_pct = float(ctx_used)
                 hint = ""
-                if ctx_pct > 80:
+                if viewed:
+                    pass  # /compact acts on the main conversation
+                elif ctx_pct > 80:
                     hint = f" {RED}\U0001f6d1 /compact{RESET}"
                 elif ctx_pct >= 50:
                     hint = f" {YELLOW}\u26a0\ufe0f /compact{RESET}"
@@ -977,8 +1225,9 @@ def main() -> int:
                 tokens_str = ""
                 if isinstance(window_size, (int, float)) and window_size > 0:
                     used_tokens = int(round(ctx_pct * window_size / 100.0))
-                    tokens_str = f" ({_fmt_tokens(used_tokens)}/{_fmt_tokens(int(window_size))})"
-                parts.append(f"{_ctx_bar(ctx_pct)} Context: {_pct_text(ctx_pct)}%{tokens_str}{hint}")
+                    about = "~" if ctx_window.get("window_is_estimate") else ""
+                    tokens_str = f" ({_fmt_tokens(used_tokens)}/{about}{_fmt_tokens(int(window_size))})"
+                parts.append(f"{_ctx_bar(ctx_pct)} {viewing}Context: {_pct_text(ctx_pct)}%{tokens_str}{hint}")
             except (TypeError, ValueError, OverflowError):
                 pass
 
@@ -1053,6 +1302,9 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
+        if sys.argv[1:2] == ["--refresh-cache"]:
+            _refresh_caches(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "")
+            sys.exit(0)
         sys.exit(main())
     except Exception:
         # Never break the user's terminal — degrade silently.

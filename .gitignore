@@ -42,3 +42,7 @@ __pycache__/
 # Uncomment to ignore custom audio files
 # audio/*.mp3
 # !audio/hey-chan-please-help-me.mp3
+
+# Written by Claude Code when it loads the plugin with --plugin-dir
+plugins/audio-hooks/tsconfig.json
+plugins/audio-hooks/.claude-plugin/types/

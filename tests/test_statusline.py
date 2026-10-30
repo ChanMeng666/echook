@@ -1021,6 +1021,284 @@ class TestDurationHelper(unittest.TestCase):
                 self.assertEqual(self.mod._format_duration_ms(v), "")
 
 
+class TestViewedAgent(_StatuslineRenderBase):
+    """The line follows the agent in view: the sidecar names it, its transcript
+    says what it is running, and session-wide segments stay put."""
+
+    SID = "t"
+
+    def setUp(self):
+        super().setUp()
+        self.temp_env = self.tmp / "temp"
+        (self.temp_env / "claude_audio_hooks_queue").mkdir(parents=True)
+        self.transcript = self.tmp / "projects" / f"{self.SID}.jsonl"
+        self.agents = self.tmp / "projects" / self.SID / "subagents"
+        self.agents.mkdir(parents=True)
+
+    def _view(self, payload: Any) -> None:
+        text = payload if isinstance(payload, str) else json.dumps(payload)
+        path = self.temp_env / "claude_audio_hooks_queue" / f"viewed_agent.{self.SID}.json"
+        path.write_text(text, encoding="utf-8")
+
+    def _agent_record(self, model="claude-haiku-5-5", effort="low", tokens=50_000, **extra) -> Dict[str, Any]:
+        return {
+            "type": "assistant",
+            "effort": effort,
+            "requestedModel": model,
+            "message": {
+                "model": model,
+                "usage": {"input_tokens": 10, "cache_creation_input_tokens": 0, "cache_read_input_tokens": tokens - 10, "output_tokens": 5},
+            },
+            **extra,
+        }
+
+    def _write_agent(self, *records, name="agent-a1.jsonl") -> Path:
+        path = self.agents / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+        return path
+
+    def _render(self, **overrides) -> str:
+        session = {
+            "session_id": self.SID,
+            "transcript_path": str(self.transcript),
+            "model": {"id": "claude-opus-5-5", "display_name": "Opus 5.5"},
+            "effort": {"level": "high"},
+            "thinking": {"enabled": True},
+            "exceeds_200k_tokens": True,
+            "context_window": {"used_percentage": 12.0, "context_window_size": 1_000_000},
+            "cost": {"total_cost_usd": 1.5},
+            **overrides,
+        }
+        code, out, _ = _run(
+            json.dumps(session),
+            state_dir=self.tmp,
+            env_extra={"TEMP": str(self.temp_env), "TMP": str(self.temp_env), "TMPDIR": str(self.temp_env)},
+        )
+        self.assertEqual(code, 0)
+        return _plain(out)
+
+    def test_main_view_is_untouched(self):
+        for sidecar in (None, {"agent_id": None}):
+            if sidecar is not None:
+                self._view(sidecar)
+            out = self._render()
+            self.assertIn("[Opus 5.5]", out)
+            self.assertIn("Context: 12", out)
+            self.assertNotIn("▸", out)
+
+    def test_viewed_agent_replaces_model_effort_and_context(self):
+        self._view({"agent_id": "a1", "type": "Explore"})
+        self._write_agent(self._agent_record())
+        out = self._render()
+        self.assertIn("[▸ Haiku 5.5]", out)
+        self.assertIn("▸ Explore", out)
+        self.assertIn("\U0001f9e0 low", out)
+        self.assertIn("▸ Context: 25", out)
+        self.assertIn("50K/~200K", out)
+        self.assertNotIn("Opus", out)
+        self.assertNotIn("thinking", out)
+        self.assertNotIn(">200K", out)
+
+    def test_session_wide_segments_stay(self):
+        self._view({"agent_id": "a1"})
+        self._write_agent(self._agent_record())
+        self.assertIn("$1.50", self._render())
+
+    def test_same_model_as_main_borrows_the_exact_window(self):
+        self._view({"agent_id": "a1"})
+        self._write_agent(self._agent_record(model="claude-opus-5-5"))
+        self.assertIn("50K/1M", self._render())
+
+    def test_tokens_past_the_default_window_imply_1m(self):
+        self._view({"agent_id": "a1"})
+        self._write_agent(self._agent_record(tokens=300_000))
+        self.assertIn("/~1M", self._render())
+
+    def test_compact_hint_is_not_offered_for_an_agent(self):
+        self._view({"agent_id": "a1"})
+        self._write_agent(self._agent_record(tokens=190_000))
+        self.assertNotIn("/compact", self._render())
+
+    def test_newest_turn_wins_and_synthetic_is_skipped(self):
+        self._view({"agent_id": "a1"})
+        self._write_agent(
+            self._agent_record(model="claude-sonnet-5-5"),
+            self._agent_record(model="claude-haiku-5-5"),
+            self._agent_record(model="<synthetic>"),
+        )
+        self.assertIn("[▸ Haiku 5.5]", self._render())
+
+    def test_tail_read_widens_past_a_huge_tool_result(self):
+        self._view({"agent_id": "a1"})
+        self._write_agent(
+            self._agent_record(),
+            {"type": "user", "pad": "x" * (300 * 1024)},
+        )
+        self.assertIn("[▸ Haiku 5.5]", self._render())
+
+    def test_workflow_agent_transcript_is_found(self):
+        self._view({"agent_id": "a1"})
+        self._write_agent(self._agent_record(), name="workflows/run1/agent-a1.jsonl")
+        self.assertIn("[▸ Haiku 5.5]", self._render())
+
+    def test_agent_with_no_response_yet_shows_no_main_figures(self):
+        self._view({"agent_id": "a1", "name": "scout"})
+        out = self._render()
+        self.assertIn("▸ scout", out)
+        self.assertNotIn("Opus", out)
+        self.assertNotIn("Context", out)
+
+    def test_bad_sidecars_fall_back_to_main(self):
+        for bad in ("not json", "[]", {"agent_id": 7}, {"agent_id": "../../etc"}):
+            self._view(bad)
+            self.assertIn("[Opus 5.5]", self._render())
+
+    def test_corrupt_transcript_never_breaks_the_line(self):
+        self._view({"agent_id": "a1", "type": "Explore"})
+        (self.agents / "agent-a1.jsonl").write_bytes(b'\xff\xfe{"assistant" "usage"\n[1,2]"assistant""usage"\n')
+        self.assertIn("▸ Explore", self._render())
+
+    def test_non_object_transcript_line_is_skipped(self):
+        self._view({"agent_id": "a1"})
+        path = self._write_agent(self._agent_record())
+        with open(path, "a", encoding="utf-8") as f:
+            f.write('["assistant", "usage"]\n')
+        self.assertIn("[\u25b8 Haiku 5.5]", self._render())
+
+    def test_absurd_usage_is_not_counted(self):
+        self._view({"agent_id": "a1"})
+        record = self._agent_record()
+        record["message"]["usage"]["input_tokens"] = float("inf")
+        self._write_agent(record)
+        self.assertIn("[▸ Haiku 5.5]", self._render())
+
+    def test_model_label(self):
+        mod = _load_module()
+        self.assertEqual(mod._model_label("claude-opus-5-5"), "Opus 5.5")
+        self.assertEqual(mod._model_label("claude-sonnet-4-20250514"), "Sonnet 4")
+        self.assertEqual(mod._model_label("claude-fable-5-1"), "Fable 5.1")
+        self.assertEqual(mod._model_label("gpt-x"), "gpt-x")
+
+
+class TestBackgroundRefresh(unittest.TestCase):
+    """Claude Code aborts a run still going at the next refresh, so a run must
+    never do the slow work itself: a stale cache is served, not rebuilt."""
+
+    def setUp(self):
+        self.mod = _load_module()
+        self.tmp = Path(tempfile.mkdtemp(prefix="refresh_"))
+        self._saved_data = os.environ.get("CLAUDE_AUDIO_HOOKS_DATA")
+        os.environ["CLAUDE_AUDIO_HOOKS_DATA"] = str(self.tmp)
+        self.spawned = []
+        self.mod._refresh_in_background = lambda sid, cwd: self.spawned.append((sid, cwd))
+
+    def tearDown(self):
+        if self._saved_data is None:
+            os.environ.pop("CLAUDE_AUDIO_HOOKS_DATA", None)
+        else:
+            os.environ["CLAUDE_AUDIO_HOOKS_DATA"] = self._saved_data
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _age(self, path: Path) -> None:
+        old = path.stat().st_mtime - 3600
+        os.utime(path, (old, old))
+
+    def test_fresh_status_cache_spawns_nothing(self):
+        (self.tmp / "statusline.cache.s").write_text('{"version": "1"}', encoding="utf-8")
+        self.assertEqual(self.mod._get_status("s", "/w"), {"version": "1"})
+        self.assertEqual(self.spawned, [])
+
+    def test_stale_status_cache_is_served_and_refreshed_behind(self):
+        cache = self.tmp / "statusline.cache.s"
+        cache.write_text('{"version": "1"}', encoding="utf-8")
+        self._age(cache)
+        self.assertEqual(self.mod._get_status("s", "/w"), {"version": "1"})
+        self.assertEqual(self.spawned, [("s", "/w")])
+
+    def test_stale_git_count_is_served_and_refreshed_behind(self):
+        cwd = "/some/project"
+        cache = self.mod._git_cache_file(cwd)
+        cache.write_text("3", encoding="utf-8")
+        self._age(cache)
+        self.assertEqual(self.mod._git_dirty(cwd, "s"), 3)
+        self.assertEqual(self.spawned, [("s", cwd)])
+
+    def test_missing_git_count_is_omitted_not_awaited(self):
+        self.assertIsNone(self.mod._git_dirty("/some/project", "s"))
+        self.assertEqual(len(self.spawned), 1)
+
+    def test_refresh_lock_spaces_out_detached_processes(self):
+        mod = _load_module()
+        (self.tmp / "statusline.refreshing.s").touch()
+        real_popen = mod.subprocess.Popen
+        calls = []
+        mod.subprocess.Popen = lambda *a, **k: calls.append(a)
+        try:
+            mod._refresh_in_background("s", "/w")
+        finally:
+            mod.subprocess.Popen = real_popen
+        self.assertEqual(calls, [])
+
+    def test_first_render_waits_less_than_a_refresh(self):
+        self.assertLess(self.mod.COLD_STATUS_WAIT_SEC, 2)
+
+    def test_refresh_mode_releases_its_lock(self):
+        lock = self.tmp / "statusline.refreshing.s"
+        lock.touch()
+        env = {**os.environ, "CLAUDE_AUDIO_HOOKS_DATA": str(self.tmp)}
+        env.pop("CLAUDE_PLUGIN_DATA", None)
+        subprocess.run([sys.executable, str(SCRIPT), "--refresh-cache", "s", ""], capture_output=True, env=env, timeout=30)
+        self.assertFalse(lock.exists())
+
+    def test_refresh_mode_writes_the_git_cache_and_prints_nothing(self):
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        env = {**os.environ, "CLAUDE_AUDIO_HOOKS_DATA": str(self.tmp)}
+        env.pop("CLAUDE_PLUGIN_DATA", None)
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), "--refresh-cache", "s", str(repo)],
+            capture_output=True, text=True, env=env, timeout=30,
+        )
+        self.assertEqual((proc.returncode, proc.stdout), (0, ""))
+        self.assertEqual(self.mod._git_cache_file(str(repo)).read_text(encoding="utf-8").strip(), "-1")
+
+
+class TestViewSensorModule(unittest.TestCase):
+    """The module and the status line meet at one path, and only there."""
+
+    PLUGIN_HOOKS = REPO / "plugins" / "audio-hooks" / "hooks"
+
+    def test_module_is_registered_once_beside_the_classic_hooks(self):
+        hooks = json.loads((self.PLUGIN_HOOKS / "hooks.json").read_text(encoding="utf-8"))
+        self.assertEqual(hooks["modules"], ["./view-sensor.ts"])
+        self.assertTrue((self.PLUGIN_HOOKS / "view-sensor.ts").is_file())
+
+    def test_both_sides_spell_the_sidecar_path_alike(self):
+        source = (self.PLUGIN_HOOKS / "view-sensor.ts").read_text(encoding="utf-8")
+        self.assertIn("claude_audio_hooks_queue/viewed_agent.${sessionId}.json", source)
+        self.assertIn("agent_id:", source)
+        for variable in ("TEMP", "TMP", "TMPDIR"):
+            self.assertIn(f"$.env.get('{variable}')", source)
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = {k: os.environ.get(k) for k in ("TEMP", "TMP", "TMPDIR")}
+            os.environ["TEMP"] = tmp
+            try:
+                path = _load_module()._viewed_agent_file("sid")
+            finally:
+                for key, value in saved.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+            self.assertEqual(path, Path(tmp) / "claude_audio_hooks_queue" / "viewed_agent.sid.json")
+
+    def test_the_module_draws_nothing(self):
+        source = (self.PLUGIN_HOOKS / "view-sensor.ts").read_text(encoding="utf-8")
+        self.assertIn("return next(e)", source)
+        self.assertNotIn("$.ui.", source)
+
+
 if __name__ == "__main__":
     unittest.main()
 

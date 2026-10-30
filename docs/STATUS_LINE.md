@@ -21,7 +21,7 @@ If you remember nothing else: **Claude Code = render (rich, 33 segments); Codex 
 
 Two logical lines, each auto-reflowed into as many physical rows as the terminal width needs (segments are never split). The segment catalogue (name, line, source field, `default` flag) is `audio-hooks statusline segments`; it is not copied here.
 
-- `git_dirty` is the only segment that shells out; every other one comes from the
+- `git_dirty` is the only segment that shells out, from a detached process (see `docs/INVARIANTS.md`); every other one comes from the
   stdin JSON or echook's own `status`. The subscription **plan name** ("Max"/"Pro") is not piped to status-line scripts, so it is intentionally not shown.
 - Reset clocks show a date when it is not today: `weekly_quota` renders
   `resets Jul 4 5am`; `api_quota` stays a bare time unless its reset crosses midnight (v6.3.2).
@@ -51,6 +51,36 @@ Every earlier segment joined the default set, which was safe only because each i
 ### Width and truncation
 
 Width is resolved as: `statusline_settings.max_width` override, then the `COLUMNS` env var Claude Code exports (v2.1.153+), then a fallback of 80, minus `WIDTH_SAFETY_MARGIN` (8 cells since v6.3.1; it was 4, and an emoji-dense row on the budget boundary could clip, e.g. `Theme: Chim…`). `max_width` `0` means auto-detect.
+
+## Following the viewed agent
+
+When the person switches the main view to a subagent's transcript (the agent list under the prompt, `↓` then `Enter`), the line shows that agent, not the main conversation:
+
+```
+[▸ Haiku 5.5] | 🤖 ▸ general-purpose | 🧠 medium | …  █░░░░░░░ ▸ Context: 14% (29K/~200K)  cache 84%  💲 $0.12
+```
+
+`▸` marks whatever describes the viewed agent. Swapped: `model`, `agent`, `effort`, `context`, `tokens`. Dropped, having no counterpart for an agent: `thinking`, `fast_mode`, `prompt_cache`, `exceeds_200k`, and the `/compact` hint. Unchanged: everything session-wide, so `cost` is still the whole session's and not the agent's share.
+
+**Why it needs a module.** Read in the 2.1.314 binary **[BIN]**: the status line's stdin is built from `mainLoopModel` and the main conversation's messages whatever is on screen, `viewingAgentTaskId` is in neither it nor the `subagentStatusLine` payload, and it is not among the inputs that re-run the command. No command hook fires on a switch. The only published reading of the view is `e.props.view` at a `ui.render` site, so `plugins/audio-hooks/hooks/view-sensor.ts` hooks `AbovePrompt`, draws nothing, and writes `{"agent_id": …, "name": …, "type": …}` when the view changes.
+
+**The pieces.**
+
+| Step | Where |
+|---|---|
+| Read the view; write `$TEMP/claude_audio_hooks_queue/viewed_agent.<session_id>.json` | `hooks/view-sensor.ts` |
+| Read that file; `agent_id: null`, no file or anything malformed means the main conversation | `_read_viewed_agent` |
+| Find `<transcript without .jsonl>/subagents/agent-<id>.jsonl`, or under `workflows/<run>/` | `_agent_transcript` |
+| Take the newest assistant record with `usage`, from the file's tail | `_last_agent_turn` |
+| Replace the session document's fields; the segments render from it unchanged | `_apply_viewed_agent` |
+
+**Refresh.** Nothing tells the script the view changed, so `refreshInterval` is how soon it follows: `statusline install` registers 2 seconds. An existing registration keeps its old interval until `statusline install` runs again; `statusline show` says so in `next_steps`. Do not lower it to 1: Claude Code aborts a run still going at the next tick, and bare Python alone took up to 1.3 s on the measured machine under load.
+
+**The context window is partly an estimate.** A transcript records the tokens but not the window. When the agent runs the main conversation's model, the main window is exact. Otherwise it is 200K, or 1M if the request asked for `[1m]` or the agent has already passed 200K, and the figure shows as `~200K`. The per-subagent row (`statusline subagent`) has the exact value because Claude Code hands it that one.
+
+**Known limits.** Before an agent's first response there is no record, so the model reads `[▸ agent]` and no context shows. An agent whose transcript is not on disk (session persistence off) shows its name only. A teammate's view has not been run; if its id does not name a transcript file, it falls into that same name-only case. The sidecar has no heartbeat: `session.start` clears it, but if the module is removed while an agent is in view, that session's line keeps naming the agent.
+
+Measured live on Claude Code 2.1.314, Windows 11, interactive session through a pseudo-terminal, `--plugin-dir`, Sonnet main conversation and Haiku subagent: main → agent → main → agent, each switch shown within about 3 seconds.
 
 ## Upstream fields added in v6.7.0
 

@@ -16,6 +16,7 @@ The cycle began with an incident, and most of 6.6.0 follows from it. On 2026-10-
 |---|---|---|
 | Plugin directory review. Submitted 2026-10-04; security scan passed; held for content policy review. | Anthropic reviewer, then the maintainer selects **Publish** | The plugin page in the developer portal (`docs/DIRECTORY_LISTING.md`) |
 | GitGuardian incident 37836366, a false positive on a sound-file mapping in `hooks/hook_runner.py` (see `docs/RELEASING.md`). It stays open until resolved in the dashboard. | Maintainer | GitGuardian dashboard |
+| Whether the plugin directory accepts `hooks/view-sensor.ts`. `claude plugin validate` says the directory has rules of its own for hooks modules and does not apply them. Read the portal's validation of the first push that carries it; if it is refused, removing the `modules` line from `hooks.json` restores the old behaviour and nothing else depends on it. | Maintainer | The plugin page in the developer portal |
 | The six sound files added in 6.7.0 have not been listened to by a person. They are valid, distinct and of normal length. | Maintainer | Play `audio/default/{notif-auth-storage,fail-cloud-credential,fail-verification}.mp3` and `audio/custom/chime-*` counterparts |
 
 ## Claimed but not verified
@@ -39,6 +40,8 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 - The Codex status-line item list (6.8.0): read from the Rust source at `rust-v0.160.1`; Codex itself was not run, and the releases that introduced `hostname` and `thread-name` were bracketed by sampling tags, not pinned.
 - The skill eval suite: two single runs on the smallest model. One case (`pomodoro-out-of-scope`) passed once and failed once on the same skill.
 
+- The status line following the viewed agent (7.2.0): measured on Claude Code 2.1.314, Windows, interactive through a pseudo-terminal, loaded with `--plugin-dir`, one background subagent. A marketplace install, a teammate's view, a workflow agent's view, macOS and Linux were not run. The module key in `hooks.json` has not been run past the Cursor auto-bridge; the file already has an extra top-level `description` key, so a parser that rejects unknown keys is not expected, but that is an inference.
+
 **Unknown**
 - Whether the classic status line renders in the Claude Desktop app. This decides whether a separate "band" mod for Desktop users would have any purpose.
 - Whether `model_refusal_fallback` ever fires as a `Notification`. It is declared in the binary; no emitter was found, so it is not registered.
@@ -58,7 +61,7 @@ Do not reopen these without new evidence; each has a reason on record.
 
 | Idea | Why not | Where it is recorded |
 |---|---|---|
-| Move either track onto Claude Code mods | No sound on a Windows terminal, toast is in-app only, cannot write to the terminal, cannot draw the status line, early-access API that already changed between builds | `docs/EVENT_BEHAVIOR_NOTES.md`, "Mods: investigated, not adopted" |
+| Move either track onto Claude Code mods (a view sensor for the status line is the one exception, `docs/INVARIANTS.md`) | No sound on a Windows terminal, toast is in-app only, cannot write to the terminal, cannot draw the status line, early-access API that already changed between builds | `docs/EVENT_BEHAVIOR_NOTES.md`, "Mods: investigated, not adopted" |
 | Ship a plugin-level default for the per-subagent status row | Claude Code does not substitute `${CLAUDE_PLUGIN_ROOT}` in a plugin `settings.json`, the plugin's `bin/` is not on that command's `PATH`, and there is no CLI-only way to turn such a default off | Same file, "A plugin-level `subagentStatusLine` default" |
 | Migrate `hooks.json` to the `args` exec form | A bare `python` is untested, the docs restrict exec form on Windows to a real executable, and the plugin cannot require a minimum Claude Code version | `docs/INVARIANTS.md`; `docs/EVENT_BEHAVIOR_NOTES.md`, "The `args` exec form" |
 | Register `PreModelSwitch` or `WorktreeCreate` | Both are blocking / provider hooks | `docs/INVARIANTS.md` |

@@ -20,7 +20,7 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 | `config/` | `default_preferences.json` (the template every install migrates toward), `audio_manifest.json` (prompt per sound file). |
 | `audio/default/`, `audio/custom/` | Voice theme and chime theme; one file per event and variant. |
 | `cursor-hooks/`, `codex-hooks/` | Install templates for those editors. |
-| `plugins/audio-hooks/` | The shipped plugin. Its `audio`, `bin`, `config`, `cursor-hooks`, `codex-hooks` directories and the Python files in its `hooks` directory are a **build mirror — never edit**. Hand-edited in place: `plugins/audio-hooks/hooks/hooks.json` (the Claude Code registration; no repo-root counterpart), `runner`, `skills`, `evals`, `README.md` and the two plugin manifests. |
+| `plugins/audio-hooks/` | The shipped plugin. Its `audio`, `bin`, `config`, `cursor-hooks`, `codex-hooks` directories and the Python files in its `hooks` directory are a **build mirror — never edit**. Hand-edited in place: `plugins/audio-hooks/hooks/hooks.json` (the Claude Code registration; no repo-root counterpart), `plugins/audio-hooks/hooks/view-sensor.ts` (the one mod, a sensor for the status line), `runner`, `skills`, `evals`, `README.md` and the two plugin manifests. |
 | `scripts/` | `build-plugin.sh`, `bump-version.sh`, `generate-audio.py`. The script installer was removed in 7.0.0; `audio-hooks uninstall` still removes an old script install. |
 | `tests/` | `unittest` suite; every module imports `_isolation` first. |
 
@@ -37,6 +37,7 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 | Area | `docs/INVARIANTS.md` section | Guard |
 |---|---|---|
 | `hooks.json`, a new event or matcher | Upstream editor behaviour; Events, variants and sounds | `tests/test_plugin_hooks_contract.py` |
+| The status line renderer, `view-sensor.ts` (and read `docs/STATUS_LINE.md`) | Upstream editor behaviour | `tests/test_statusline.py` |
 | A new variant | Events, variants and sounds (`SYNTHETIC_VARIANT_DEFAULTS`, `VARIANT_INTRODUCED`, a distinct sound in both themes) | `tests/test_variant_migration.py` |
 | `run_hook` order, escaping, notification dispatch, a runner module | Hook runner | `tests/test_filter_debounce_order.py`, `tests/test_desktop_notification.py`, `tests/test_runner_modules.py` |
 | A CLI subcommand or flag | CLI contract (`--help` side-effect-free, unknown arguments are `INVALID_USAGE`, reporting commands are read-only, every code catalogued, every flag in the manifest) | `tests/test_read_only_commands.py`, `tests/test_cli_error_codes.py`, `tests/test_manifest_drift.py` |
