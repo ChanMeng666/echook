@@ -19,7 +19,6 @@ The cycle began with an incident, and most of 6.6.0 follows from it. On 2026-10-
 | Item | Who | How to check |
 |---|---|---|
 | Plugin directory review. Submitted 2026-10-04; security scan passed; held for content policy review. | Anthropic reviewer, then the maintainer selects **Publish** | The plugin page in the developer portal (`docs/DIRECTORY_LISTING.md`) |
-| The portal's result for v7.2.3 (`0778a73`) and for the README push `0ada44e`. Neither has been read yet; v7.2.2 is the last one recorded. Any later merge to `master` adds another version, so a documentation-only pull request waits for the maintainer. | Maintainer | The plugin page in the developer portal; record it in `docs/DIRECTORY_LISTING.md` |
 | GitGuardian incident 37836366, a false positive on a sound-file mapping in `hooks/hook_runner.py` (see `docs/RELEASING.md`). It stays open until resolved in the dashboard. | Maintainer | GitGuardian dashboard |
 | A reviewer's decision on `hooks/view-sensor.ts`. Read in the portal on 2026-10-31 for 7.2.0 and 7.2.1: the scans passed and the module was not refused, but it adds holds, listed in `docs/DIRECTORY_LISTING.md`. Every version was already waiting for a reviewer. If it is refused, removing the `modules` line from `hooks.json` restores the old behaviour and nothing else depends on it. | Anthropic reviewer | The plugin page in the developer portal |
 | The six sound files added in 6.7.0 have not been listened to by a person. They are valid, distinct and of normal length. | Maintainer | Play `audio/default/{notif-auth-storage,fail-cloud-credential,fail-verification}.mp3` and `audio/custom/chime-*` counterparts |
@@ -53,7 +52,7 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 **Unknown**
 - Whether the classic status line renders in the Claude Desktop app. This decides whether a separate "band" mod for Desktop users would have any purpose.
 - Whether `model_refusal_fallback` ever fires as a `Notification`. It is declared in the binary; no emitter was found, so it is not registered.
-- What a reviewer does with the versions that piled up while the first one was in review. Observed on 2026-10-21: **every** push to `master` became a new version, each scanned and then "Held by directory policy", 14 by then, from v6.7.2 at `f692417` to v7.1.0 at `1979632`, including two pushes that changed nothing in `plugins/audio-hooks/` (`c5e1b66`, `a148c71`). Whether the reviewer reviews the newest, the first, or each one is not known; see `docs/DIRECTORY_LISTING.md`.
+- What a reviewer does with the versions that piled up while the first one was in review. Recording a portal result in this repository is itself a push, so such a change waits for the next one that has to land. Observed on 2026-10-21: **every** push to `master` became a new version, each scanned and then "Held by directory policy", 14 by then, from v6.7.2 at `f692417` to v7.1.0 at `1979632`, including two pushes that changed nothing in `plugins/audio-hooks/` (`c5e1b66`, `a148c71`). Whether the reviewer reviews the newest, the first, or each one is not known; see `docs/DIRECTORY_LISTING.md`.
 
 ## Known limits that are accepted for now
 
