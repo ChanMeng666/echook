@@ -14,7 +14,7 @@ A sound, a desktop toast or a message on your phone when Claude Code, Cursor or 
 
 <br>
 
-<a href="#try-it"><img src="./.github/readme/card.svg" width="100%" alt="echook is an open-source notification system for the AI coding agents Claude Code, Cursor and Codex. The card shows a terminal session recreated in code from the product's own output: a permission request reaches you as a sound, a desktop toast and a phone notification, a subagent is opened and the status line follows it from Sonnet 5.5 to Haiku 5.5 and from 76K/200K to 29K/~200K of context, and a setting is changed by asking the agent (“mute audio for an hour”)."></a>
+<a href="#try-it"><img src="./.github/readme/card.svg" width="100%" alt="echook is an open-source notification system for the AI coding agents Claude Code, Cursor and Codex. The card shows a terminal session recreated in code from the product's own output: a permission request reaches you as a sound, a desktop toast and a phone notification, a subagent is opened and the status line follows it from Sonnet 5.5 to Haiku 5.5 and from 76K/200K to 29K/~1M of context, and a setting is changed by asking the agent (“mute audio for an hour”)."></a>
 
 <br>
 
