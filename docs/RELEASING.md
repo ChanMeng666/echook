@@ -10,6 +10,7 @@ How a change gets from a working tree to users, as it was actually done for v6.6
 - **A directory-source marketplace runs the checkout in every open session**, on whatever branch is checked out, and a bump stamps the real `user_preferences.json` (`docs/EVENT_BEHAVIOR_NOTES.md`). The maintainer's machine moved to a GitHub source on 2026-10-31 to stop this, so test a change with `--plugin-dir`, which keeps its data apart. Do not change a marketplace's source without copying the data directory first: removing one deletes it.
 - **Never run `audio-hooks install`, `uninstall` or `upgrade` while developing**, and never run the CLI from a checkout against the real data directory: set `CLAUDE_PLUGIN_DATA` to a scratch directory first. The test suite isolates itself (`tests/_isolation.py`); a hand-run CLI does not.
 - **Do not print the whole environment** (`env`, `set`, `os.environ`) in a test, a script or a debugging aid. A developer's shell can hold credentials, and a full dump puts them in a log.
+- **On Windows, run `scripts/*.sh` from Git Bash.** In PowerShell `bash` can resolve to WSL, which fails with `execvpe(/bin/bash)`.
 - **Write files with an editor or a script file, not a shell heredoc, when the content contains backslashes.** In the Bash tool used for this project a heredoc collapsed `\\` to `\` and turned `\x89` into a raw byte, which silently corrupted a test file twice. Python source with escapes, regexes and Windows paths are the usual victims.
 
 ## 1. Make the change
@@ -109,9 +110,11 @@ cp ChanMeng666/public/cards/echook.svg claude-code-audio-hooks/.github/readme/ca
 
 Then copy each picture's `<title>` into the `alt` in `README.md`. Rebuild when the status line's output, the counts or the tagline change. A new release alone does not need it: the pictures carry no version number. The bake needs `ffmpeg` and `ffprobe`. It calls this repository's internals, so a refactor can break it (`scripts/bake-probe-runner.py` had to follow the split of `hook_runner.py`).
 
+**Order across the repositories.** The bake records this repository's commit, and the film's `bake` gate (`bake --check`) compares it. So bake, build the pictures, merge them here, then bake again and commit in `film-echook-terminal`. `bake --check` also goes stale on the next UTC day, because the 5-hour reset is pinned to the render day; a re-bake clears it. A viewed agent's window comes from a demo model catalog row in the bake's throwaway home.
+
 ## 6. After the release
 
-- **A machine with the plugin installed from GitHub keeps running its cached copy.** (One with a directory-source marketplace runs the directory.) `audio-hooks upgrade` moves it to the new version (data preserved), and `/reload-plugins` must then be typed in each Claude Code session that is already open — there is no command-line equivalent, and a session started afterwards needs no reload. Verify with `audio-hooks status`, `audio-hooks diagnose` and `audio-hooks hooks list --variants`.
+- **A machine with the plugin installed from GitHub keeps running its cached copy.** (One with a directory-source marketplace runs the directory.) `audio-hooks upgrade` moves it to the new version (data preserved), and `/reload-plugins` must then be typed in each Claude Code session that is already open — there is no command-line equivalent, and a session started or resumed afterwards needs no reload (`--resume` was measured on 2.1.316). Verify with `audio-hooks status`, `audio-hooks diagnose` and `audio-hooks hooks list --variants`.
 - **The preferences file is migrated by the first hook event or state-changing command**, or on request by `audio-hooks migrate`. `status` and `diagnose` no longer do it.
 - **Check the directory.** The plugin page shows whether the new commit was picked up, scanned and held or passed.
 - **Clean up scratch files.** Keep the raw evidence behind anything recorded in `docs/EVENT_BEHAVIOR_NOTES.md` that cannot be regenerated — a carved binary extract disappears when Claude Code updates, and documentation pages change — and delete the rest.

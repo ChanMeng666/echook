@@ -86,7 +86,7 @@ When the person switches the main view to a subagent's transcript (the agent lis
 
 **Cost of the short refresh.** Python starts every 2 seconds in every session with the status line, whether or not an agent is ever viewed, and a detached refresher runs at most once per cache expiry. Only `statusline install` sets this; a hand-written registration keeps its own interval.
 
-Measured live on Claude Code 2.1.314, Windows 11, interactive session through a pseudo-terminal, with `--plugin-dir` and from a cached 7.2.0 installed from GitHub, Sonnet main conversation and Haiku subagent: main → agent → main → agent, each switch shown within about 3 seconds.
+Measured live on Claude Code 2.1.314, Windows 11, interactive session through a pseudo-terminal, with `--plugin-dir` and from a cached 7.2.0 installed from GitHub, Sonnet main conversation and Haiku subagent: main → agent → main → agent, each switch shown within about 3 seconds. Re-measured on 2.1.316 with `--plugin-dir`, 12 of 12 transitions: the sidecar in under 0.3 seconds, the line within about 2.
 
 ## Staying registered across upgrades (v7.2.2)
 
