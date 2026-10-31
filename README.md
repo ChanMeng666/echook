@@ -20,7 +20,7 @@ A sound, a desktop toast or a message on your phone when Claude Code, Cursor or 
 
 https://github.com/user-attachments/assets/eb723799-6e06-42d6-8855-addcdf74888f
 
-<sub>Every frame is code: a replica of echook's terminal UI in Remotion, with a synthesised score. How it was made: <a href="https://github.com/ChanMeng666/echook-promo-studio">echook-promo-studio</a>.</sub>
+<sub>Every frame is code: a replica of echook's terminal UI in Remotion, with a synthesised score. How it was made: <a href="https://github.com/ChanMeng666/film-echook-terminal">film-echook-terminal</a>.</sub>
 
 <details>
 <summary><sub>The first film (89 s)</sub></summary>

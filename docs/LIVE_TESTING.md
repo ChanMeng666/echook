@@ -43,7 +43,7 @@ def frame(tag):
 
 Run it with a working directory in scratch, so the test session's transcripts land under a project folder you can delete afterwards. Do not filter `env` by printing it: the shell can hold credentials.
 
-`--settings` adds to the user's settings, so a test can register its own `statusLine`. Omitting `--plugin-dir` tests whatever the marketplace points at. On a directory-source marketplace that is still the checkout, whatever `installPath` says; to see which file runs, watch `python.exe` command lines while a session starts.
+`--settings` adds to the user's settings, so a test can register its own `statusLine`. It deep-merges that object: a file without `refreshInterval` still inherits the user's, so set a large value to measure no timer. Omitting `--plugin-dir` tests whatever the marketplace points at. On a directory-source marketplace that is still the checkout, whatever `installPath` says; to see which file runs, watch `python.exe` command lines while a session starts.
 
 ## Keys
 
@@ -54,7 +54,7 @@ Run it with a working directory in scratch, so the test session's transcripts la
 | Select an agent in the list under the prompt | `\x1b[B` twice, with a pause between |
 | Open its view | `\r`; the input then reads `Message @<agent>…` |
 | Return to the main conversation | `\x1b[A` to select `main`, then `\r` |
-| Leave | `\x03` twice |
+| Leave | `\x03` twice, under a second apart. With a background command running, a dialog then waits for `\r` |
 
 **`Esc` does not leave an agent's view.** It only clears the selection in the list. A run that used it looked like the status line had failed to switch back.
 
@@ -70,8 +70,14 @@ A plain `sleep 60` is refused by this machine's harness, so the agent wastes its
 
 A throwaway plugin in scratch can log what a site receives. A helper that takes `$` must be a top-level `function` declaration, or `claude plugin validate` refuses it (`$ is passed to "log", which is not a function declared at the top of this file`). `$.fs.read` then `$.fs.write` to append is not atomic, and concurrent renders drop lines, so a gap in a counter is not a missed render.
 
+## Without a login
+
+To test plugin loading, use a throwaway `CLAUDE_CONFIG_DIR`, a dummy `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` at a local stand-in that answers `POST /v1/messages` and `HEAD /api/hello`. Seed `.claude.json` with onboarding and project trust. Nothing of the real install is touched, and deleting the folder is the cleanup. A marketplace added from a local path loads its plugins in place; to get a versioned copy in the cache, give the plugin entry a `url` or `git-subdir` source with a `file:///` URL. Used for `--resume` on 2.1.316.
+
 ## Mistakes this cost
 
+- **Pin the binary.** On 2026-10-31 `claude.exe` went back from 2.1.316 to the channel pointer's 2.1.314 minutes after an install. Run a file from `~/.local/share/claude/versions/` with `DISABLE_AUTOUPDATER=1` and record `--version` in each log.
+- **`MSYS_NO_PATHCONV=1` in a child's environment broke `claude plugin update`** on a `file:///` source. Git Bash also rewrites `/reload-plugins` without it, so set it for the sending script only.
 - **The suite and the rig must not run together.** At 100% CPU the frames came back empty, which looks like a failed session.
 - **Timing is load-dependent.** Bare Python took about 70 ms idle and up to 1.3 s under load. Measure a timing twice before writing it down.
 - **Loading with `--plugin-dir` writes into the plugin folder.** Claude Code creates `plugins/audio-hooks/tsconfig.json` and `.claude-plugin/types/`. Both are in `.gitignore`.

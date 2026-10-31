@@ -98,6 +98,7 @@ _MODEL_ID_RE = re.compile(r"^claude-([a-z]+)-(\d{1,2})(?:-(\d{1,2}))?(?:-\d{8})?
 AGENT_TAIL_BYTES = 256 * 1024
 AGENT_TAIL_MAX_BYTES = 4 * 1024 * 1024
 DEFAULT_CONTEXT_WINDOW = 200_000
+MODELS_1M_ON_REQUEST = ("claude-sonnet-4-0", "claude-sonnet-4-5", "claude-sonnet-4-6", "claude-opus-4-6")
 VIEWED_MARK = "\u25b8 "
 
 # ANSI color codes (degrade silently on terminals that don't support them)
@@ -763,12 +764,38 @@ def _model_label(model_id: str) -> str:
     return f"{family.capitalize()} {major}.{minor}" if minor else f"{family.capitalize()} {major}"
 
 
+def _catalog_window(model: str) -> Optional[int]:
+    """``max_input_tokens`` for ``model`` from Claude Code's model catalog cache.
+
+    The cache is private to Claude Code and may be absent or change shape, so
+    anything unexpected is no answer.
+    """
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    root = Path(config_dir) if config_dir else Path.home() / ".claude"
+    try:
+        paths = sorted((root / "cache" / "model-catalog").glob("*.json"))
+    except OSError:
+        return None
+    for path in paths:
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8"))["catalog"]["config"]["models"]
+            for row in rows:
+                if row.get("id") == model:
+                    window = _num(row["runtime"]["max_input_tokens"])
+                    if window:
+                        return int(window)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            continue
+    return None
+
+
 def _agent_window(model: str, requested: str, used: int, session: Dict[str, Any]) -> Tuple[int, bool]:
     """The agent's context window, and whether that figure is exact.
 
     Transcripts do not record it. The main conversation's is exact for the same
-    model; otherwise 200k is Claude Code's default, unless the request asked for
-    1M or the agent has already gone past 200k.
+    model, and a request for 1M is taken at its word. Otherwise the window is an
+    estimate: 1M once the agent has gone past 200k, then the model catalog, where
+    a model that needs ``[1m]`` lists its upper limit, then 200k.
     """
     main = session.get("model") if isinstance(session.get("model"), dict) else {}
     ctx = session.get("context_window") if isinstance(session.get("context_window"), dict) else {}
@@ -778,7 +805,11 @@ def _agent_window(model: str, requested: str, used: int, session: Dict[str, Any]
     asked_1m = "[1m]" in requested.lower()
     if asked_1m or used > DEFAULT_CONTEXT_WINDOW:
         return 1_000_000, asked_1m
-    return DEFAULT_CONTEXT_WINDOW, False
+    needs_1m_suffix = re.sub(r"-\d{8}$", "", model) in MODELS_1M_ON_REQUEST
+    turned_off = os.environ.get("CLAUDE_CODE_DISABLE_1M_CONTEXT", "").strip().lower() in ("1", "true", "yes", "on")
+    if needs_1m_suffix or turned_off:
+        return DEFAULT_CONTEXT_WINDOW, False
+    return _catalog_window(model) or DEFAULT_CONTEXT_WINDOW, False
 
 
 def _apply_viewed_agent(session: Dict[str, Any], viewed: Dict[str, Any]) -> Dict[str, Any]:

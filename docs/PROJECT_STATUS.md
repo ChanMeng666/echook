@@ -1,6 +1,6 @@
 # Project status
 
-**Snapshot taken 2026-10-31, at v7.2.2.** v7.2.2 is the last release that changed the plugin folder. This page says where the project stands: what shipped recently, what is waiting on someone, what is claimed but not verified, and what was looked at and deliberately left alone. Everything here can go stale; each section says how to re-check it. When you change something listed here, update this page in the same commit.
+**Snapshot taken 2026-10-31, at v7.2.3.** v7.2.3 is the last release that changed the plugin folder. This page says where the project stands: what shipped recently, what is waiting on someone, what is claimed but not verified, and what was looked at and deliberately left alone. Everything here can go stale; each section says how to re-check it. When you change something listed here, update this page in the same commit.
 
 For how the code works, read `AGENTS.md`. For measured upstream behaviour, `docs/EVENT_BEHAVIOR_NOTES.md`. For the release mechanics, `docs/RELEASING.md`. For the directory listing, `docs/DIRECTORY_LISTING.md`.
 
@@ -32,7 +32,7 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 - `rate_limits.spend_limit` and `remote` in a real status line payload. Both segments were tested on synthetic input only.
 
 **Measured only in part**
-- `async` SessionEnd hooks surviving past session end: measured for a headless `claude -p` exit on Windows, 4 seconds of work. Closing an interactive session, longer work and the real audio player were not tested.
+- `async` SessionEnd hooks surviving past session end: measured for a headless `claude -p` exit, and on 2.1.316 for an interactive close (6 of 6, Windows, 4 seconds of work). Longer work, "Move to background and exit" and the real audio player were not tested.
 - The hooks `args` exec form on Windows: works on 2.1.288 with an absolute path to `python.exe`. A bare `python` resolved through `PATH`, which is what echook would use, was not tested, and upstream issue #90495 is still open.
 - `terminalSequence` being inert for async hooks: measured on 2.1.251, read from the binary at 2.1.288, not re-measured.
 - The native `uninstall`: exercised end to end in a contained fake home on Windows 11. Not run against a real Linux or macOS install, a non-UTF-8 locale, or a real (as opposed to fabricated) plugin install; write-failure rollback is unit-tested only.
@@ -42,7 +42,10 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 - The Codex status-line item list (6.8.0): read from the Rust source at `rust-v0.160.1`; Codex itself was not run, and the releases that introduced `hostname` and `thread-name` were bracketed by sampling tags, not pinned.
 - The skill eval suite: two single runs on the smallest model. One case (`pomodoro-out-of-scope`) passed once and failed once on the same skill.
 
-- The status line following the viewed agent (7.2.0): measured on Claude Code 2.1.314, Windows, interactive through a pseudo-terminal, one background subagent, with `--plugin-dir`, through a directory-source marketplace, and from a cached 7.2.0 installed from GitHub; a teammate's view too. A workflow's agents have no view to follow. Not run: a live session on macOS or Linux. The Cursor auto-bridge ignores the `modules` key by its source, read but not run.
+- The status line following the viewed agent (7.2.0): measured on Claude Code 2.1.314, Windows, interactive through a pseudo-terminal, one background subagent, with `--plugin-dir`, through a directory-source marketplace, and from a cached 7.2.0 installed from GitHub; a teammate's view too. Re-measured on 2.1.316 with `--plugin-dir`, 12 of 12 transitions. A workflow's agents have no view to follow. Not run: a live session on macOS or Linux. The Cursor auto-bridge ignores the `modules` key by its source, read but not run.
+- A viewed agent's context window (7.2.3): the windows were measured on 2.1.316 on one account. `sonnet-4-0` and `sonnet-4-5` rest on the binary. The estimate reads a private catalog cache that can be absent, stale or wrong for a third-party provider.
+- `--resume` loading the installed plugin version: measured on 2.1.316, Windows, a mock model API, user scope. The `/resume` picker and a session open across an update ran once each.
+- Echook's hooks on Windows without Git Bash: the documentation's rule that a failing shell-form `PreToolUse` or `PermissionRequest` command blocks the tool should not reach async hooks, but it does not say so and this was not run.
 
 **Unknown**
 - Whether the classic status line renders in the Claude Desktop app. This decides whether a separate "band" mod for Desktop users would have any purpose.
@@ -63,7 +66,7 @@ Do not reopen these without new evidence; each has a reason on record.
 
 | Idea | Why not | Where it is recorded |
 |---|---|---|
-| Move either track onto Claude Code mods (a view sensor for the status line is the one exception, `docs/INVARIANTS.md`) | No sound on a Windows terminal, toast is in-app only, cannot write to the terminal, cannot draw the status line, early-access API that already changed between builds | `docs/EVENT_BEHAVIOR_NOTES.md`, "Mods: investigated, not adopted" |
+| Move either track onto Claude Code mods (a view sensor for the status line is the one exception, `docs/INVARIANTS.md`) | No sound on a Windows terminal, `$.ui.notify` (2.1.295) goes through the user's notification channel with no per-event sound, cannot write to the terminal, cannot draw the status line | `docs/EVENT_BEHAVIOR_NOTES.md`, "Mods: investigated, not adopted" and "Re-sync to 2.1.316" |
 | Ship a plugin-level default for the per-subagent status row | Claude Code does not substitute `${CLAUDE_PLUGIN_ROOT}` in a plugin `settings.json`, the plugin's `bin/` is not on that command's `PATH`, and there is no CLI-only way to turn such a default off | Same file, "A plugin-level `subagentStatusLine` default" |
 | Migrate `hooks.json` to the `args` exec form | A bare `python` is untested, the docs restrict exec form on Windows to a real executable, and the plugin cannot require a minimum Claude Code version | `docs/INVARIANTS.md`; `docs/EVENT_BEHAVIOR_NOTES.md`, "The `args` exec form" |
 | Register `PreModelSwitch` or `WorktreeCreate` | Both are blocking / provider hooks | `docs/INVARIANTS.md` |
@@ -82,10 +85,12 @@ None of these is committed to. They are what the investigation left on the table
 
 - **`PostModelSwitch`** as an opt-in event. It is observational and safe to register; its stdout reaches the model on exit 0, so the runner must print nothing there. Payload and registration steps are in `docs/EVENT_BEHAVIOR_NOTES.md`.
 - **A second, minimal synchronous handler** that only emits `terminalSequence`, beside the async one — the recorded design for making the terminal bell and title work. Any synchronous handler must never exit with code 2 (the per-event effects are tabulated in `docs/EVENT_BEHAVIOR_NOTES.md`).
-- **Notification triggers from `turn.complete` / `session.measure`** (turn duration, rate-limit movement) if mods leave early access. They would need a mod-to-Python hand-off.
+- **A variant for `plugin_notification`** (new since 2.1.292; measured on 2.1.316). Without it another plugin's `$.ui.notify` makes no sound in echook. It needs a sound in both themes, so an ElevenLabs key.
+- **Notification triggers from `turn.complete` / `session.measure`** (turn duration, rate-limit movement). Mods have left early access, so this is open; it would need a mod-to-Python hand-off.
 - **Unused hook payload fields**: `prompt_id` (one id per user prompt, a candidate for de-duplication), `is_interrupt` on `PostToolUseFailure`, `session_title` and the resume fields on `SessionStart`.
 - **Unused status line fields**: `context_window.remaining_percentage`, `pr.url`, `worktree.original_branch`. `model.id` is now read, for the viewed agent's context window.
-- **An exact context window for a viewed agent.** `subagentStatusLine` is the one place that receives `contextWindowSize`. Its script could leave the value where the main script can read it, removing `~200K` for people who install that row. Not done because the row is optional and not installed by default.
+- **An exact context window for a viewed agent.** `subagentStatusLine` is the one place that receives `contextWindowSize`. Its script could leave the value where the main script can read it, removing the `~` estimate for people who install that row. Not done because the row is optional and not installed by default; 7.2.3 improved the estimate instead.
+- **The README pictures still show `29K/~200K`** for a Haiku 5.5 agent, a figure 7.2.3 no longer gives by default. The bake runs with no model catalog, so it keeps rendering it. At the next picture change, give the throwaway home a catalog or use a demo agent on a 200K model.
 - **A `diagnose` finding for a directory-source install**, saying that the reported install path is not what runs. It would have saved the 2026-10-30 trace.
 - **Replacing the sensor if upstream ships #96895** (see "Upstream items being watched"). A `viewed_agent` field and a repaint on switch would remove the module, the sidecar and the need for a short `refreshInterval`.
 - **A status line for the Cursor CLI.** Its `statusLine` entry in `~/.cursor/cli-config.json` (`{"type": "command", "command": …}`, JSON on stdin, since about CLI v2026.06.22) has the same shape as Claude Code's, and echook has no Cursor status line. Not started because the entry is absent from Cursor's configuration reference, the payload is unpublished and reported to be thin, a custom command replaces the native footer, and the Cursor CLI is not installed on the maintainer's machine. The first step is to capture a real payload.
@@ -101,8 +106,8 @@ None of these is committed to. They are what the investigation left on the table
 |---|---|---|
 | [anthropics/claude-code#90997](https://github.com/anthropics/claude-code/issues/90997) — `terminalSequence` dropped for async hooks | Open, no maintainer reply | If fixed, the `terminal_sequence` feature starts working without any echook change |
 | [anthropics/claude-code#90495](https://github.com/anthropics/claude-code/issues/90495) — hooks `args` dropped on Windows | Open, no maintainer reply (re-checked 2026-10-07); did not reproduce on 2.1.288 | Part of the reason `hooks.json` stays in shell form |
-| [anthropics/claude-code#96895](https://github.com/anthropics/claude-code/issues/96895) — expose the viewed agent to the status line and repaint on a switch | Open on 2026-10-30, opened at 2.1.282, one comment, no maintainer reply | The exact gap `hooks/view-sensor.ts` works around. If it ships, drop the module and go back to a slower refresh |
-| Claude Code mods | Early access since 2.1.287 | Re-evaluate if the API is declared stable or gains an OS-level notification or a Windows audio player |
+| [anthropics/claude-code#96895](https://github.com/anthropics/claude-code/issues/96895) — expose the viewed agent to the status line and repaint on a switch | Open on 2026-10-31, opened at 2.1.282, one comment, no maintainer reply; nothing shipped in 2.1.316 | The exact gap `hooks/view-sensor.ts` works around. If it ships, drop the module and go back to a slower refresh |
+| Claude Code mods | Past early access on 2026-10-31; `$.ui.notify` added in 2.1.295 and assessed, decision unchanged | Re-evaluate if it gains a Windows audio player |
 
 Re-check with `gh issue view <n> --repo anthropics/claude-code --json state,updatedAt`.
 
@@ -122,4 +127,4 @@ Not surveyed: the Claude Desktop app's notifications, and Codex's desktop app, I
 
 ## The next upstream sync
 
-echook is synced against Claude Code **2.1.292** (2026-10-07; nothing echook registers or reads had changed since 2.1.288). 7.2.0 read the status line and mods parts of the 2.1.314 binary and documentation only; that was not a full sync. When a newer version is installed, follow "How to re-sync against a new Claude Code release" in `docs/EVENT_BEHAVIOR_NOTES.md`. The range to read starts at 2.1.293. One lead from that sync: `claude plugin install <name> --marketplace <source>` (new in 2.1.292, read from `--help`, not run) might replace the two-command Claude Code install; try it in a throwaway `CLAUDE_CONFIG_DIR` first.
+echook is synced against Claude Code **2.1.316** (2026-10-31; full sync of 2.1.293–2.1.316, recorded in "Re-sync to 2.1.316" in `docs/EVENT_BEHAVIOR_NOTES.md`). When a newer version is installed, follow "How to re-sync against a new Claude Code release" in the same file. The range to read starts at 2.1.317. The evidence is `D:\.claude-scratch\2026-10-31\echook-2.1.316-evidence.zip` on the maintainer's machine. `claude update` follows a pointer that can lag npm, so check `claude --version` against the range. One lead from the 2.1.292 sync: `claude plugin install <name> --marketplace <source>` (new in 2.1.292, read from `--help`, not run) might replace the two-command Claude Code install; try it in a throwaway `CLAUDE_CONFIG_DIR` first.
