@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [7.2.3] - 2026-10-31
+
+### Fixed
+
+- **The context of a viewed agent no longer reads five times too high.** An agent
+  on another model than the main conversation was estimated at `~200K`, but
+  current models run at 1M: a Haiku 5.5 agent showed `15% (31K/~200K)` when it was
+  at about 3%. The estimate now comes from Claude Code's local model catalog
+  cache, still marked `~`. `sonnet-4-0`, `sonnet-4-5`, `sonnet-4-6`, `opus-4-6` and
+  `CLAUDE_CODE_DISABLE_1M_CONTEXT` stay at 200K, and so does anything the catalog
+  cannot answer.
+
+### Verified
+
+- **The window fix**, live on 2.1.316 on Windows: a Haiku 5.5 agent read
+  `3% (31K/~1M)`, a Sonnet 4.6 agent `12% (25K/~200K)`, and the main view kept its
+  exact window. Windows are per account, and only this one was measured.
+- **Synced with Claude Code 2.1.316**, from 2.1.292. No new hook event, and no new
+  status line field. The view sensor followed 12 of 12 switches, live on Windows.
+  `viewed_agent` still does not exist, so upstream #96895 stands and the module
+  stays.
+- **`--resume` loads the installed plugin version**, not the session's original
+  one, live on Windows with a mock model API. Only a session already open keeps
+  its version until `/reload-plugins`.
+- **An async `SessionEnd` hook survives closing an interactive session**, 6 of 6.
+
+**Not added:** a variant for the new `plugin_notification` type. It needs a sound
+in both themes.
+
+**Still not run:** a live session on macOS or Linux, and another account's
+context windows.
+
 ## [7.2.2] - 2026-10-31
 
 ### Fixed

@@ -1058,7 +1058,16 @@ class TestViewedAgent(_StatuslineRenderBase):
         path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
         return path
 
-    def _render(self, **overrides) -> str:
+    def _catalog(self, text: str, name: str = "org-scope-cc.json") -> None:
+        path = self.tmp / "config" / "cache" / "model-catalog" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _catalog_rows(self, **windows) -> str:
+        rows = [{"id": k.replace("_", "-"), "runtime": {"max_input_tokens": v}} for k, v in windows.items()]
+        return json.dumps({"version": 2, "catalog": {"config": {"models": rows}}})
+
+    def _render(self, env=None, **overrides) -> str:
         session = {
             "session_id": self.SID,
             "transcript_path": str(self.transcript),
@@ -1073,7 +1082,11 @@ class TestViewedAgent(_StatuslineRenderBase):
         code, out, _ = _run(
             json.dumps(session),
             state_dir=self.tmp,
-            env_extra={"TEMP": str(self.temp_env), "TMP": str(self.temp_env), "TMPDIR": str(self.temp_env)},
+            env_extra={
+                "TEMP": str(self.temp_env), "TMP": str(self.temp_env), "TMPDIR": str(self.temp_env),
+                "CLAUDE_CONFIG_DIR": str(self.tmp / "config"), "CLAUDE_CODE_DISABLE_1M_CONTEXT": "",
+                **(env or {}),
+            },
         )
         self.assertEqual(code, 0)
         return _plain(out)
@@ -1114,6 +1127,40 @@ class TestViewedAgent(_StatuslineRenderBase):
         self._view({"agent_id": "a1"})
         self._write_agent(self._agent_record(tokens=300_000))
         self.assertIn("/~1M", self._render())
+
+    def test_catalog_window_replaces_the_default_estimate(self):
+        self._view({"agent_id": "a1"})
+        self._write_agent(self._agent_record())
+        self._catalog(self._catalog_rows(claude_haiku_5_5=1_000_000))
+        out = self._render()
+        self.assertIn("▸ Context: 5", out)
+        self.assertIn("50K/~1M", out)
+
+    def test_catalog_row_for_another_model_is_not_used(self):
+        self._view({"agent_id": "a1"})
+        self._write_agent(self._agent_record())
+        self._catalog(self._catalog_rows(claude_sonnet_5_5=1_000_000))
+        self.assertIn("50K/~200K", self._render())
+
+    def test_model_that_needs_the_1m_suffix_ignores_the_catalog(self):
+        # Measured on 2.1.316: the catalog lists 1M, a subagent gets 200K.
+        self._view({"agent_id": "a1"})
+        self._write_agent(self._agent_record(model="claude-sonnet-4-6"))
+        self._catalog(self._catalog_rows(claude_sonnet_4_6=1_000_000))
+        self.assertIn("50K/~200K", self._render())
+
+    def test_1m_turned_off_ignores_the_catalog(self):
+        self._view({"agent_id": "a1"})
+        self._write_agent(self._agent_record())
+        self._catalog(self._catalog_rows(claude_haiku_5_5=1_000_000))
+        self.assertIn("50K/~200K", self._render(env={"CLAUDE_CODE_DISABLE_1M_CONTEXT": "1"}))
+
+    def test_a_malformed_catalog_falls_back_to_the_default(self):
+        self._view({"agent_id": "a1"})
+        self._write_agent(self._agent_record())
+        for bad in ("{not json", "[]", '{"catalog": {"config": {"models": [{"id": "claude-haiku-5-5"}]}}}'):
+            self._catalog(bad)
+            self.assertIn("50K/~200K", self._render())
 
     def test_compact_hint_is_not_offered_for_an_agent(self):
         self._view({"agent_id": "a1"})

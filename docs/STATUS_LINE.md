@@ -57,14 +57,14 @@ Width is resolved as: `statusline_settings.max_width` override, then the `COLUMN
 When the person switches the main view to a subagent's transcript (the agent list under the prompt, `↓` then `Enter`), the line shows that agent, not the main conversation:
 
 ```
-[▸ Haiku 5.5] | 🤖 ▸ general-purpose | 🧠 medium | …  █░░░░░░░ ▸ Context: 14% (29K/~200K)  cache 84%  💲 $0.12
+[▸ Haiku 5.5] | 🤖 ▸ general-purpose | 🧠 medium | …  ░░░░░░░░ ▸ Context: 3% (29K/~1M)  cache 84%  💲 $0.12
 ```
 
 `▸` marks whatever describes the viewed agent. Swapped: `model`, `agent`, `effort`, `context`, `tokens`. Dropped, having no counterpart for an agent: `thinking`, `fast_mode`, `prompt_cache`, `exceeds_200k`, and the `/compact` hint. Unchanged: everything session-wide, so `cost` is still the whole session's and not the agent's share.
 
 **To switch:** `↓` to the agent list, `↓` to the agent, `Enter`. To come back: `↑` to `main`, `Enter`. `Esc` only clears the selection and leaves the view where it is.
 
-**Why it needs a module.** Upstream request: [anthropics/claude-code#96895](https://github.com/anthropics/claude-code/issues/96895), open, which proposes a `viewed_agent` field and a repaint on switch. If it ships, the module, the sidecar and the short refresh can go. Read in the 2.1.314 binary **[BIN]**: the status line's stdin is built from `mainLoopModel` and the main conversation's messages whatever is on screen, `viewingAgentTaskId` is in neither it nor the `subagentStatusLine` payload, and it is not among the inputs that re-run the command. No command hook fires on a switch. The only published reading of the view is `e.props.view` at a `ui.render` site, so `plugins/audio-hooks/hooks/view-sensor.ts` hooks `AbovePrompt`, draws nothing, and writes `{"agent_id": …, "name": …, "type": …}` when the view changes.
+**Why it needs a module.** Upstream request: [anthropics/claude-code#96895](https://github.com/anthropics/claude-code/issues/96895), open, which proposes a `viewed_agent` field and a repaint on switch. If it ships, the module, the sidecar and the short refresh can go. Read in the 2.1.314 binary and unchanged at 2.1.316 **[BIN]**: the status line's stdin is built from `mainLoopModel` and the main conversation's messages whatever is on screen, `viewingAgentTaskId` is in neither it nor the `subagentStatusLine` payload, and it is not among the inputs that re-run the command. No command hook fires on a switch. The only published reading of the view is `e.props.view` at a `ui.render` site, so `plugins/audio-hooks/hooks/view-sensor.ts` hooks `AbovePrompt`, draws nothing, and writes `{"agent_id": …, "name": …, "type": …}` when the view changes.
 
 **The pieces.**
 
@@ -78,7 +78,7 @@ When the person switches the main view to a subagent's transcript (the agent lis
 
 **Refresh.** Nothing tells the script the view changed, so `refreshInterval` is how soon it follows: `statusline install` registers 2 seconds. An existing registration keeps its old interval until `statusline install` runs again; `statusline show` says so in `next_steps`. Do not lower it to 1: Claude Code aborts a run still going at the next tick, and bare Python alone took up to 1.3 s on the measured machine under load.
 
-**The context window is partly an estimate.** A transcript records the tokens but not the window. When the agent runs the main conversation's model, the main window is exact. Otherwise it is 200K, or 1M if the request asked for `[1m]` or the agent has already passed 200K, and the figure shows as `~200K`. The per-subagent row (`statusline subagent`) has the exact value because Claude Code hands it that one.
+**The context window is partly an estimate.** A transcript records the tokens but not the window. When the agent runs the main conversation's model, the main window is exact, and so is 1M when the request asked for `[1m]`. Otherwise the figure is an estimate and shows with a `~`: `~1M` once the agent has passed 200K; `~200K` for `sonnet-4-0`, `sonnet-4-5`, `sonnet-4-6` and `opus-4-6`, or with `CLAUDE_CODE_DISABLE_1M_CONTEXT` set; or else `max_input_tokens` from Claude Code's model catalog cache, `<config dir>/cache/model-catalog/*.json`, then `~200K` if the catalog has no answer. That cache is private and may change. The four models are listed because the catalog gives their 1M maximum, and 2.1.316 runs `sonnet-4-6` and `opus-4-6` at 200K. The per-subagent row (`statusline subagent`) has the exact value because Claude Code hands it that one.
 
 **Teammates and workflows.** A teammate in the same process is followed like a subagent (measured: `[▸ Haiku 5.5] | 🤖 ▸ scout`). A workflow's agents are not: a workflow opens its own full-screen panel, which has no status line, and the view reported to the module stays on the main conversation.
 

@@ -97,12 +97,12 @@ For a change to anything drawn in the terminal, also run it in a real session: `
 |---|---|
 | The card and the strip | `scripts/cards/echook.mjs` and `echook-strip.mjs` in `ChanMeng666/ChanMeng666` |
 | Rules for a card | `docs/animated-svg-cards.md`, same repository |
-| Status rows, counts, sounds, demo session | `ChanMeng666/echook-promo-studio`, cloned beside this repository |
+| Status rows, counts, sounds, demo session | `ChanMeng666/film-echook-terminal`, cloned beside this repository |
 
 From the parent folder of the three checkouts:
 
 ```bash
-(cd echook-promo-studio && node scripts/bake-product-data.mjs)     # runs this repo's real scripts in a throwaway home
+(cd film-echook-terminal && node scripts/bake-product-data.mjs)     # runs this repo's real scripts in a throwaway home
 (cd ChanMeng666 && node scripts/build-readme-cards.mjs echook && node scripts/build-echook-strip.mjs)
 cp ChanMeng666/public/cards/echook.svg claude-code-audio-hooks/.github/readme/card.svg
 ```
