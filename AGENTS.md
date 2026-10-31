@@ -27,7 +27,7 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 ## Commands
 
 - Tests: `python -m unittest discover tests` (not pytest). CI: `.github/workflows/smoke.yml`, three OSes × Python 3.9/3.12/3.13.
-- Sync the mirror: `bash scripts/build-plugin.sh` (`--check` to verify).
+- Sync the mirror: `bash scripts/build-plugin.sh` (`--check` to verify). On Windows run it from Git Bash; in PowerShell `bash` can resolve to WSL.
 - Release: `bash scripts/bump-version.sh <version>`, then follow `docs/RELEASING.md`.
 - Verify an install: `audio-hooks status`, `audio-hooks diagnose`, `audio-hooks test all`.
 - Running the CLI from a checkout: set `CLAUDE_PLUGIN_DATA` to a scratch directory first, or it resolves the real install's data.
@@ -38,7 +38,7 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 | Area | `docs/INVARIANTS.md` section | Guard |
 |---|---|---|
 | `hooks.json`, a new event or matcher | Upstream editor behaviour; Events, variants and sounds | `tests/test_plugin_hooks_contract.py` |
-| The status line renderer, `view-sensor.ts` (and read `docs/STATUS_LINE.md`) | Upstream editor behaviour | `tests/test_statusline.py` |
+| The status line renderer, `view-sensor.ts` (and read `docs/STATUS_LINE.md`; a change to its output also means rebuilding the README pictures, `docs/RELEASING.md`) | Upstream editor behaviour | `tests/test_statusline.py` |
 | A new variant | Events, variants and sounds (`SYNTHETIC_VARIANT_DEFAULTS`, `VARIANT_INTRODUCED`, a distinct sound in both themes) | `tests/test_variant_migration.py` |
 | `run_hook` order, escaping, notification dispatch, a runner module | Hook runner | `tests/test_filter_debounce_order.py`, `tests/test_desktop_notification.py`, `tests/test_runner_modules.py` |
 | A CLI subcommand or flag | CLI contract (`--help` side-effect-free, unknown arguments are `INVALID_USAGE`, reporting commands are read-only, every code catalogued, every flag in the manifest) | `tests/test_read_only_commands.py`, `tests/test_cli_error_codes.py`, `tests/test_manifest_drift.py` |
