@@ -57,7 +57,7 @@ Width is resolved as: `statusline_settings.max_width` override, then the `COLUMN
 When the person switches the main view to a subagent's transcript (the agent list under the prompt, `↓` then `Enter`), the line shows that agent, not the main conversation:
 
 ```
-[▸ Haiku 5.5] | 🤖 ▸ general-purpose | 🧠 medium | …  ░░░░░░░░ ▸ Context: 3% (29K/~1M)  cache 84%  💲 $0.12
+[▸ Haiku 5.5] | 🤖 ▸ general-purpose | 🧠 medium | …  ░░░░░░░░ ▸ Context: 2% (29K/~1M)  cache 84%  💲 $0.12
 ```
 
 `▸` marks whatever describes the viewed agent. Swapped: `model`, `agent`, `effort`, `context`, `tokens`. Dropped, having no counterpart for an agent: `thinking`, `fast_mode`, `prompt_cache`, `exceeds_200k`, and the `/compact` hint. Unchanged: everything session-wide, so `cost` is still the whole session's and not the agent's share.
