@@ -39,6 +39,12 @@ Say this to your agent in Claude Code, Cursor or Codex:
 
 It reads the docs, runs every command and checks the result. Two steps stay with you: type `/reload-plugins` once in Claude Code, or restart the editor once on the Cursor and Codex install paths.
 
+Or add the `audio-hooks` skill first with the skills CLI ([skills.sh](https://skills.sh/chanmeng666)), then say the same sentence:
+
+```bash
+npx skills add ChanMeng666/echook
+```
+
 After that, every setting is a sentence:
 
 > *Mute audio for an hour.* · *Switch to chimes.* · *Put a context-usage bar in my status line.*
