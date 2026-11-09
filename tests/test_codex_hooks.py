@@ -643,9 +643,13 @@ class TestInstallCodex(unittest.TestCase):
         self._install()
         self._install()
         doc = json.loads((self.codex_home / "hooks.json").read_text(encoding="utf-8"))
-        # 10 events, with two matcher entries each for PreCompact/PostCompact
-        total = sum(len(v) for v in doc.get("hooks", {}).values())
+        # 10 events, with two matcher entries each for PreCompact/PostCompact.
+        # SessionEnd is added only when the `codex` on PATH is new enough, so
+        # it is counted apart to keep the test independent of this machine.
+        hooks = doc.get("hooks", {})
+        total = sum(len(v) for k, v in hooks.items() if k != "SessionEnd")
         self.assertEqual(total, 12, f"unexpected entry count: {total}")
+        self.assertLessEqual(len(hooks.get("SessionEnd", [])), 1)
 
     def test_install_preserves_foreign_entries(self):
         # Pre-write a user-authored hooks.json with a non-audio-hooks entry
@@ -831,6 +835,10 @@ class TestUninstallCodex(unittest.TestCase):
         # Pre-install
         rc, _, _ = _run_cli(["install", "--codex"], env_extra=self.env)
         self.assertEqual(rc, 0)
+        # 12 template entries, plus SessionEnd when the `codex` on PATH is new
+        # enough to accept it (see CODEX_SESSION_END_MIN_VERSION).
+        doc = json.loads((self.codex_home / "hooks.json").read_text(encoding="utf-8"))
+        self.installed_entries = 12 + len(doc.get("hooks", {}).get("SessionEnd", []))
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -843,7 +851,7 @@ class TestUninstallCodex(unittest.TestCase):
         self.assertEqual(rc, 0)
         out = json.loads(stdout)
         self.assertEqual(out["mode"], "codex")
-        self.assertEqual(out["removed_entries"], 12)
+        self.assertEqual(out["removed_entries"], self.installed_entries)
         # File should be gone (no foreign content)
         self.assertFalse((self.codex_home / "hooks.json").exists())
 
