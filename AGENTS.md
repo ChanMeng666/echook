@@ -7,7 +7,7 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 2. **Scope guard.** Anything that is neither a notification nor a status-line segment is out of scope by design (wellness, pomodoro/timers, gamification, opening URLs, side-commands). Decline and say why instead of implementing it.
 3. **No human-interactive paths.** No prompts, menus or "edit this file" instructions. A step an agent cannot do (`/reload-plugins`) is emitted as machine-readable `next_steps`.
 4. **After editing a canonical directory run `bash scripts/build-plugin.sh`.** CI runs `--check` and fails on drift.
-5. **Work on a branch.** Every push to `master` is scanned by Anthropic's plugin directory, so `master` must stay releasable.
+5. **Work on a branch.** The marketplace installs `plugins/audio-hooks/` from `master`, so every push reaches users and `master` must stay releasable.
 6. **Read the matching section of `docs/INVARIANTS.md` before changing an area listed below.** Each rule there cost an incident to learn.
 </critical>
 
@@ -15,7 +15,7 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 
 | Path | What it is |
 |---|---|
-| `hooks/` | Runtime, flat modules. `hook_runner.py` is the entry: event tables, gating (enabled, snooze, filters, debounce), `run_hook`, `main`. `runner_core.py` owns shared state (preferences handle, NDJSON log, queue dir, invoker lookup). One concern each: `audio_playback.py`, `desktop_notification.py`, `text_to_speech.py`, `webhook_dispatch.py`, `rate_limit_alerts.py`, `terminal_sequence.py`, `notification_context.py` (wording, sanitising), `platform_shell.py` (PowerShell launch and escaping, WSL). Call across modules as `module.name(...)`, never `from module import name`. Also `user_preferences.py` (config load, migration, data-dir resolution) and `invoker.py` (which editor called). |
+| `hooks/` | Runtime, flat modules. `hook_runner.py` is the entry: event tables, gating (enabled, snooze, filters, debounce), `run_hook`, `main`. `runner_core.py` owns shared state (preferences handle, NDJSON log, queue dir, invoker lookup). One concern each: `audio_playback.py`, `desktop_notification.py`, `text_to_speech.py`, `webhook_dispatch.py`, `rate_limit_alerts.py`, `terminal_sequence.py`, `notification_context.py` (wording, sanitising), `platform_shell.py` (PowerShell launch, untrusted text passed as base64 and never as script source, WSL). Call across modules as `module.name(...)`, never `from module import name`. Also `user_preferences.py` (config load, migration, data-dir resolution) and `invoker.py` (which editor called). |
 | `bin/` | `audio-hooks.py` is the CLI entry: dispatch, config, state detection, small commands, manifest. Larger concerns are one module each in `bin/echook_cli/` (`legacy_uninstall`, `editor_installs`, `statusline`, `plugin_upgrade`, `config_backup`, `error_codes`, …; its `__init__.py` lists them). Add a concern as a new module there, not to the entry file. Also the two status-line renderers and the launchers. |
 | `config/` | `default_preferences.json` (the template every install migrates toward), `audio_manifest.json` (prompt per sound file). |
 | `audio/default/`, `audio/custom/` | Voice theme and chime theme; one file per event and variant. |
@@ -56,6 +56,6 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 - `docs/STATUS_LINE.md` — track 2. `docs/TROUBLESHOOTING.md` — symptoms whose cause is upstream.
 - `docs/LIVE_TESTING.md` — driving a real interactive session from a script. Use it before calling terminal behaviour verified.
 - `docs/PROJECT_STATUS.md` — what is waiting, unverified, or deliberately not done. Read before proposing work; update it in the same commit as anything it lists.
-- `docs/RELEASING.md`, `docs/DIRECTORY_LISTING.md` — release mechanics and the rules the directory listing puts on the plugin folder.
+- `docs/RELEASING.md`, `docs/DIRECTORY_LISTING.md` — release mechanics, and the record of the withdrawn directory submission with the rules a resubmission would bring back.
 - `plugins/audio-hooks/skills/audio-hooks/SKILL.md` — how to map a user's plain-language request to commands.
 - `plugins/audio-hooks/README.md`, `PRIVACY.md` — disclosures. Change them in the same commit as any change to what the plugin runs, sends or writes.

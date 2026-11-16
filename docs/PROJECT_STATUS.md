@@ -18,11 +18,8 @@ The cycle began with an incident, and most of 6.6.0 follows from it. On 2026-10-
 
 | Item | Who | How to check |
 |---|---|---|
-| Plugin directory review. Submitted 2026-10-04; security scan passed; held for content policy review. | Anthropic reviewer, then the maintainer selects **Publish** | The plugin page in the developer portal (`docs/DIRECTORY_LISTING.md`) |
-| The portal's result for the pushes after `e23a682`: `89a0cfc` (README, PR #41), `bc3dc41` (CI, PR #42) and the merge that records the v7.2.3 result and moves CI off the deprecated Node 20 actions. None changed `plugins/audio-hooks/`; none has been read yet. | Maintainer | The plugin page in the developer portal; record it in `docs/DIRECTORY_LISTING.md` with the next change that has to land |
 | The 7.2.4 security report. Released 2026-11-17 (PR #43); advisory GHSA-4fj9-49x6-vgjp published (high, CWE-78, no CVE requested); the reporter was answered the same day and offered credit by name. If they accept, add the name to the advisory and the 7.2.4 changelog entry. A CVE can still be requested from the advisory page. | Maintainer | Repository **Security** tab, advisories; the reply thread |
 | GitGuardian incident 37836366, a false positive on a sound-file mapping in `hooks/hook_runner.py` (see `docs/RELEASING.md`). It stays open until resolved in the dashboard. | Maintainer | GitGuardian dashboard |
-| A reviewer's decision on `hooks/view-sensor.ts`. Read in the portal on 2026-10-31 for 7.2.0 and 7.2.1: the scans passed and the module was not refused, but it adds holds, listed in `docs/DIRECTORY_LISTING.md`. Every version was already waiting for a reviewer. If it is refused, removing the `modules` line from `hooks.json` restores the old behaviour and nothing else depends on it. | Anthropic reviewer | The plugin page in the developer portal |
 | The six sound files added in 6.7.0 have not been listened to by a person. They are valid, distinct and of normal length. | Maintainer | Play `audio/default/{notif-auth-storage,fail-cloud-credential,fail-verification}.mp3` and `audio/custom/chime-*` counterparts |
 
 ## Claimed but not verified
@@ -54,7 +51,6 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 **Unknown**
 - Whether the classic status line renders in the Claude Desktop app. This decides whether a separate "band" mod for Desktop users would have any purpose.
 - Whether `model_refusal_fallback` ever fires as a `Notification`. It is declared in the binary; no emitter was found, so it is not registered.
-- What a reviewer does with the versions that piled up while the first one was in review. Recording a portal result in this repository is itself a push, so such a change waits for the next one that has to land. Observed on 2026-10-21: **every** push to `master` became a new version, each scanned and then "Held by directory policy", 14 by then, from v6.7.2 at `f692417` to v7.1.0 at `1979632`, including two pushes that changed nothing in `plugins/audio-hooks/` (`c5e1b66`, `a148c71`). Whether the reviewer reviews the newest, the first, or each one is not known; see `docs/DIRECTORY_LISTING.md`.
 
 ## Known limits that are accepted for now
 
@@ -62,7 +58,7 @@ These are stated in the changelog's "Not verified" sections; they are collected 
 - `audio-hooks uninstall` does not strip or report a registration that reaches an echook script through command substitution, a variable whose name contains neither `HOME` nor `USERPROFILE`, `~user/…`, or a relative path. It reports the other unrecognised spellings and removes them with `--remove-unmatched`.
 - Most read-only commands (`status`, `diagnose`, `get`, `version`, `update`, `manifest`, `hooks list`, `theme list`, `statusline show|segments`) still ignore unknown flags. They are read-only. `logs tail` and `backup list|show` reject them.
 - `uninstall --purge` is rejected for the script and plugin modes; it applies to `--cursor` and `--codex`.
-- The plugin can be listed only for Claude Code: a top-level `bin/` directory rules out Cowork and the Claude apps.
+- echook is not in Anthropic's plugin directory. The directory takes command hooks, mods, `bin/` and code files only from Verified organizations (since 2026-11-09), and echook is all of those; the submission was withdrawn on 2026-11-17. It ships through this repository's marketplace, the skills CLI and the Cursor and Codex install paths.
 
 ## Looked at and deliberately not done
 
@@ -82,7 +78,7 @@ Do not reopen these without new evidence; each has a reason on record.
 | Register Codex's `Interrupt` hook event (seen in the Codex hooks documentation, 2026-10-07) | It fires when the user interrupts a turn: the person is at the keyboard and caused it, so a notification tells them nothing, and a new event needs its own sound in both themes | This table |
 | Register Cursor's `preToolUse` | It is a gating hook (it can deny a tool call), the same trap as `PreModelSwitch`. `postToolUse` is safe but overlaps the shell, MCP and file events already registered; left out as low value | This table; Changelog 6.8.0 |
 | Step back on any platform because of its native notifications (surveyed 2026-10-07) | None covers echook's ground. Claude Code: desktop notification only in Ghostty, Kitty and iTerm2, a bell elsewhere, and account-bound mobile push with two toggles. Codex: a `notify` program for turn completion and OSC 9 / BEL. Cursor: one completion chime in the IDE and a terminal notification in the CLI. No per-event sounds, speech, webhooks, filters or snooze anywhere. The one real overlap, Cursor's chime, is described in `docs/TROUBLESHOOTING.md` | "Native features surveyed" below |
-| Restructure the plugin to clear the directory's policy holds | They describe what the plugin is; a hold is not a rejection | `docs/DIRECTORY_LISTING.md` |
+| Restructure the plugin to get into Anthropic's plugin directory | The directory now refuses command hooks, mods, `bin/` and code files from an organization that is not Verified, and those are the whole product: a version without them would notify nobody. Withdrawn 2026-11-17 instead; resubmit only from a Verified organization | `docs/DIRECTORY_LISTING.md` |
 
 ## Candidates for a later release
 
@@ -101,7 +97,6 @@ None of these is committed to. They are what the investigation left on the table
 - **Making the skill fire for a status-line request.** On 2026-10-13 the eval case `statusline-context-only` scored 0 of 3 with Haiku because the skill was never invoked, identically on v6.8.0 and on the shortened 7.0.0 skill, so it is a triggering problem in the description, not in the body. The other six cases passed (one run each).
 - **Deleting the tracked `config/user_preferences.json`** one release after 7.0.0. It is only the sentinel an already-installed script install's old runner looks for on the first hook after `git pull`.
 - **Tightening the skill's scope paragraph** so the model does not offer a `/loop` workaround after declining an out-of-scope feature (the flaky eval case).
-- **A `termsOfServiceUrl`** for the directory listing, which is the one listing link not set.
 
 ## Upstream items being watched
 
