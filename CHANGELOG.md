@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Historical entries below this point use the project's previous name. They are preserved verbatim as a record of what was shipped at the time. The rename to **echook** landed in 5.2.1 — see that entry for the full mitigation guidance.
 
+## [7.2.4] - 2026-11-17
+
+### Security
+
+- **Fixed PowerShell command injection on Windows and WSL.** Text in a desktop
+  notification or spoken message could break out of the PowerShell string it was
+  placed in and run commands with the user's privileges. The text includes the
+  agent's last message, which content the agent read can influence. The escaper
+  missed the typographic quotes `“ ” „`, which PowerShell also treats as
+  quotes. Text now reaches PowerShell base64-encoded and is decoded inside the
+  script, so none of it is ever part of the script source. This covers the toast
+  (all three backends), text to speech and the audio file path. macOS and Linux
+  were not affected. Reported privately under `SECURITY.md`. Upgrade to 7.2.4.
+
+### Fixed
+
+- **Notifications and spoken messages with typographic quotes work again** on
+  Windows and WSL. German `„…“` and English `“…”` quotation marks made the
+  script fail to parse, so the toast or speech was silently lost.
+
 ## [7.2.3] - 2026-10-31
 
 ### Fixed

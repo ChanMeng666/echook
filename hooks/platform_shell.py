@@ -1,9 +1,10 @@
 """echook hook runner: host-platform primitives shared by the dispatch modules.
 
-PowerShell string escaping and hidden PowerShell launch (fire-and-forget and
+Untrusted text as a PowerShell expression (base64, never interpolated), hidden PowerShell launch (fire-and-forget and
 run-to-completion), WSL detection, and a writable temp directory.
 """
 
+import base64
 import os
 import platform
 import subprocess
@@ -13,13 +14,22 @@ from typing import List
 import runner_core
 
 
-def escape_powershell_string(s: str) -> str:
-    """Escape a string for safe use in PowerShell double-quoted strings."""
-    # Escape backticks, double quotes, and dollar signs
-    s = s.replace('`', '``')
-    s = s.replace('"', '`"')
-    s = s.replace('$', '`$')
-    return s
+def powershell_text_expr(s: str) -> str:
+    """A PowerShell expression that evaluates to ``s``, with no text from ``s``
+    in the source.
+
+    Untrusted text (an agent's last message, a tool command, a file path) must
+    never be interpolated into PowerShell source. Escaping is not enough:
+    PowerShell also treats the typographic quotes U+2018-U+201E as quote
+    delimiters, so an escaper that only handles the ASCII ones lets a message
+    close the literal and append statements (fixed in 7.2.4). The text is
+    base64-encoded here and decoded in the script instead; the base64 alphabet
+    holds no quote of any kind, so the single-quoted literal cannot be closed.
+    Use the result wherever a string *expression* is accepted, never inside
+    another string literal.
+    """
+    encoded = base64.b64encode(s.encode("utf-8")).decode("ascii")
+    return f"([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}')))"
 
 
 def get_safe_temp_dir() -> Path:

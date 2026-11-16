@@ -16,9 +16,10 @@ import platform_shell
 
 def play_audio_windows(audio_file: Path) -> bool:
     """Play audio on Windows using multiple fallback methods."""
-    # Escape path for PowerShell
+    # The path comes from config, so it is untrusted text: pass it to
+    # PowerShell as a base64 expression, never as source.
     win_path = str(audio_file).replace("\\", "/")
-    win_path_escaped = platform_shell.escape_powershell_string(win_path)
+    win_path_expr = platform_shell.powershell_text_expr(win_path)
 
     runner_core.log_debug(f"Windows audio playback: {win_path}")
 
@@ -31,7 +32,7 @@ def play_audio_windows(audio_file: Path) -> bool:
         ps_cmd = (
             'Add-Type -AssemblyName presentationCore; '
             '$p = New-Object System.Windows.Media.MediaPlayer; '
-            f'$p.Open("{win_path_escaped}"); '
+            f'$p.Open({win_path_expr}); '
             '$deadline = (Get-Date).AddMilliseconds(1500); '
             'while (-not $p.NaturalDuration.HasTimeSpan -and (Get-Date) -lt $deadline) '
             '{ Start-Sleep -Milliseconds 50 }; '
@@ -62,7 +63,7 @@ def play_audio_windows(audio_file: Path) -> bool:
         ps_script = f'''
 Add-Type -AssemblyName presentationCore
 $player = New-Object System.Windows.Media.MediaPlayer
-$player.Open("{win_path_escaped}")
+$player.Open({win_path_expr})
 $deadline = (Get-Date).AddMilliseconds(1500)
 while (-not $player.NaturalDuration.HasTimeSpan -and (Get-Date) -lt $deadline) {{
     Start-Sleep -Milliseconds 50
@@ -94,7 +95,7 @@ Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyConti
     # Method 3: Use WMPlayer.OCX COM object
     try:
         ps_cmd = (
-            f'$w = New-Object -ComObject WMPlayer.OCX; $w.URL = "{win_path_escaped}"; '
+            f'$w = New-Object -ComObject WMPlayer.OCX; $w.URL = {win_path_expr}; '
             '$deadline = (Get-Date).AddMilliseconds(1500); '
             'while (($w.currentMedia -eq $null -or $w.currentMedia.duration -eq 0) '
             '-and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 50 }; '
@@ -252,13 +253,13 @@ def play_audio_wsl(audio_file: Path) -> bool:
                 return play_audio_linux(audio_file)
 
         runner_core.log_debug(f"Windows path: {win_path}")
-        win_path_escaped = platform_shell.escape_powershell_string(win_path.replace("\\", "/"))
+        win_path_expr = platform_shell.powershell_text_expr(win_path.replace("\\", "/"))
 
         # Play using PowerShell
         ps_command = f'''
 Add-Type -AssemblyName presentationCore
 $player = New-Object System.Windows.Media.MediaPlayer
-$player.Open("{win_path_escaped}")
+$player.Open({win_path_expr})
 $deadline = (Get-Date).AddMilliseconds(1500)
 while (-not $player.NaturalDuration.HasTimeSpan -and (Get-Date) -lt $deadline) {{
     Start-Sleep -Milliseconds 50
@@ -271,7 +272,7 @@ if ($player.NaturalDuration.HasTimeSpan) {{
 }}
 $player.Stop()
 $player.Close()
-Remove-Item -Path "{win_path_escaped}" -ErrorAction SilentlyContinue
+Remove-Item -Path {win_path_expr} -ErrorAction SilentlyContinue
 '''
 
         proc = subprocess.Popen(

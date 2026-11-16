@@ -40,7 +40,7 @@ MOVED = {
                     "get_log_dir", "ensure_queue_dir", "_queue_dir_ensured", "_set_log_context",
                     "_current_hook_type", "_current_session_id", "_get_invoker", "_invoker_display_name",
                     "DEBUG"],
-    "platform_shell": ["escape_powershell_string", "get_safe_temp_dir", "is_wsl", "_spawn_powershell",
+    "platform_shell": ["powershell_text_expr","get_safe_temp_dir", "is_wsl", "_spawn_powershell",
                        "_run_powershell", "PROBE_OK", "PROBE_FAILED", "PROBE_INCONCLUSIVE"],
     "audio_playback": ["play_audio", "play_audio_windows", "play_audio_macos", "play_audio_linux",
                        "play_audio_wsl"],
