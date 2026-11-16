@@ -86,7 +86,7 @@ gh release create v<version> --verify-tag --title "v<version> — <what changed,
 
 Release titles and notes are written as a short narrative of what changed and why, followed by what was and was not verified; see the existing releases. Then remove the worktree and delete the branch locally and on the remote.
 
-**A push to `master` is no longer a private event.** A webhook tells Anthropic's plugin directory about it within minutes and the directory scans the new commit. See `docs/DIRECTORY_LISTING.md` before merging anything that changes what the plugin runs, sends or writes.
+**A push to `master` reaches users.** The marketplace installs the plugin from `master`. Anthropic's plugin directory no longer watches it: the submission was withdrawn on 2026-11-17 (`docs/DIRECTORY_LISTING.md`).
 
 For a change to anything drawn in the terminal, also run it in a real session: `docs/LIVE_TESTING.md`.
 
@@ -116,7 +116,6 @@ Then copy each picture's `<title>` into the `alt` in `README.md`. Rebuild when t
 
 - **A machine with the plugin installed from GitHub keeps running its cached copy.** (One with a directory-source marketplace runs the directory.) `audio-hooks upgrade` moves it to the new version (data preserved), and `/reload-plugins` must then be typed in each Claude Code session that is already open — there is no command-line equivalent, and a session started or resumed afterwards needs no reload (`--resume` was measured on 2.1.316). Verify with `audio-hooks status`, `audio-hooks diagnose` and `audio-hooks hooks list --variants`.
 - **The preferences file is migrated by the first hook event or state-changing command**, or on request by `audio-hooks migrate`. `status` and `diagnose` no longer do it.
-- **Check the directory.** The plugin page shows whether the new commit was picked up, scanned and held or passed.
 - **Clean up scratch files.** Keep the raw evidence behind anything recorded in `docs/EVENT_BEHAVIOR_NOTES.md` that cannot be regenerated — a carved binary extract disappears when Claude Code updates, and documentation pages change — and delete the rest.
 
 ## Re-syncing against a new Claude Code release
