@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Notifications and spoken messages with typographic quotes work again** on
   Windows and WSL. German `„…“` and English `“…”` quotation marks made the
   script fail to parse, so the toast or speech was silently lost.
+- **The view sensor passes `claude plugin validate --strict` on Claude Code
+  2.1.326**, which now type-checks a hooks module. Its helpers' parameters are
+  typed explicitly; what the module does, reads and writes is unchanged.
 
 ## [7.2.3] - 2026-10-31
 

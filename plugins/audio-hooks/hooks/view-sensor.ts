@@ -8,24 +8,30 @@
 
 import type { Register } from 'claude-code'
 
+// A helper's parameters need a type of their own: the validator type-checks
+// this file (Claude Code 2.1.326), and the engine's type for `$` cannot be
+// named outside a handler (derived from Register it collapses to never).
+// Every caller passes its handler's own `$`.
+type Handle = any
+
 // The status line runs with no CLAUDE_PLUGIN_DATA, so the two sides meet in the
 // temp directory. _viewed_agent_file() in the status line spells the same path.
-async function sidecarPath($, sessionId) {
+async function sidecarPath($: Handle, sessionId: string) {
   const tmp = (await $.env.get('TEMP')) || (await $.env.get('TMP')) || (await $.env.get('TMPDIR')) || '/tmp'
 
   return `${tmp}/claude_audio_hooks_queue/viewed_agent.${sessionId}.json`
 }
 
-async function publish($, agentId) {
+async function publish($: Handle, agentId: string | undefined) {
   const agents = agentId === undefined ? [] : await $.agent.list()
-  const agent = agents.find(candidate => candidate.id === agentId)
+  const agent = agents.find((candidate: { id?: string }) => candidate.id === agentId)
   const path = await sidecarPath($, await $.session.id())
 
   await $.fs.write(path, JSON.stringify({ agent_id: agentId ?? null, name: agent?.name, type: agent?.type }))
 }
 
 // A session resumed or reloaded on an agent's view must not keep showing it.
-async function clear($) {
+async function clear($: Handle) {
   const path = await sidecarPath($, await $.session.id())
 
   if (await $.fs.exists(path)) {
