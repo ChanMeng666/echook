@@ -51,7 +51,37 @@ NASTY_BODIES = [
     "Run `Get-Date` in a backtick block",
     'Mixed: "quoted" $var `tick` & <tag> \'single\'',
     "Trailing backslash path C:\\Users\\0\\",
+    # Typographic quotes in ordinary prose: PowerShell treats all of these as
+    # quote delimiters, so until 7.2.4 they broke the script (German, French).
+    "Er sagte \u201eHallo\u201c und \u201aja\u2018 \u2014 fertig",
+    "Il a dit \u201cbonjour\u201d \u2019ok\u2019 \u00ab ici \u00bb",
 ]
+
+# Bodies that, before 7.2.4, closed the string literal and ran their own
+# statement (reported privately; the agent's last message reaches the toast and
+# TTS on every stop, so a prompt injection could plant one of these).
+INJECTION_BODIES = [
+    "Done\u201d)); Write-Output INJECTED; ((\u201c",
+    "Done\u201d); Write-Output INJECTED; (\u201c",
+    "Done\u201d; Write-Output INJECTED; \u201c",
+    "Done\u201e; Write-Output INJECTED; \u201e",
+    "Done\u201c; Write-Output INJECTED; \u201d",
+    "Done'); Write-Output INJECTED; ('",
+    "Done\u2019); Write-Output INJECTED; (\u2018",
+    'Done"); Write-Output INJECTED; ("',
+    "Done$(Write-Output INJECTED)",
+    "Done`\u201d; Write-Output INJECTED",
+]
+
+
+def _decoded_literals(script: str) -> List[str]:
+    """Every text value the script carries, decoded from its base64 literals."""
+    import base64
+    import re
+    return [
+        base64.b64decode(m).decode("utf-8")
+        for m in re.findall(r"FromBase64String\('([A-Za-z0-9+/=]*)'\)", script)
+    ]
 
 
 def _load_hook_runner():
@@ -145,33 +175,43 @@ class _SpawnRecorder:
 
 
 class TestPowerShellEscaping(unittest.TestCase):
-    """The Windows/WSL scripts must use backtick escaping, and must not strip."""
+    """Untrusted text reaches the Windows/WSL scripts base64-encoded, never as
+    source, and arrives intact (nothing stripped)."""
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.mod = _load_hook_runner()
 
-    def test_double_quote_is_backtick_escaped(self):
-        body = 'git commit -m "fix: toast"'
+    def test_text_round_trips_through_base64(self):
+        body = 'git commit -m "fix: toast" costs $12 via `Get-Date` “ok”'
         for backend in ("winrt", "burnttoast", "notifyicon"):
             with self.subTest(backend=backend):
                 script = self.mod.desktop_notification._build_windows_toast_script(backend, "Claude Code", body)
-                self.assertIn('git commit -m `"fix: toast`"', script)
-                self.assertNotIn('\\"', script)
+                self.assertEqual(["Claude Code", body], _decoded_literals(script))
 
-    def test_dollar_and_backtick_survive(self):
-        script = self.mod.desktop_notification._build_windows_toast_script(
-            "winrt", "Claude Code", "Cost $12 via `Get-Date`"
-        )
-        # Escaped, not deleted: the old escaper dropped $ and ` from the text
-        # the user actually reads.
-        self.assertIn("Cost `$12 via ``Get-Date``", script)
+    def test_no_untrusted_text_in_the_script_source(self):
+        # The guard that does not need Windows: not one character of the title
+        # or body may appear in the generated source. Each marker is distinctive
+        # enough that it cannot occur in the fixed template.
+        for backend in ("winrt", "burnttoast", "notifyicon"):
+            for body in INJECTION_BODIES:
+                with self.subTest(backend=backend, body=body):
+                    script = self.mod.desktop_notification._build_windows_toast_script(
+                        backend, "T”itle", body
+                    )
+                    self.assertNotIn("INJECTED", script)
+                    self.assertNotIn("”", script)
+                    self.assertEqual(["T”itle", body], _decoded_literals(script))
 
-    def test_title_is_escaped_too(self):
-        script = self.mod.desktop_notification._build_windows_toast_script(
-            "notifyicon", 'Claude "Code" $1', "body"
-        )
-        self.assertIn('Claude `"Code`" `$1', script)
+    def test_text_expr_alphabet_is_quote_free(self):
+        expr = self.mod.desktop_notification.platform_shell.powershell_text_expr("“”„‘’'\"`$")
+        literal = expr.split("FromBase64String('", 1)[1].split("')", 1)[0]
+        self.assertRegex(literal, r"^[A-Za-z0-9+/=]*$")
+
+    def test_the_backtick_escaper_is_gone(self):
+        # It looked safe and was not; a reintroduced escaper would invite the
+        # same bug back. Untrusted text goes through powershell_text_expr only.
+        self.assertFalse(hasattr(self.mod.desktop_notification.platform_shell, "escape_powershell_string"))
 
     def test_winrt_inserts_text_as_xml_text_nodes(self):
         # Text goes through CreateTextNode so XML metacharacters in a tool
@@ -180,7 +220,7 @@ class TestPowerShellEscaping(unittest.TestCase):
             "winrt", "Claude Code", "diff <old> & <new>"
         )
         self.assertIn("CreateTextNode(", script)
-        self.assertIn("diff <old> & <new>", script)
+        self.assertIn("diff <old> & <new>", _decoded_literals(script))
 
     def test_winrt_targets_a_registered_aumid(self):
         script = self.mod.desktop_notification._build_windows_toast_script("winrt", "t", "m")
@@ -257,6 +297,62 @@ class TestGeneratedScriptParses(unittest.TestCase):
             return ""
         return (proc.stdout or "") + (proc.stderr or "") or "unknown parse failure"
 
+    def _command_names(self, script: str) -> List[str]:
+        """Names of every command in the script's AST (parse only, never run)."""
+        path = os.path.join(self.tmpdir, "candidate-ast.ps1")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(script)
+        harness = (
+            "$src = Get-Content -Raw -Encoding UTF8 -LiteralPath '{path}'; "
+            "$ast = [System.Management.Automation.Language.Parser]::ParseInput("
+            "$src, [ref]$null, [ref]$null); "
+            "$ast.FindAll({{ $args[0] -is [System.Management.Automation.Language.CommandAst] }}, $true) "
+            "| ForEach-Object {{ $_.GetCommandName() }}"
+        ).format(path=path)
+        proc = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", harness],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+    def test_injection_bodies_add_no_command(self):
+        # The vulnerability itself: before 7.2.4 a typographic quote closed the
+        # literal and "Write-Output" parsed as a statement of its own. The
+        # commands in the script must be exactly those of a harmless body.
+        builders = [
+            (f"toast:{backend}", lambda body, b=backend: self.mod.desktop_notification._build_windows_toast_script(
+                b, "Claude Code", body))
+            for backend in self.mod.desktop_notification._WINDOWS_BACKENDS
+        ] + [("sapi", self.mod.text_to_speech._build_sapi_script)]
+        for name, build in builders:
+            expected = self._command_names(build("harmless"))
+            self.assertNotIn("Write-Output", expected)
+            for body in INJECTION_BODIES:
+                with self.subTest(builder=name, body=body):
+                    script = build(body)
+                    self.assertEqual("", self._parse_errors(script))
+                    names = self._command_names(script)
+                    self.assertNotIn("Write-Output", names)
+                    self.assertEqual(expected, names)
+
+    def test_text_expr_decodes_to_the_original_text(self):
+        # Evaluates only the decoding expression (no toast, no speech) and
+        # compares what PowerShell gets with what Python sent.
+        out = os.path.join(self.tmpdir, "decoded.txt")
+        for body in NASTY_BODIES + INJECTION_BODIES:
+            with self.subTest(body=body):
+                expr = self.mod.desktop_notification.platform_shell.powershell_text_expr(body)
+                script = f"[IO.File]::WriteAllText('{out}', {expr}, (New-Object Text.UTF8Encoding $false))"
+                proc = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                    capture_output=True, text=True, timeout=120,
+                )
+                self.assertEqual(0, proc.returncode, proc.stderr)
+                with open(out, encoding="utf-8") as fh:
+                    self.assertEqual(body, fh.read())
+
     def test_all_backends_parse_for_nasty_bodies(self):
         for backend in self.mod.desktop_notification._WINDOWS_BACKENDS:
             for body in NASTY_BODIES:
@@ -321,7 +417,7 @@ class TestWslBranch(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.mod = _load_hook_runner()
 
-    def test_wsl_uses_powershell_escaping(self):
+    def test_wsl_passes_text_as_base64(self):
         with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Linux"), \
                 mock.patch.object(self.mod.desktop_notification.platform_shell, "is_wsl", return_value=True), \
@@ -331,8 +427,8 @@ class TestWslBranch(unittest.TestCase):
             )
         self.assertEqual(1, len(spawn.calls))
         script = spawn.calls[0]["script"]
-        self.assertIn('git -m `"x`" `$y', script)
-        self.assertNotIn('\\"', script)
+        self.assertIn('git -m "x" $y', _decoded_literals(script))
+        self.assertNotIn('git -m', script)
 
     def test_wsl_spawn_failure_returns_false(self):
         with _LogCapture(self.mod.runner_core), \
@@ -571,10 +667,18 @@ class TestTts(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.mod = _load_hook_runner()
 
-    def test_sapi_script_uses_powershell_escaping(self):
-        script = self.mod.text_to_speech._build_sapi_script('Done: "fix" costs $5 `now`')
-        self.assertIn('Done: `"fix`" costs `$5 ``now``', script)
-        self.assertNotIn('\\"', script)
+    def test_sapi_script_carries_text_as_base64(self):
+        body = 'Done: "fix" costs $5 `now` “ok”'
+        script = self.mod.text_to_speech._build_sapi_script(body)
+        self.assertEqual([body], _decoded_literals(script))
+        self.assertNotIn("fix", script)
+
+    def test_sapi_script_has_no_untrusted_text(self):
+        for body in INJECTION_BODIES:
+            with self.subTest(body=body):
+                script = self.mod.text_to_speech._build_sapi_script(body)
+                self.assertNotIn("INJECTED", script)
+                self.assertEqual([body], _decoded_literals(script))
 
     def test_windows_tts_goes_through_the_shared_launcher(self):
         with _LogCapture(self.mod.runner_core) as log, \
@@ -582,18 +686,18 @@ class TestTts(unittest.TestCase):
                 _SpawnRecorder(self.mod.desktop_notification.platform_shell) as spawn:
             self.assertTrue(self.mod.text_to_speech.play_tts('say "hi" $now'))
         self.assertEqual(1, len(spawn.calls))
-        self.assertIn('say `"hi`" `$now', spawn.calls[0]["script"])
+        self.assertEqual(['say "hi" $now'], _decoded_literals(spawn.calls[0]["script"]))
         event = log.find("tts_dispatch")
         self.assertEqual("info", event["level"])
         self.assertEqual("sapi", event["backend"])
 
-    def test_wsl_tts_uses_powershell_escaping(self):
+    def test_wsl_tts_passes_text_as_base64(self):
         with _LogCapture(self.mod.runner_core), \
                 mock.patch.object(self.mod.platform, "system", return_value="Linux"), \
                 mock.patch.object(self.mod.desktop_notification.platform_shell, "is_wsl", return_value=True), \
                 _SpawnRecorder(self.mod.desktop_notification.platform_shell) as spawn:
             self.assertTrue(self.mod.text_to_speech.play_tts('say "hi"'))
-        self.assertIn('say `"hi`"', spawn.calls[0]["script"])
+        self.assertEqual(['say "hi"'], _decoded_literals(spawn.calls[0]["script"]))
 
     def test_macos_say_receives_the_raw_message_as_argv(self):
         with _LogCapture(self.mod.runner_core), \

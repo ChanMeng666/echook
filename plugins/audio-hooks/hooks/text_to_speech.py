@@ -14,16 +14,17 @@ import platform_shell
 def _build_sapi_script(message: str) -> str:
     """PowerShell source for the SAPI speech path (Windows and WSL).
 
-    Same escaping trap as the toast: this is interpolated into a PowerShell
-    double-quoted string, so it needs backtick escaping. Until v6.5.1 it used
-    the osascript escaper, and any spoken text containing a quote produced a
-    script that failed to parse — silent TTS, with `$` and backticks dropped
-    from the wording even when it did parse.
+    Same trap as the toast: the spoken text is untrusted (it can be the
+    agent's last message), so it reaches PowerShell base64-encoded through
+    platform_shell.powershell_text_expr, never as source. Until v6.5.1 it used
+    the osascript escaper (any quote broke the script); until 7.2.4 a backtick
+    escaper that missed the typographic quotes PowerShell also accepts, which
+    let a message close the literal and run its own statements.
     """
     return (
         'Add-Type -AssemblyName System.Speech; '
         '(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('
-        f'"{platform_shell.escape_powershell_string(message)}")'
+        f'{platform_shell.powershell_text_expr(message)})'
     )
 
 

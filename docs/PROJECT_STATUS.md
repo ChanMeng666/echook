@@ -1,6 +1,6 @@
 # Project status
 
-**Snapshot taken 2026-10-31, at v7.2.3.** v7.2.3 is the last release that changed the plugin folder. This page says where the project stands: what shipped recently, what is waiting on someone, what is claimed but not verified, and what was looked at and deliberately left alone. Everything here can go stale; each section says how to re-check it. When you change something listed here, update this page in the same commit.
+**Snapshot taken 2026-11-17, at v7.2.4.** v7.2.4 is the last release that changed the plugin folder. This page says where the project stands: what shipped recently, what is waiting on someone, what is claimed but not verified, and what was looked at and deliberately left alone. Everything here can go stale; each section says how to re-check it. When you change something listed here, update this page in the same commit.
 
 For how the code works, read `AGENTS.md`. For measured upstream behaviour, `docs/EVENT_BEHAVIOR_NOTES.md`. For the release mechanics, `docs/RELEASING.md`. For the directory listing, `docs/DIRECTORY_LISTING.md`.
 
@@ -8,7 +8,7 @@ For how the code works, read `AGENTS.md`. For measured upstream behaviour, `docs
 
 Per-version detail is in `CHANGELOG.md`; counts come from `audio-hooks manifest`.
 
-The latest release is 7.2.3 (2026-10-31, PR #37, `0778a73`): a viewed agent's context window is estimated from Claude Code's model catalog cache instead of a flat `~200K`. The full sync with Claude Code 2.1.316 found that. After it, PR #38 (`0ada44e`) rebuilt the README pictures and changed nothing in the plugin folder.
+The latest release is 7.2.4 (2026-11-17), a security fix: text reaches PowerShell base64-encoded, never as script source, after a private report of command injection through typographic quotes in the toast and TTS on Windows and WSL (`docs/INVARIANTS.md`, "Untrusted text never enters PowerShell source"). Before it, 7.2.3 (2026-10-31, PR #37, `0778a73`): a viewed agent's context window is estimated from Claude Code's model catalog cache instead of a flat `~200K`. The full sync with Claude Code 2.1.316 found that. After it, PR #38 (`0ada44e`) rebuilt the README pictures and changed nothing in the plugin folder.
 
 The largest piece of the cycle's end is 7.2.0 (2026-10-30, PR #33, `3c573f7`): the status line follows the agent in view, through the first hooks module echook has shipped, `hooks/view-sensor.ts`. The module exists because Claude Code gives a status line script no way to know the view. The same work moved slow steps out of a status line run, because a shorter refresh interval could otherwise have frozen the line. `docs/STATUS_LINE.md` has the design and `docs/LIVE_TESTING.md` the method.
 
@@ -20,6 +20,7 @@ The cycle began with an incident, and most of 6.6.0 follows from it. On 2026-10-
 |---|---|---|
 | Plugin directory review. Submitted 2026-10-04; security scan passed; held for content policy review. | Anthropic reviewer, then the maintainer selects **Publish** | The plugin page in the developer portal (`docs/DIRECTORY_LISTING.md`) |
 | The portal's result for the pushes after `e23a682`: `89a0cfc` (README, PR #41), `bc3dc41` (CI, PR #42) and the merge that records the v7.2.3 result and moves CI off the deprecated Node 20 actions. None changed `plugins/audio-hooks/`; none has been read yet. | Maintainer | The plugin page in the developer portal; record it in `docs/DIRECTORY_LISTING.md` with the next change that has to land |
+| The 7.2.4 security report: reply to the reporter, then publish a GitHub security advisory (and a CVE if wanted) once 7.2.4 is released. `SECURITY.md` promises a fix within 30 days of the report (received 2026-11-17). The reporter has not asked for credit; name them only if they agree. | Maintainer | Repository **Security** tab, advisories |
 | GitGuardian incident 37836366, a false positive on a sound-file mapping in `hooks/hook_runner.py` (see `docs/RELEASING.md`). It stays open until resolved in the dashboard. | Maintainer | GitGuardian dashboard |
 | A reviewer's decision on `hooks/view-sensor.ts`. Read in the portal on 2026-10-31 for 7.2.0 and 7.2.1: the scans passed and the module was not refused, but it adds holds, listed in `docs/DIRECTORY_LISTING.md`. Every version was already waiting for a reviewer. If it is refused, removing the `modules` line from `hooks.json` restores the old behaviour and nothing else depends on it. | Anthropic reviewer | The plugin page in the developer portal |
 | The six sound files added in 6.7.0 have not been listened to by a person. They are valid, distinct and of normal length. | Maintainer | Play `audio/default/{notif-auth-storage,fail-cloud-credential,fail-verification}.mp3` and `audio/custom/chime-*` counterparts |

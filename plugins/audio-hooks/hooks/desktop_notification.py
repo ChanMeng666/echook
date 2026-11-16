@@ -21,8 +21,8 @@ def _escape_notification_string(s: str) -> str:
 
     macOS only. PowerShell does not treat ``\\`` as an escape character, so
     using this on a PowerShell command produces a script that fails to parse
-    the moment the body contains a quote — use platform_shell.escape_powershell_string()
-    there instead (v6.5.1 fix).
+    the moment the body contains a quote — use platform_shell.powershell_text_expr()
+    there instead (v6.5.1 fix; base64 since 7.2.4).
     """
     # Remove characters that could cause shell/osascript injection
     return s.replace('"', '\\"').replace("'", "\\'").replace('`', '').replace('$', '')
@@ -71,13 +71,14 @@ def _build_windows_toast_script(backend: str, title: str, message: str,
     Split out from the dispatcher so the generated script can be parsed in a
     test without spawning a toast (see tests/test_desktop_notification.py).
     """
-    safe_title = platform_shell.escape_powershell_string(title)
-    safe_message = platform_shell.escape_powershell_string(message)
+    # Expressions, not escaped text: see platform_shell.powershell_text_expr.
+    ps_title = platform_shell.powershell_text_expr(title)
+    ps_message = platform_shell.powershell_text_expr(message)
 
     if backend == "winrt":
         # Text is inserted as XML *text nodes*, not interpolated into the XML
         # source, so XML metacharacters in a tool command cannot break the
-        # document. Escaping still applies to the PowerShell literal itself.
+        # document. The text reaches PowerShell base64-encoded, never as source.
         # silent="true" because the audio track already played the sound.
         duration = 'long' if urgency == "critical" else 'short'
         return (
@@ -87,8 +88,8 @@ def _build_windows_toast_script(backend: str, title: str, message: str,
             '$xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent('
             '[Windows.UI.Notifications.ToastTemplateType]::ToastText02); '
             '$nodes = $xml.GetElementsByTagName("text"); '
-            f'$null = $nodes.Item(0).AppendChild($xml.CreateTextNode("{safe_title}")); '
-            f'$null = $nodes.Item(1).AppendChild($xml.CreateTextNode("{safe_message}")); '
+            f'$null = $nodes.Item(0).AppendChild($xml.CreateTextNode({ps_title})); '
+            f'$null = $nodes.Item(1).AppendChild($xml.CreateTextNode({ps_message})); '
             '$audio = $xml.CreateElement("audio"); '
             '$audio.SetAttribute("silent", "true"); '
             '$null = $xml.DocumentElement.AppendChild($audio); '
@@ -102,7 +103,7 @@ def _build_windows_toast_script(backend: str, title: str, message: str,
         return (
             '$ErrorActionPreference = "Stop"; '
             'Import-Module BurntToast -ErrorAction Stop; '
-            f'New-BurntToastNotification -Text "{safe_title}", "{safe_message}" -Silent'
+            f'New-BurntToastNotification -Text {ps_title}, {ps_message} -Silent'
         )
 
     # notifyicon: pre-Win10 tray balloon. Windows 11 drops these unpredictably,
@@ -114,7 +115,7 @@ def _build_windows_toast_script(backend: str, title: str, message: str,
         '$n = New-Object System.Windows.Forms.NotifyIcon; '
         '$n.Icon = [System.Drawing.SystemIcons]::Information; '
         '$n.Visible = $true; '
-        f'$n.ShowBalloonTip(5000, "{safe_title}", "{safe_message}", '
+        f'$n.ShowBalloonTip(5000, {ps_title}, {ps_message}, '
         f'[System.Windows.Forms.ToolTipIcon]::{icon}); '
         'Start-Sleep -Seconds 6; '
         '$n.Dispose()'
