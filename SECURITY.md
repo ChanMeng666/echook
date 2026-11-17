@@ -35,7 +35,16 @@ Security concerns most likely to apply to this project include:
 - Exposure or leakage of sensitive data
 - Dependencies with known vulnerabilities
 
+## Published advisories
+
+| Advisory | Severity | Affected | Fixed | Summary |
+|---|---|---|---|---|
+| [GHSA-4fj9-49x6-vgjp](https://github.com/ChanMeng666/echook/security/advisories/GHSA-4fj9-49x6-vgjp) | High (CWE-78) | ≤ 7.2.3, Windows and WSL only | [7.2.4](https://github.com/ChanMeng666/echook/releases/tag/v7.2.4) | PowerShell command injection through typographic quotes in the desktop notification, text to speech and audio path |
+
+Advisories are published on the repository's Security tab once a fixed release is out.
+
 ## Attribution
 
 We appreciate responsible disclosure. With your permission, contributors who report valid security
-issues will be acknowledged in the project.
+issues will be acknowledged in the project. A reporter who does not ask for credit is not named
+until they say they want to be.

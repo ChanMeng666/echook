@@ -118,6 +118,23 @@ Then copy each picture's `<title>` into the `alt` in `README.md`. Rebuild when t
 - **The preferences file is migrated by the first hook event or state-changing command**, or on request by `audio-hooks migrate`. `status` and `diagnose` no longer do it.
 - **Clean up scratch files.** Keep the raw evidence behind anything recorded in `docs/EVENT_BEHAVIOR_NOTES.md` that cannot be regenerated — a carved binary extract disappears when Claude Code updates, and documentation pages change — and delete the rest.
 
+## A security fix
+
+How 7.2.4 was handled on 2026-11-17, from a private report under `SECURITY.md` to a published advisory, in one day. `SECURITY.md` promises an acknowledgement within 48 hours, an assessment within 7 days and a fix within 30.
+
+1. **Verify the report against the code before anything else.** Check every file and line it names. A report can be phishing or wrong; this one had no links or attachments and every claim held. Reproduce without executing anything: for PowerShell, feed the generated script to `[System.Management.Automation.Language.Parser]::ParseFile` and list the `CommandAst` names. A payload that adds a command is proven by the parser alone.
+2. **Fix the class, not the instance.** Look for every caller of the flawed helper, not only the ones the report names (7.2.4 also covered the audio path). Add a guard that fails against the old code, and prove it does by running it with the old `hooks/` restored.
+3. **Keep the details out of public text until the release.** A pushed branch is public. Commit messages, the PR, the release notes and the CHANGELOG describe the impact and the fix, not a ready-to-use payload, and name the reporter only with their consent.
+4. **Release as usual** (sections 3 to 5), then the advisory:
+   ```bash
+   gh api -X POST repos/ChanMeng666/echook/security-advisories --input advisory.json   # draft
+   gh api -X PATCH repos/ChanMeng666/echook/security-advisories/<GHSA> -f state=published
+   gh api -X POST repos/ChanMeng666/echook/security-advisories/<GHSA>/cve              # request a CVE
+   ```
+   `advisory.json` holds `summary`, `description` (impact, patches, workarounds, credits), `severity`, `cwe_ids` and one `vulnerabilities` entry with ecosystem `other`, the affected range and the patched version. The CVE request returns `{}`; GitHub reviews it and fills `cve_id` later. Add the advisory to the table in `SECURITY.md`.
+5. **Reply to the reporter** from the address `SECURITY.md` names, with the release and advisory links and an offer of credit. Record what is still open (credit, CVE) in `docs/PROJECT_STATUS.md`.
+6. **Upgrade the maintainer's own install** (section 6).
+
 ## Re-syncing against a new Claude Code release
 
 The procedure and its evidence standards are in `docs/EVENT_BEHAVIOR_NOTES.md` ("How to re-sync against a new Claude Code release"). In short: read the changelog range, diff the current hooks, status line and plugin documentation against what echook registers, read the installed binary for what the documentation omits, and settle anything that matters with a live experiment. Documentation fetched through a summarising tool misreported field names during the 2.1.288 sync; fetch the raw Markdown.
