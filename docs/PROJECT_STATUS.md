@@ -18,7 +18,7 @@ The cycle began with an incident, and most of 6.6.0 follows from it. On 2026-10-
 
 | Item | Who | How to check |
 |---|---|---|
-| The 7.2.4 security report. Released 2026-11-17 (PR #43); advisory GHSA-4fj9-49x6-vgjp published (high, CWE-78, no CVE requested); the reporter was answered the same day and offered credit by name. If they accept, add the name to the advisory and the 7.2.4 changelog entry. A CVE can still be requested from the advisory page. | Maintainer | Repository **Security** tab, advisories; the reply thread |
+| The 7.2.4 security report. Released 2026-11-17 (PR #43); advisory GHSA-4fj9-49x6-vgjp published (high, CWE-78) and listed in `SECURITY.md`; a CVE was requested the same day and GitHub had not assigned one at last check (`cve_id` empty). The reporter was answered the same day and offered credit by name; no reply yet. If they accept, add the name to the advisory and the 7.2.4 changelog entry. The procedure that was followed is in `docs/RELEASING.md`, "A security fix". | GitHub (CVE), the reporter, then the maintainer | `gh api repos/ChanMeng666/echook/security-advisories/GHSA-4fj9-49x6-vgjp --jq .cve_id`; the reply thread |
 | GitGuardian incident 37836366, a false positive on a sound-file mapping in `hooks/hook_runner.py` (see `docs/RELEASING.md`). It stays open until resolved in the dashboard. | Maintainer | GitGuardian dashboard |
 | The six sound files added in 6.7.0 have not been listened to by a person. They are valid, distinct and of normal length. | Maintainer | Play `audio/default/{notif-auth-storage,fail-cloud-credential,fail-verification}.mp3` and `audio/custom/chime-*` counterparts |
 

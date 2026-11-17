@@ -48,6 +48,7 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 | Anything under `plugins/audio-hooks/` | Repository and release; `docs/DIRECTORY_LISTING.md` | `tests/test_plugin_packaging.py` |
 | A new test module | Tests | `tests/test_isolation_guard.py` |
 | A user says audio fires too often, or stopped | `stop` does not mean "task complete" | — |
+| A security report, or any code that hands text to a shell (procedure: `docs/RELEASING.md`, "A security fix") | Hook runner | `tests/test_desktop_notification.py` (`TestGeneratedScriptParses`) |
 
 ## Other documents (open on demand)
 
@@ -58,4 +59,5 @@ echook does two things for Claude Code, Cursor and Codex: **(1) audio and out-of
 - `docs/PROJECT_STATUS.md` — what is waiting, unverified, or deliberately not done. Read before proposing work; update it in the same commit as anything it lists.
 - `docs/RELEASING.md`, `docs/DIRECTORY_LISTING.md` — release mechanics, and the record of the withdrawn directory submission with the rules a resubmission would bring back.
 - `plugins/audio-hooks/skills/audio-hooks/SKILL.md` — how to map a user's plain-language request to commands.
+- `SECURITY.md` — how reports arrive, the response promises, and the published advisories.
 - `plugins/audio-hooks/README.md`, `PRIVACY.md` — disclosures. Change them in the same commit as any change to what the plugin runs, sends or writes.
